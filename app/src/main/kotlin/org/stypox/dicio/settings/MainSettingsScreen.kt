@@ -5,6 +5,7 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -149,13 +151,19 @@ private fun MainSettingsScreen(
             item {
                 val isHeyDicio by viewModel.isHeyDicio.collectAsState(true)
                 if (isHeyDicio) {
-                    // the wake word is "Hey Dicio", so there is no custom model at the moment
-                    SettingsItem(
-                        modifier = Modifier.clickable { importLauncher.launch(arrayOf("*/*")) },
-                        title = stringResource(R.string.pref_wake_custom_import),
-                        icon = Icons.Default.UploadFile,
-                        description = stringResource(R.string.pref_wake_custom_import_summary_oww),
-                    )
+                    Column {
+                        SettingsItem(
+                            title = stringResource(R.string.wake_word_phrase),
+                            icon = Icons.Default.RecordVoiceOver,
+                            description = stringResource(R.string.wake_word_phrase_summary),
+                        )
+                        SettingsItem(
+                            modifier = Modifier.clickable { importLauncher.launch(arrayOf("*/*")) },
+                            title = stringResource(R.string.pref_wake_custom_import),
+                            icon = Icons.Default.UploadFile,
+                            description = stringResource(R.string.pref_wake_custom_import_summary_oww),
+                        )
+                    }
                 } else {
                     // a custom model is currently set, give the option to remove it
                     SettingsItem(

@@ -1,0 +1,16 @@
+play:
+  - mở nhạc?
+  - phát nhạc?
+  - bật nhạc?
+
+pause:
+  - tạm dừng nhạc?
+  - dừng nhạc?
+  - tắt nhạc?
+
+previous:
+  - bài trước nhạc?
+
+next:
+  - bài tiếp nhạc?
+  - qua bài nhạc?

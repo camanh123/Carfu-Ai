@@ -60,6 +60,7 @@ class UserSettingsModule {
                             "it" -> Language.LANGUAGE_IT
                             "ru" -> Language.LANGUAGE_RU
                             "sl" -> Language.LANGUAGE_SL
+                            "vi" -> Language.LANGUAGE_VI
                             else -> Language.LANGUAGE_SYSTEM
                         }
                     )

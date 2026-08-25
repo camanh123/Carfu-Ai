@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import org.dicio.skill.skill.InteractionPlan
 import org.dicio.skill.skill.Permission
 import org.dicio.skill.skill.SkillOutput
+import org.stypox.dicio.R
 import org.stypox.dicio.di.SkillContextInternal
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.io.graphical.ErrorSkillOutput
@@ -32,6 +33,12 @@ interface SkillEvaluator {
     var permissionRequester: suspend (List<Permission>) -> Boolean
 
     fun processInputEvent(event: InputEvent)
+
+    /**
+     * Called when the wake word is detected. Speaks the acknowledgment (e.g. "Tôi nghe đây?")
+     * and, once TTS has finished, starts the STT microphone so the user can give a command.
+     */
+    fun onWakeWordDetected()
 }
 
 class SkillEvaluatorImpl(
@@ -59,6 +66,19 @@ class SkillEvaluatorImpl(
     override fun processInputEvent(event: InputEvent) {
         scope.launch {
             suspendProcessInputEvent(event)
+        }
+    }
+
+    override fun onWakeWordDetected() {
+        scope.launch {
+            val acknowledgment = skillContext.android.getString(R.string.wake_word_acknowledgment)
+            withContext(Dispatchers.Main) {
+                skillContext.speechOutputDevice.stopSpeaking()
+                skillContext.speechOutputDevice.speak(acknowledgment)
+                skillContext.speechOutputDevice.runWhenFinishedSpeaking {
+                    sttInputDevice.tryLoad(::processInputEvent)
+                }
+            }
         }
     }
 

@@ -1,0 +1,18 @@
+up:
+  - (turn|put) the? volume up
+  - (increase|raise) the? volume
+  - volume up
+
+down:
+  - (turn|put) the? volume down
+  - (decrease|lower) the? volume
+  - volume down
+
+mute:
+  - mute the? volume
+  - silence the? volume
+  - turn off the? volume
+
+unmute:
+  - unmute the? volume
+  - turn on the? volume

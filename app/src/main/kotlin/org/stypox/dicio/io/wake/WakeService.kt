@@ -228,9 +228,9 @@ class WakeService : Service() {
         intent.setAction(ACTION_WAKE_WORD)
         intent.setFlags(FLAG_ACTIVITY_NEW_TASK)
 
-        // Start listening and pass STT events to the skill evaluator.
+        // Speak the wake-word acknowledgment ("Tôi nghe đây?") then start STT once TTS finishes.
         // Note that this works even if the MainActivity is opened later!
-        sttInputDevice.tryLoad(skillEvaluator::processInputEvent)
+        skillEvaluator.onWakeWordDetected()
 
         // Unload the STT after a while because it would be using RAM uselessly
         handler.removeCallbacks(releaseSttResourcesRunnable)
