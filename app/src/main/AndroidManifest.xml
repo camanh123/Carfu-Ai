@@ -4,6 +4,8 @@
     android:installLocation="auto"> <!-- Allow installing also on external storage -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- RECORD_AUDIO / CALL_PHONE / QUERY_ALL_PACKAGES / FOREGROUND_SERVICE
+         are required by Dicio skills and also by CarfuProbe (Phase 0). -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -71,6 +73,21 @@
             android:exported="false" />
 
         <activity
+            android:name=".probe.CarfuProbeActivity"
+            android:exported="true"
+            android:label="@string/carfu_probe_title"
+            android:launchMode="singleTop"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|screenSize|keyboard|keyboardHidden|navigation"
+            android:theme="@style/CarfuProbeTheme"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".io.input.stt_popup.SttPopupActivity"
             android:taskAffinity=""
             android:excludeFromRecents="true"
@@ -131,5 +148,12 @@
             android:foregroundServiceType="microphone"
             android:icon="@mipmap/ic_launcher"
             android:label="@string/wake_service_label" />
+
+        <service
+            android:name=".probe.CarfuAudioProbeService"
+            android:exported="false"
+            android:foregroundServiceType="microphone"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/carfu_probe_audio_notification" />
     </application>
 </manifest>

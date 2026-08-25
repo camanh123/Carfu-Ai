@@ -1,4 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources translatable="false">
     <string name="error_report_channel_id" translatable="false">dicioErrorReport</string>
+    <string name="carfu_probe_title" translatable="false">Carfu Probe</string>
+    <string name="carfu_probe_subtitle" translatable="false">Phase 0 capability probe · UIS7862 / FYT · 1280×720 landscape</string>
+    <string name="carfu_probe_scan_packages" translatable="false">Scan Packages</string>
+    <string name="carfu_probe_test_key_event" translatable="false">Test Key Event</string>
+    <string name="carfu_probe_test_bt_call" translatable="false">Test Bluetooth Call</string>
+    <string name="carfu_probe_test_audio" translatable="false">Test Audio Record</string>
+    <string name="carfu_probe_stop_audio" translatable="false">Stop Audio Record</string>
+    <string name="carfu_probe_clear_log" translatable="false">Clear Log</string>
+    <string name="carfu_probe_audio_channel" translatable="false">Carfu audio probe</string>
+    <string name="carfu_probe_audio_channel_desc" translatable="false">Foreground microphone capture used by Carfu Probe</string>
+    <string name="carfu_probe_audio_notification" translatable="false">Carfu Probe is recording</string>
+    <string name="carfu_probe_audio_notification_text" translatable="false">Microphone capture running — tap to open the log</string>
 </resources>

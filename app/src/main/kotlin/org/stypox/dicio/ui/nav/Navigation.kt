@@ -18,6 +18,7 @@ import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.launch
 import org.stypox.dicio.R
 import org.stypox.dicio.io.input.stt_popup.SttPopupActivity
+import org.stypox.dicio.probe.CarfuProbeActivity
 import org.stypox.dicio.settings.MainSettingsScreen
 import org.stypox.dicio.settings.SkillSettingsScreen
 import org.stypox.dicio.ui.about.AboutScreen
@@ -47,6 +48,9 @@ fun Navigation() {
                     val intent = Intent(context, SttPopupActivity::class.java)
                     context.startActivity(intent)
                 },
+                onCarfuProbeClick = {
+                    context.startActivity(Intent(context, CarfuProbeActivity::class.java))
+                },
             ) {
                 HomeScreen(it)
             }
@@ -74,6 +78,7 @@ fun ScreenWithDrawer(
     onSettingsClick: () -> Unit,
     onAboutClick: () -> Unit,
     onSpeechToTextPopupClick: () -> Unit,
+    onCarfuProbeClick: () -> Unit,
     screen: @Composable (navigationIcon: @Composable () -> Unit) -> Unit
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -86,6 +91,7 @@ fun ScreenWithDrawer(
                 onSettingsClick = onSettingsClick,
                 onAboutClick = onAboutClick,
                 onSpeechToTextPopupClick = onSpeechToTextPopupClick,
+                onCarfuProbeClick = onCarfuProbeClick,
                 closeDrawer = {
                     scope.launch {
                         drawerState.close()

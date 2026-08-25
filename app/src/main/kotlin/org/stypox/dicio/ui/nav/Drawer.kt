@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.Settings
@@ -37,6 +38,7 @@ fun DrawerContent(
     onSettingsClick: () -> Unit,
     onAboutClick: () -> Unit,
     onSpeechToTextPopupClick: () -> Unit,
+    onCarfuProbeClick: () -> Unit,
     closeDrawer: () -> Unit,
 ) {
     ModalDrawerSheet(
@@ -71,6 +73,16 @@ fun DrawerContent(
         )
 
         DrawerItem(
+            icon = Icons.Default.BugReport,
+            label = R.string.carfu_probe_title,
+            onClick = {
+                onCarfuProbeClick()
+                closeDrawer()
+            },
+            modifier = Modifier.padding(horizontal = 12.dp),
+        )
+
+        DrawerItem(
             icon = Icons.Default.Info,
             label = R.string.about,
             onClick = {
@@ -85,7 +97,13 @@ fun DrawerContent(
 @Preview
 @Composable
 private fun DrawerContentPreview() {
-    DrawerContent(onSettingsClick = {}, onAboutClick = {}, onSpeechToTextPopupClick = {}, closeDrawer = {})
+    DrawerContent(
+        onSettingsClick = {},
+        onAboutClick = {},
+        onSpeechToTextPopupClick = {},
+        onCarfuProbeClick = {},
+        closeDrawer = {},
+    )
 }
 
 @Preview
