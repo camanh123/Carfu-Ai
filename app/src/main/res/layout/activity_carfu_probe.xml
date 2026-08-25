@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#121212"
+    android:keepScreenOn="true"
+    android:orientation="vertical"
+    android:padding="12dp"
+    tools:context="org.stypox.dicio.probe.CarfuProbeActivity">
+
+    <TextView
+        android:id="@+id/probe_title"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:text="@string/carfu_probe_title"
+        android:textColor="#EEEEEE"
+        android:textSize="22sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/probe_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="10dp"
+        android:text="@string/carfu_probe_subtitle"
+        android:textColor="#9E9E9E"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_scan_packages"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:text="@string/carfu_probe_scan_packages"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_test_key_event"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:text="@string/carfu_probe_test_key_event"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_test_bt_call"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="@string/carfu_probe_test_bt_call"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_test_audio"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:text="@string/carfu_probe_test_audio"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_clear_log"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="@string/carfu_probe_clear_log"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
+    <ScrollView
+        android:id="@+id/probe_log_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="12dp"
+        android:layout_weight="1"
+        android:background="#1E1E1E"
+        android:fillViewport="true"
+        android:padding="10dp">
+
+        <TextView
+            android:id="@+id/probe_log"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="monospace"
+            android:lineSpacingExtra="2dp"
+            android:textColor="#B0BEC5"
+            android:textIsSelectable="true"
+            android:textSize="13sp"
+            tools:text="[12:00:00.000] CarfuProbe ready" />
+    </ScrollView>
+</LinearLayout>

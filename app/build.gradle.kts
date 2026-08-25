@@ -85,6 +85,10 @@ android {
         buildConfig = true
         compose = true
     }
+
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 tasks.withType<Test>().configureEach {

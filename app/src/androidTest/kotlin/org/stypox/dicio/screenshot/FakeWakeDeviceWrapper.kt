@@ -12,6 +12,7 @@ class FakeWakeDeviceWrapper : WakeDeviceWrapper {
     override fun download() {}
     override fun processFrame(audio16bitPcm: ShortArray): Boolean = false
     override fun frameSize(): Int = 1312
+    override fun resetDetectionState() {}
     override fun reinitialize() {}
     override fun reinitializeToReleaseResources() {}
 }

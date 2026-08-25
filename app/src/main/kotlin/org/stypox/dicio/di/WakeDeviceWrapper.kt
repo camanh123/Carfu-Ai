@@ -55,6 +55,11 @@ interface WakeDeviceWrapper {
     fun frameSize(): Int
 
     /**
+     * @see [WakeDevice.resetDetectionState]
+     */
+    fun resetDetectionState()
+
+    /**
      * Destroys and initializes from scratch the current [WakeDevice].
      */
     fun reinitialize()
@@ -163,6 +168,10 @@ class WakeDeviceWrapperImpl(
 
     override fun frameSize(): Int {
         return currentDevice.value?.frameSize() ?: 0
+    }
+
+    override fun resetDetectionState() {
+        currentDevice.value?.resetDetectionState()
     }
 
     override fun reinitialize() {

@@ -1,2 +1,53 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources></resources>
+<resources>
+    <string name="drawer_header_subtitle">Tôi có thể giúp gì?</string>
+    <string name="text_input_hint">Hỏi tôi bất cứ điều gì…</string>
+    <string name="listening">Đang nghe…</string>
+    <string name="waiting">Đang chờ…</string>
+    <string name="start_listening">Bắt đầu nghe</string>
+    <string name="here_is_what_i_can_do">Đây là những gì tôi có thể làm!</string>
+    <string name="stt_say_something">Hãy nói gì đó…</string>
+    <string name="stt_did_not_understand">Tôi chưa hiểu, hãy thử lại</string>
+    <string name="eval_no_match">Tôi chưa hiểu</string>
+    <string name="eval_no_match_repeat">Bạn có thể nói lại không?</string>
+    <string name="pref_language">Ngôn ngữ</string>
+    <string name="pref_language_summary">CARFU nên dùng ngôn ngữ nào để nghe và trả lời?</string>
+    <string name="pref_wake_method">Phương thức nhận diện từ đánh thức</string>
+    <string name="pref_wake_method_summary">Chọn dịch vụ dùng để nghe cụm từ đánh thức \"CARFU ơi\" ở chế độ nền</string>
+    <string name="pref_wake_custom_delete_summary">Khôi phục cụm từ đánh thức mặc định \"CARFU ơi\"</string>
+    <string name="pref_wake_custom_import_summary_oww">Thay cụm từ đánh thức mặc định \"CARFU ơi\" bằng mô hình TFLite tùy chỉnh; bạn có thể tải mô hình từ github.com/dscripka/openWakeWord/releases</string>
+    <string name="wake_word_phrase">CARFU ơi</string>
+    <string name="wake_word_phrase_alt">Xin chào CARFU</string>
+    <string name="wake_word_phrase_summary">Cụm từ đánh thức mặc định. Nói câu này để kích hoạt CARFU, rồi ra lệnh sau khi trợ lý trả lời.</string>
+    <string name="wake_word_acknowledgment">Tôi nghe đây?</string>
+    <string name="wake_service_foreground_notification">Đang nghe cụm từ đánh thức \"CARFU ơi\"</string>
+    <string name="wake_word_setup_title">Thiết lập từ đánh thức</string>
+    <string name="wake_word_setup_description">CARFU sẽ tự kích hoạt mỗi khi bạn nói \"CARFU ơi\" hoặc \"Xin chào CARFU\". Việc này dùng một dịch vụ luôn lắng nghe ở chế độ nền. Mô hình từ đánh thức CARFU được đóng gói sẵn trong ứng dụng; toàn bộ xử lý giọng nói diễn ra ngay trên máy.</string>
+    <string name="skill_name_open">Mở ứng dụng</string>
+    <string name="skill_sentence_example_open">Mở bản đồ</string>
+    <string name="skill_open_could_not_understand">Không hiểu tên ứng dụng</string>
+    <string name="skill_open_unknown_app">Không tìm thấy ứng dụng %1$s</string>
+    <string name="skill_open_opening">Đang mở %1$s…</string>
+    <string name="skill_name_media">Điều khiển nhạc</string>
+    <string name="skill_sentence_example_media">Bài tiếp</string>
+    <string name="skill_media_playing">Đang phát nhạc…</string>
+    <string name="skill_media_pausing">Đang tạm dừng nhạc…</string>
+    <string name="skill_media_previous">Bài trước…</string>
+    <string name="skill_media_next">Bài tiếp…</string>
+    <string name="skill_media_no_media_session">Không có phiên phát nhạc nào đang chạy</string>
+    <string name="skill_name_volume">Âm lượng</string>
+    <string name="skill_sentence_example_volume">Tăng âm lượng</string>
+    <string name="skill_volume_unavailable">Không thể thay đổi âm lượng</string>
+    <string name="skill_volume_up">Đã tăng âm lượng</string>
+    <string name="skill_volume_down">Đã giảm âm lượng</string>
+    <string name="skill_volume_muted">Đã tắt âm lượng</string>
+    <string name="skill_volume_unmuted">Đã bật âm lượng</string>
+    <string name="skill_name_navigation">Dẫn đường</string>
+    <string name="skill_sentence_example_navigation">Chỉ đường đến sân bay</string>
+    <string name="skill_navigation_specify_where">Hãy nói nơi bạn muốn đến</string>
+    <string name="skill_navigation_navigating_to">Đang dẫn đường đến %1$s</string>
+    <string name="skill_name_current_time">Giờ hiện tại</string>
+    <string name="skill_sentence_example_current_time">Mấy giờ rồi?</string>
+    <string name="skill_time_current_time">Bây giờ là %1$s</string>
+    <string name="pref_skill_not_available">Kỹ năng này chưa có cho tiếng Việt.</string>
+</resources>

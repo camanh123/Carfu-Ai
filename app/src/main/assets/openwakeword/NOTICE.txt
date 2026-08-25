@@ -1,0 +1,18 @@
+OpenWakeWord frontend models
+============================
+
+melspectrogram.tflite
+embedding_model.tflite
+
+Source: https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1
+License: Apache License 2.0
+https://github.com/dscripka/openWakeWord/blob/v0.5.1/LICENSE
+
+CARFU wake-word classifier
+==========================
+
+carfu.tflite
+
+Trained for the phrases "CARFU", "CARFU ơi", and "Xin chào CARFU" to match
+Dicio's OwwModel I/O ([1,16,96] -> [1,1]). See meta/train_carfu_wake.py and
+meta/openwakeword_training_config.yml.

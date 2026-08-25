@@ -464,7 +464,6 @@ class VoskInputDevice(
             "es" to "https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip",
             "pt" to "https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip",
             "tr" to "https://alphacephei.com/vosk/models/vosk-model-small-tr-0.3.zip",
-            "vn" to "https://alphacephei.com/vosk/models/vosk-model-small-vn-0.4.zip",
             "it" to "https://alphacephei.com/vosk/models/vosk-model-small-it-0.22.zip",
             "nl" to "https://alphacephei.com/vosk/models/vosk-model-small-nl-0.22.zip",
             "ca" to "https://alphacephei.com/vosk/models/vosk-model-small-ca-0.4.zip",
@@ -473,6 +472,10 @@ class VoskInputDevice(
             "fa" to "https://alphacephei.com/vosk/models/vosk-model-small-fa-0.42.zip",
             "ph" to "https://alphacephei.com/vosk/models/vosk-model-tl-ph-generic-0.6.zip",
             "uk" to "https://alphacephei.com/vosk/models/vosk-model-small-uk-v3-nano.zip",
+            // Official small Vietnamese model (~50MB). Key "vi" matches Locale("vi") /
+            // LANGUAGE_VI; "vn" is kept as a legacy alias used by some Vosk listings.
+            "vi" to "https://alphacephei.com/vosk/models/vosk-model-small-vn-0.4.zip",
+            "vn" to "https://alphacephei.com/vosk/models/vosk-model-small-vn-0.4.zip",
             "kz" to "https://alphacephei.com/vosk/models/vosk-model-small-kz-0.15.zip",
             "sv" to "https://alphacephei.com/vosk/models/vosk-model-small-sv-rhasspy-0.15.zip",
             "ja" to "https://alphacephei.com/vosk/models/vosk-model-small-ja-0.22.zip",

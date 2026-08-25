@@ -50,7 +50,9 @@ Dicio uses [Vosk](https://github.com/alphacep/vosk-api/) as its speech to text (
 
 ## Wake Word
 
-Dicio uses [OpenWakeWord](https://github.com/dscripka/openWakeWord) for wake word support, and by defaults it listens for the _Hey Dicio_ keyword. If you would like to use a different keyword, you can download other `.tflite` models from [Open Wake Word](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1) or from [this collection](https://github.com/fwartner/home-assistant-wakewords-collection). Then head to `Settings > Input and output methods > Import custom wake word` and select the `.tflite` model you downloaded. Alternatively, you can train a wake word model for a keyword of your choice by following this [Jupiter Notebook](https://github.com/dscripka/openWakeWord/blob/main/notebooks/automatic_model_training.ipynb) with this [configuration](meta/openwakeword_training_config.yml).
+CARFU uses [OpenWakeWord](https://github.com/dscripka/openWakeWord) for wake word support, and by default it listens for **CARFU** / **CARFU ơi** (also **Xin chào CARFU**). The default classifier is bundled as `app/src/main/assets/openwakeword/carfu.tflite` together with the official OpenWakeWord mel/embedding frontend. After the wake word is detected, CARFU releases the wake microphone, speaks **Tôi nghe đây?**, then starts Vosk STT for the following Vietnamese command.
+
+If you would like to use a different keyword, you can download other `.tflite` models from [Open Wake Word](https://github.com/dscripka/openWakeWord/releases/tag/v0.5.1) or from [this collection](https://github.com/fwartner/home-assistant-wakewords-collection). Then head to `Settings > Input and output methods > Import custom wake word` and select the `.tflite` model you downloaded. Alternatively, you can retrain the CARFU classifier with `meta/train_carfu_wake.py`, or follow this [Jupyter Notebook](https://github.com/dscripka/openWakeWord/blob/main/notebooks/automatic_model_training.ipynb) with this [configuration](meta/openwakeword_training_config.yml).
 
 ## Contributing
 

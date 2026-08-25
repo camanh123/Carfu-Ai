@@ -1,3 +1,5 @@
+# Languages are discovered from subfolders of this directory (en, vi, de, ...).
+# Vietnamese (`vi/`) is a first-class sentences language for CARFU.
 skills:
   - id: current_time
     specificity: high
@@ -44,6 +46,14 @@ skills:
       - id: pause
       - id: previous
       - id: next
+
+  - id: volume
+    specificity: high
+    sentences:
+      - id: up
+      - id: down
+      - id: mute
+      - id: unmute
 
   - id: joke
     specificity: high

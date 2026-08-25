@@ -76,7 +76,7 @@ class WakeService : Service() {
 
         scope.launch {
             // Recreate the notification so that it says the correct thing (i.e. there is a
-            // different string for the "Hey Dicio" wake word and for a custom one).
+            // different string for the bundled "CARFU ơi" wake word and for a custom one).
             // Ignore the first one (i.e. the current value), which is handled in onStartCommand.
             wakeDevice.isHeyDicio.drop(1).collect { isHeyDicio ->
                 createForegroundNotification(isHeyDicio)
@@ -87,6 +87,7 @@ class WakeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP_WAKE_SERVICE) {
             listening.set(false)
+            resumeAfterInteraction()
             return START_NOT_STICKY
         }
 
@@ -130,6 +131,7 @@ class WakeService : Service() {
 
     override fun onDestroy() {
         listening.set(false)
+        resumeAfterInteraction()
         job.cancel()
         wakeDevice.reinitializeToReleaseResources()
         super.onDestroy()
@@ -187,20 +189,45 @@ class WakeService : Service() {
 
     private fun listenForWakeWord() {
         @SuppressLint("MissingPermission")
-        val ar = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            16000,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT,
-            6400,
-        )
+        var ar = createAudioRecord()
 
         var audio = ShortArray(0)
         var nextWakeWordAllowed = Instant.MIN
+        var recording = false
 
         try {
             ar.startRecording()
+            recording = true
             while (listening.get()) {
+                if (interactionPaused.get()) {
+                    if (recording) {
+                        try {
+                            ar.stop()
+                        } catch (_: Throwable) {
+                        }
+                        recording = false
+                    }
+                    lastHeard.set(Instant.now())
+                    Thread.sleep(80)
+                    continue
+                }
+
+                if (!recording) {
+                    try {
+                        wakeDevice.resetDetectionState()
+                        ar.startRecording()
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "Restarting AudioRecord after wake-mic pause", t)
+                        try {
+                            ar.release()
+                        } catch (_: Throwable) {
+                        }
+                        ar = createAudioRecord()
+                        ar.startRecording()
+                    }
+                    recording = true
+                }
+
                 if (audio.size != wakeDevice.frameSize()) {
                     audio = ShortArray(wakeDevice.frameSize())
                 }
@@ -210,27 +237,51 @@ class WakeService : Service() {
                 val wakeWordDetected = wakeDevice.processFrame(audio)
                 if (wakeWordDetected && Instant.now() > nextWakeWordAllowed) {
                     nextWakeWordAllowed = Instant.now().plusMillis(WAKE_WORD_BACKOFF_MILLIS)
+                    // Release the wake mic immediately so TTS and Vosk STT can use it.
+                    pauseForInteraction()
+                    try {
+                        ar.stop()
+                    } catch (_: Throwable) {
+                    }
+                    recording = false
                     onWakeWordDetected()
                 }
 
                 lastHeard.set(Instant.now())
             }
         } finally {
-            ar.stop()
+            try {
+                if (recording) {
+                    ar.stop()
+                }
+            } catch (_: Throwable) {
+            }
             ar.release()
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun createAudioRecord(): AudioRecord {
+        return AudioRecord(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            16000,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            6400,
+        )
+    }
+
     private fun onWakeWordDetected() {
         Log.d(TAG, "Wake word detected")
+        pauseForInteraction()
 
         val intent = Intent(this, MainActivity::class.java)
         intent.setAction(ACTION_WAKE_WORD)
         intent.setFlags(FLAG_ACTIVITY_NEW_TASK)
 
-        // Start listening and pass STT events to the skill evaluator.
+        // Speak the wake-word acknowledgment ("Tôi nghe đây?") then start STT once TTS finishes.
         // Note that this works even if the MainActivity is opened later!
-        sttInputDevice.tryLoad(skillEvaluator::processInputEvent)
+        skillEvaluator.onWakeWordDetected()
 
         // Unload the STT after a while because it would be using RAM uselessly
         handler.removeCallbacks(releaseSttResourcesRunnable)
@@ -352,6 +403,24 @@ class WakeService : Service() {
         }
 
         private val lastHeard = AtomicReference<Instant>()
+        private val interactionPaused = AtomicBoolean(false)
+        private val resumeHandler = Handler(Looper.getMainLooper())
+        private val autoResumeRunnable = Runnable { resumeAfterInteraction() }
+
+        /**
+         * Stop the always-on wake microphone so TTS / Vosk STT can use it.
+         * Automatically resumes after [WAKE_MIC_PAUSE_TIMEOUT_MILLIS] as a safety net.
+         */
+        fun pauseForInteraction() {
+            interactionPaused.set(true)
+            resumeHandler.removeCallbacks(autoResumeRunnable)
+            resumeHandler.postDelayed(autoResumeRunnable, WAKE_MIC_PAUSE_TIMEOUT_MILLIS)
+        }
+
+        fun resumeAfterInteraction() {
+            resumeHandler.removeCallbacks(autoResumeRunnable)
+            interactionPaused.set(false)
+        }
 
         private val TAG = WakeService::class.simpleName
         private const val FOREGROUND_NOTIFICATION_CHANNEL_ID =
@@ -364,6 +433,7 @@ class WakeService : Service() {
         private const val START_NOTIFICATION_ID = 48019274
         private const val TRIGGERED_NOTIFICATION_ID = 601398647
         private const val WAKE_WORD_BACKOFF_MILLIS = 4000L
+        private const val WAKE_MIC_PAUSE_TIMEOUT_MILLIS = 45_000L
         private const val ACTION_STOP_WAKE_SERVICE =
             "org.stypox.dicio.io.wake.WakeService.ACTION_STOP"
         private const val RELEASE_STT_RESOURCES_MILLIS = 1000L * 60 * 5 // 5 minutes
