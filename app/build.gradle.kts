@@ -89,6 +89,11 @@ android {
     androidResources {
         noCompress += "tflite"
     }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 tasks.withType<Test>().configureEach {

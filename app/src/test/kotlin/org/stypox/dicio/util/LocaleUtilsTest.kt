@@ -61,4 +61,17 @@ class LocaleUtilsTest : StringSpec({
         assertLocaleNotFound("it-IT")
         assertLocaleNotFound("it")
     }
+
+    "vietnamese locale resolves among sentence languages" {
+        assertLocale("vi", "vi", "en", "de", "vi", "fr")
+        assertLocale("vi", "vi-VN", "en", "vi")
+        assertLocale("vi", "vi_VN", "en", "fr", "vi")
+        assertLocale("vi-vn", "vi-VN", "en", "vi-vn")
+    }
+
+    "tts locale for Vietnamese uses vi-VN" {
+        LocaleUtils.ttsLocaleFor(LocaleUtils.parseLanguageCountry("vi")).toLanguageTag() shouldBe "vi-VN"
+        LocaleUtils.ttsLocaleFor(LocaleUtils.parseLanguageCountry("vi-VN")).toLanguageTag() shouldBe "vi-VN"
+        LocaleUtils.ttsLocaleFor(LocaleUtils.parseLanguageCountry("en-US")).toLanguageTag() shouldBe "en-US"
+    }
 })

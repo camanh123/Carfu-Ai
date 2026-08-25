@@ -82,6 +82,18 @@ object LocaleUtils {
     }
 
     /**
+     * Vietnamese TTS voices are typically registered as `vi-VN`. Other locales are passed
+     * through unchanged.
+     */
+    fun ttsLocaleFor(locale: Locale): Locale {
+        return if (locale.language.equals("vi", ignoreCase = true)) {
+            Locale("vi", "VN")
+        } else {
+            locale
+        }
+    }
+
+    /**
      * Parses a `LANGUAGE` or `LANGUAGE_COUNTRY` string string into a [Locale],
      * e.g. "EN" -> [Locale]`("en")`, "EN_IN" -> [Locale]`("en", "in")`.
      */
