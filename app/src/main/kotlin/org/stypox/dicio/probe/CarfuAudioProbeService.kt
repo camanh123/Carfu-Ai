@@ -82,7 +82,10 @@ class CarfuAudioProbeService : Service() {
     }
 
     private fun startForegroundNotification() {
-        val notificationManager = getSystemService(NotificationManager::class.java)
+        val notificationManager = ContextCompat.getSystemService(
+            this,
+            NotificationManager::class.java,
+        ) ?: throw IllegalStateException("NotificationManager not available")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,

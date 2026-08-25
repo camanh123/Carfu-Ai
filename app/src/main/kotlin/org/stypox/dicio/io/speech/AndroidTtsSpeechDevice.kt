@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.annotation.StringRes
 import org.dicio.skill.context.SpeechOutputDevice
 import org.stypox.dicio.R
+import org.stypox.dicio.util.LocaleUtils
 import java.util.Locale
 
 class AndroidTtsSpeechDevice(private var context: Context, locale: Locale) : SpeechOutputDevice {
@@ -125,20 +126,8 @@ class AndroidTtsSpeechDevice(private var context: Context, locale: Locale) : Spe
     companion object {
         val TAG: String = AndroidTtsSpeechDevice::class.simpleName!!
 
-        /**
-         * Vietnamese TTS voices are typically registered as `vi-VN`. Other locales are passed
-         * through unchanged. If the country variant is missing, fall back to the language-only tag.
-         */
-        internal fun ttsLocaleFor(locale: Locale): Locale {
-            return if (locale.language.equals("vi", ignoreCase = true)) {
-                Locale("vi", "VN")
-            } else {
-                locale
-            }
-        }
-
         internal fun applyLanguage(textToSpeech: TextToSpeech, locale: Locale): Int {
-            val preferred = ttsLocaleFor(locale)
+            val preferred = LocaleUtils.ttsLocaleFor(locale)
             val errorCode = textToSpeech.setLanguage(preferred)
             if (errorCode >= 0) {
                 return errorCode
