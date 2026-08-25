@@ -1,10 +1,6 @@
 package org.stypox.dicio.eval
 
 import android.util.Log
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,18 +10,24 @@ import kotlinx.coroutines.withContext
 import org.dicio.skill.skill.InteractionPlan
 import org.dicio.skill.skill.Permission
 import org.dicio.skill.skill.SkillOutput
+import org.dicio.skill.standard.util.MatchHelper
 import org.stypox.dicio.R
 import org.stypox.dicio.di.SkillContextInternal
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.io.graphical.ErrorSkillOutput
 import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
 import org.stypox.dicio.io.input.InputEvent
+import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.ui.home.Interaction
 import org.stypox.dicio.ui.home.InteractionLog
 import org.stypox.dicio.ui.home.PendingQuestion
 import org.stypox.dicio.ui.home.QuestionAnswer
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Singleton
-import org.dicio.skill.standard.util.MatchHelper
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
 
 interface SkillEvaluator {
     val state: StateFlow<InteractionLog>
@@ -48,6 +50,7 @@ class SkillEvaluatorImpl(
 ) : SkillEvaluator {
 
     private val scope = CoroutineScope(Dispatchers.Default)
+    private val wakeSessionActive = AtomicBoolean(false)
 
     private val skillRanker: SkillRanker
         get() = skillHandler.skillRanker.value
@@ -70,14 +73,26 @@ class SkillEvaluatorImpl(
     }
 
     override fun onWakeWordDetected() {
+        wakeSessionActive.set(true)
         scope.launch {
             val acknowledgment = skillContext.android.getString(R.string.wake_word_acknowledgment)
             withContext(Dispatchers.Main) {
                 skillContext.speechOutputDevice.stopSpeaking()
                 skillContext.speechOutputDevice.speak(acknowledgment)
                 skillContext.speechOutputDevice.runWhenFinishedSpeaking {
-                    sttInputDevice.tryLoad(::processInputEvent)
+                    val started = sttInputDevice.tryLoad(::processInputEvent)
+                    if (!started) {
+                        endWakeSession()
+                    }
                 }
+            }
+        }
+    }
+
+    private fun endWakeSession() {
+        if (wakeSessionActive.compareAndSet(true, false)) {
+            skillContext.speechOutputDevice.runWhenFinishedSpeaking {
+                WakeService.resumeAfterInteraction()
             }
         }
     }
@@ -86,6 +101,7 @@ class SkillEvaluatorImpl(
         when (event) {
             is InputEvent.Error -> {
                 addErrorInteractionFromPending(event.throwable)
+                endWakeSession()
             }
             is InputEvent.Final -> {
                 _state.value = _state.value.copy(
@@ -99,6 +115,7 @@ class SkillEvaluatorImpl(
             }
             InputEvent.None -> {
                 _state.value = _state.value.copy(pendingQuestion = null)
+                endWakeSession()
             }
             is InputEvent.Partial -> {
                 _state.value = _state.value.copy(
@@ -125,6 +142,7 @@ class SkillEvaluatorImpl(
             } ?: Pair(utterances[0], skillRanker.getFallbackSkill(skillContext, utterances[0]))
         } catch (throwable: Throwable) {
             addErrorInteractionFromPending(throwable)
+            endWakeSession()
             return
         } finally {
             // standardMatchHelper only needs to be set while calling score() on skills, so once
@@ -150,6 +168,7 @@ class SkillEvaluatorImpl(
             if (permissions.isNotEmpty() && !permissionRequester(permissions)) {
                 // permissions were not granted, show message
                 addInteractionFromPending(MissingPermissionsSkillOutput(skillInfo))
+                endWakeSession()
                 return
             }
 
@@ -189,12 +208,18 @@ class SkillEvaluatorImpl(
 
             if (interactionPlan.reopenMicrophone) {
                 skillContext.speechOutputDevice.runWhenFinishedSpeaking {
-                    sttInputDevice.tryLoad(this::processInputEvent)
+                    val started = sttInputDevice.tryLoad(this::processInputEvent)
+                    if (!started) {
+                        endWakeSession()
+                    }
                 }
+            } else {
+                endWakeSession()
             }
 
         } catch (throwable: Throwable) {
             addErrorInteractionFromPending(throwable)
+            endWakeSession()
             return
         }
     }

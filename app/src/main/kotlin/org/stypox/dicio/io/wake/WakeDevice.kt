@@ -32,7 +32,14 @@ interface WakeDevice {
     fun isOccupyingResources(): Boolean
 
     /**
-     * Returns `true` if the wake word is "Hey Dicio", `false` if a custom model is being used
+     * Clears internal sliding-window state so a new utterance is scored from a clean buffer.
+     * Used after the wake microphone is paused for TTS/STT and then resumed.
+     */
+    fun resetDetectionState()
+
+    /**
+     * Returns `true` if the bundled default wake word (CARFU) is in use, `false` if a custom
+     * imported TFLite model is being used.
      */
     fun isHeyDicio(): Boolean
 }

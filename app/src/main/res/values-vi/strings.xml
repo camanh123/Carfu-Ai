@@ -22,7 +22,7 @@
     <string name="wake_word_acknowledgment">Tôi nghe đây?</string>
     <string name="wake_service_foreground_notification">Đang nghe cụm từ đánh thức \"CARFU ơi\"</string>
     <string name="wake_word_setup_title">Thiết lập từ đánh thức</string>
-    <string name="wake_word_setup_description">CARFU sẽ tự kích hoạt mỗi khi bạn nói \"CARFU ơi\". Việc này dùng một dịch vụ luôn lắng nghe ở chế độ nền. Toàn bộ xử lý giọng nói diễn ra ngay trên máy, vì vậy cần tải mô hình AI trước.</string>
+    <string name="wake_word_setup_description">CARFU sẽ tự kích hoạt mỗi khi bạn nói \"CARFU ơi\" hoặc \"Xin chào CARFU\". Việc này dùng một dịch vụ luôn lắng nghe ở chế độ nền. Mô hình từ đánh thức CARFU được đóng gói sẵn trong ứng dụng; toàn bộ xử lý giọng nói diễn ra ngay trên máy.</string>
     <string name="skill_name_open">Mở ứng dụng</string>
     <string name="skill_sentence_example_open">Mở bản đồ</string>
     <string name="skill_open_could_not_understand">Không hiểu tên ứng dụng</string>

@@ -217,9 +217,9 @@
     <string name="wake_service_start_notification_summary">In Android 11+ Dicio can\'t start the service without a manual interaction from the user.</string>
     <string name="wake_service_triggered_notification_summary">In Android 10+ Dicio can\'t start when a wake word is detected without showing a notification.</string>
     <string name="wake_word_setup_title">Setup wake word</string>
-    <string name="wake_word_setup_description">CARFU will wake up automatically whenever you say \"CARFU ơi\".
+    <string name="wake_word_setup_description">CARFU will wake up automatically whenever you say \"CARFU ơi\" or \"Xin chào CARFU\".
         This works by starting a service that always listens in the background.
-        All speech processing happens locally, that\'s why you need to download the AI model in advance.</string>
+        The CARFU wake-word model is bundled in the app; speech processing happens locally.</string>
     <string name="wake_word_error_downloading">An unexpected error occurred while downloading</string>
     <string name="wake_word_error_downloading_network">Dicio could not reach the internet. Please check your connection and retry.</string>
     <string name="wake_word_error_loading">An unexpected error occurred while loading</string>

@@ -88,6 +88,13 @@ class OwwModel(
     }
 
 
+    fun resetAccumulators() {
+        synchronized(this) {
+            accumulatedMelOutputs = Array(EMB_INPUT_COUNT) { arrayOf() }
+            accumulatedEmbOutputs = Array(WAKE_INPUT_COUNT) { floatArrayOf() }
+        }
+    }
+
     override fun close() {
         synchronized(this) {
             isClosed = true
