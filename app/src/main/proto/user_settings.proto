@@ -21,4 +21,14 @@ message UserSettings {
     WakeDevice wake_device = 8;
     SttPlaySound stt_play_sound = 9;
     int32 stt_silence_duration = 10;
+    // CARFU default is ON: UNSET and ENABLED both start background wake.
+    // Use DISABLED to opt out. Do not use a proto3 bool here — existing
+    // installs would otherwise silently disable wake on upgrade.
+    BackgroundWake background_wake = 11;
+}
+
+enum BackgroundWake {
+    BACKGROUND_WAKE_UNSET = 0;
+    BACKGROUND_WAKE_ENABLED = 1;
+    BACKGROUND_WAKE_DISABLED = 2;
 }

@@ -7,6 +7,7 @@ import org.dicio.skill.standard.StandardRecognizerData
 import org.dicio.skill.standard.StandardRecognizerSkill
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.sentences.Sentences.Listening
+import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.WakeDevice
 
 class ListeningSkill(val listeningInfo: ListeningInfo, data: StandardRecognizerData<Listening>) :
@@ -22,10 +23,18 @@ class ListeningSkill(val listeningInfo: ListeningInfo, data: StandardRecognizerD
             is Listening.Start -> true
             is Listening.Stop -> false
         }
+        listeningInfo.dataStore.updateData {
+            it.toBuilder()
+                .setBackgroundWake(
+                    if (shouldBeRunning) BackgroundWake.BACKGROUND_WAKE_ENABLED
+                    else BackgroundWake.BACKGROUND_WAKE_DISABLED
+                )
+                .build()
+        }
         if (shouldBeRunning) {
             WakeService.start(ctx.android)
         } else {
-            WakeService.stop(ctx.android)
+            WakeService.disableAndStop(ctx.android)
         }
         return ListeningOutput(true, previouslyRunning, shouldBeRunning)
     }

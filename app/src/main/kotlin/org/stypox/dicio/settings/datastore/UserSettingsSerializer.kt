@@ -13,6 +13,9 @@ object UserSettingsSerializer : Serializer<UserSettings> {
         .setLanguage(Language.LANGUAGE_VI)
         .setTheme(Theme.THEME_BLACK)
         .setSttPlaySound(SttPlaySound.STT_PLAY_SOUND_NONE)
+        // CARFU head-unit default: listen for “CARFU ơi” in a microphone
+        // foreground service even when the Activity is not visible.
+        .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
         .build()
 
     override suspend fun readFrom(input: InputStream): UserSettings {

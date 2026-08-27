@@ -147,6 +147,14 @@ fun wakeDevice() = ListSetting(
 )
 
 @Composable
+fun backgroundWake() = BooleanSetting(
+    title = stringResource(R.string.pref_background_wake),
+    icon = Icons.Default.Hearing,
+    descriptionOff = stringResource(R.string.pref_background_wake_summary_off),
+    descriptionOn = stringResource(R.string.pref_background_wake_summary_on),
+)
+
+@Composable
 fun speechOutputDevice() = ListSetting(
     title = stringResource(R.string.pref_speech_output_method),
     icon = Icons.Default.SpeakerPhone,

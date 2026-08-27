@@ -21,6 +21,16 @@
     <string name="wake_word_phrase_summary">Cụm từ đánh thức mặc định. Nói câu này để kích hoạt CARFU, rồi ra lệnh sau khi trợ lý trả lời.</string>
     <string name="wake_word_acknowledgment">Tôi nghe đây</string>
     <string name="wake_service_foreground_notification">Đang nghe cụm từ đánh thức \"CARFU ơi\"</string>
+    <string name="carfu_wake_notification_waiting">Đang chờ “CARFU ơi”</string>
+    <string name="carfu_wake_notification_listening">Đang nghe lệnh</string>
+    <string name="carfu_wake_notification_processing">Đang xử lý</string>
+    <string name="carfu_wake_notification_mic_off">Micro bị tắt</string>
+    <string name="carfu_wake_notification_need_permission">Cần mở ứng dụng để cấp quyền</string>
+    <string name="carfu_wake_notification_disable">Tắt nghe nền</string>
+    <string name="carfu_wake_notification_open">Mở CARFU AI</string>
+    <string name="pref_background_wake">Nghe “CARFU ơi” khi chạy nền</string>
+    <string name="pref_background_wake_summary_on">CARFU tiếp tục nghe khi ứng dụng không mở. Mặc định BẬT trên bản CARFU.</string>
+    <string name="pref_background_wake_summary_off">Không nghe khi chạy nền; không tự chạy lại sau khi khởi động.</string>
     <string name="wake_word_setup_title">Thiết lập từ đánh thức</string>
     <string name="wake_word_setup_description">CARFU sẽ tự kích hoạt mỗi khi bạn nói \"CARFU ơi\" hoặc \"Xin chào CARFU\". Việc này dùng một dịch vụ luôn lắng nghe ở chế độ nền. Mô hình từ đánh thức CARFU được đóng gói sẵn trong ứng dụng; toàn bộ xử lý giọng nói diễn ra ngay trên máy.</string>
     <string name="skill_name_open">Mở ứng dụng</string>

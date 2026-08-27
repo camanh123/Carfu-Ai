@@ -232,6 +232,17 @@
     <string name="wake_service_triggered_notification">Dicio wake word triggered, tap to open</string>
     <string name="wake_service_start_notification_summary">In Android 11+ Dicio can\'t start the service without a manual interaction from the user.</string>
     <string name="wake_service_triggered_notification_summary">In Android 10+ Dicio can\'t start when a wake word is detected without showing a notification.</string>
+    <string name="carfu_wake_notification_title" translatable="false">CARFU AI</string>
+    <string name="carfu_wake_notification_waiting">Đang chờ “CARFU ơi”</string>
+    <string name="carfu_wake_notification_listening">Đang nghe lệnh</string>
+    <string name="carfu_wake_notification_processing">Đang xử lý</string>
+    <string name="carfu_wake_notification_mic_off">Micro bị tắt</string>
+    <string name="carfu_wake_notification_need_permission">Cần mở ứng dụng để cấp quyền</string>
+    <string name="carfu_wake_notification_disable">Tắt nghe nền</string>
+    <string name="carfu_wake_notification_open">Mở CARFU AI</string>
+    <string name="pref_background_wake">Nghe “CARFU ơi” khi chạy nền</string>
+    <string name="pref_background_wake_summary_on">CARFU tiếp tục nghe khi ứng dụng không mở. Mặc định BẬT trên bản CARFU.</string>
+    <string name="pref_background_wake_summary_off">Không nghe khi chạy nền; không tự chạy lại sau khi khởi động.</string>
     <string name="wake_word_setup_title">Setup wake word</string>
     <string name="wake_word_setup_description">CARFU will wake up automatically whenever you say \"CARFU ơi\" or \"Xin chào CARFU\".
         This works by starting a service that always listens in the background.

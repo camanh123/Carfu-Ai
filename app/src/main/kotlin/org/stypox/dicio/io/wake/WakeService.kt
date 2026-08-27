@@ -6,10 +6,17 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.Intent.ACTION_SCREEN_OFF
+import android.content.Intent.ACTION_SCREEN_ON
+import android.content.Intent.ACTION_USER_PRESENT
 import android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+import android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+import android.content.IntentFilter
 import android.content.pm.PackageManager.PERMISSION_GRANTED
+import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -17,17 +24,21 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.ContextCompat.getSystemService
+import androidx.datastore.core.DataStore
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.stypox.dicio.MainActivity
 import org.stypox.dicio.MainActivity.Companion.ACTION_WAKE_WORD
@@ -36,8 +47,11 @@ import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
 import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.settings.datastore.BackgroundWake
+import org.stypox.dicio.settings.datastore.UserSettings
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 
@@ -48,6 +62,8 @@ class WakeService : Service() {
     private val scope = CoroutineScope(Dispatchers.Default + job)
 
     private val listening = AtomicBoolean(false)
+    private val repairRequested = AtomicBoolean(false)
+    private val lastSuccessfulReadElapsed = AtomicLong(0L)
 
     @Inject
     lateinit var skillEvaluator: SkillEvaluator
@@ -57,6 +73,8 @@ class WakeService : Service() {
     lateinit var wakeDevice: WakeDeviceWrapper
     @Inject
     lateinit var commandSession: CommandSession
+    @Inject
+    lateinit var userSettings: DataStore<UserSettings>
 
     private val handler = Handler(Looper.getMainLooper())
     private val releaseSttResourcesRunnable = Runnable {
@@ -68,6 +86,37 @@ class WakeService : Service() {
     }
 
     private lateinit var notificationManager: NotificationManager
+    private var screenReceiverRegistered = false
+
+    private val screenReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val action = when (intent?.action) {
+                ACTION_SCREEN_OFF -> BackgroundWakePolicy.ScreenAction.OFF
+                ACTION_SCREEN_ON -> BackgroundWakePolicy.ScreenAction.ON
+                ACTION_USER_PRESENT -> BackgroundWakePolicy.ScreenAction.USER_PRESENT
+                else -> return
+            }
+            val recording = lastSuccessfulReadElapsed.get() > 0L &&
+                SystemClock.elapsedRealtime() - lastSuccessfulReadElapsed.get() <
+                BackgroundWakePolicy.STALE_READ_MS
+            val decision = BackgroundWakePolicy.onScreenEvent(
+                action = action,
+                listening = listening.get(),
+                commandSessionBusy = commandSession.isBusy,
+                recording = recording,
+                lastSuccessfulReadAgeMs = if (lastSuccessfulReadElapsed.get() == 0L) {
+                    Long.MAX_VALUE
+                } else {
+                    SystemClock.elapsedRealtime() - lastSuccessfulReadElapsed.get()
+                },
+                lastReadFailed = false,
+            )
+            if (decision.openReplacementRecord) {
+                repairRequested.set(true)
+            }
+            publishForegroundNotification()
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
@@ -75,72 +124,139 @@ class WakeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instanceAlive.set(true)
         notificationManager = getSystemService(this, NotificationManager::class.java)!!
+        registerScreenReceiver()
 
+        scope.launch {
+            combine(commandSession.ui, userSettings.data, wakeDevice.state) { _, settings, _ ->
+                settings
+            }.collect { settings ->
+                rememberBackgroundWakeEnabled(
+                    BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
+                )
+                publishForegroundNotification()
+            }
+        }
         scope.launch {
             // Recreate the notification so that it says the correct thing (i.e. there is a
             // different string for the bundled "CARFU ơi" wake word and for a custom one).
             // Ignore the first one (i.e. the current value), which is handled in onStartCommand.
-            wakeDevice.isHeyDicio.drop(1).collect { isHeyDicio ->
-                createForegroundNotification(isHeyDicio)
+            wakeDevice.isHeyDicio.drop(1).collect {
+                publishForegroundNotification()
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP_WAKE_SERVICE) {
-            listening.set(false)
-            resumeAfterInteraction()
-            return START_NOT_STICKY
-        }
-
         try {
-            createForegroundNotification(wakeDevice.isHeyDicio.value)
+            publishForegroundNotification()
         } catch (t: Throwable) {
             stopWithMessage("could not create WakeService foreground notification", t)
             return START_NOT_STICKY
         }
 
+        if (intent?.action == ACTION_STOP_WAKE_SERVICE ||
+            intent?.action == ACTION_DISABLE_BACKGROUND_WAKE
+        ) {
+            listening.set(false)
+            resumeAfterInteraction()
+            scope.launch {
+                persistBackgroundWakeEnabled(false)
+                commandSession.endSession("background_wake_disabled")
+                stopWithMessage()
+            }
+            return START_NOT_STICKY
+        }
+
+        scope.launch {
+            val settings = try {
+                userSettings.data.first()
+            } catch (t: Throwable) {
+                Log.e(TAG, "Could not read background-wake preference", t)
+                null
+            }
+            if (settings != null) {
+                rememberBackgroundWakeEnabled(
+                    BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
+                )
+                if (!BackgroundWakePolicy.isBackgroundWakeEnabled(settings)) {
+                    listening.set(false)
+                    resumeAfterInteraction()
+                    stopWithMessage()
+                    return@launch
+                }
+            }
+            startListeningIfNeeded()
+        }
+
+        return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Keep the microphone foreground service after the task is swiped away.
+    }
+
+    override fun onDestroy() {
+        listening.set(false)
+        resumeAfterInteraction()
+        unregisterScreenReceiver()
+        instanceAlive.set(false)
+        job.cancel()
+        wakeDevice.reinitializeToReleaseResources()
+        super.onDestroy()
+    }
+
+    private fun startListeningIfNeeded() {
         if (listening.getAndSet(true)) {
-            return START_STICKY // if we were already listening, do nothing more
+            return
         }
 
         if (ContextCompat.checkSelfPermission(this, RECORD_AUDIO) != PERMISSION_GRANTED) {
-            stopWithMessage("Could not start WakeService: microphone permission not granted")
-            return START_NOT_STICKY
+            listening.set(false)
+            publishForegroundNotification()
+            return
         }
 
         when (wakeDevice.state.value) {
             WakeState.NotLoaded,
             WakeState.Loading,
-            WakeState.Loaded -> {}
+            WakeState.Loaded,
+            is WakeState.ErrorLoading -> {}
             else -> {
+                listening.set(false)
                 stopWithMessage("Could not start WakeService: wake word device not ready")
-                return START_NOT_STICKY
+                return
             }
         }
 
         scope.launch {
             try {
                 listenForWakeWord()
-                stopWithMessage() // exit normally, as the user just stopped the service
+                stopWithMessage()
             } catch (t: Throwable) {
                 stopWithMessage("Cannot continue listening for wake word", t)
             }
         }
-
-        return START_STICKY
     }
 
-    override fun onDestroy() {
-        listening.set(false)
-        resumeAfterInteraction()
-        job.cancel()
-        wakeDevice.reinitializeToReleaseResources()
-        super.onDestroy()
+    private suspend fun persistBackgroundWakeEnabled(enabled: Boolean) {
+        try {
+            userSettings.updateData {
+                it.toBuilder()
+                    .setBackgroundWake(
+                        if (enabled) BackgroundWake.BACKGROUND_WAKE_ENABLED
+                        else BackgroundWake.BACKGROUND_WAKE_DISABLED
+                    )
+                    .build()
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Could not persist background-wake preference", t)
+        }
     }
 
     private fun stopWithMessage(message: String = "", throwable: Throwable? = null) {
+        listening.set(false)
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()
 
@@ -151,7 +267,32 @@ class WakeService : Service() {
         }
     }
 
-    private fun createForegroundNotification(isHeyDicio: Boolean) {
+    private fun registerScreenReceiver() {
+        if (screenReceiverRegistered) return
+        val filter = IntentFilter().apply {
+            addAction(ACTION_SCREEN_OFF)
+            addAction(ACTION_SCREEN_ON)
+            addAction(ACTION_USER_PRESENT)
+        }
+        ContextCompat.registerReceiver(
+            this,
+            screenReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        screenReceiverRegistered = true
+    }
+
+    private fun unregisterScreenReceiver() {
+        if (!screenReceiverRegistered) return
+        try {
+            unregisterReceiver(screenReceiver)
+        } catch (_: Throwable) {
+        }
+        screenReceiverRegistered = false
+    }
+
+    private fun publishForegroundNotification() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 FOREGROUND_NOTIFICATION_CHANNEL_ID,
@@ -162,32 +303,90 @@ class WakeService : Service() {
             notificationManager.createNotificationChannel(channel)
         }
 
+        val granted = ContextCompat.checkSelfPermission(this, RECORD_AUDIO) == PERMISSION_GRANTED
+        val settingsEnabled = try {
+            // Preference is collected on another coroutine; use last known UI/service intent.
+            lastKnownBackgroundWakeEnabled.get()
+        } catch (_: Throwable) {
+            true
+        }
+        val kind = BackgroundWakePolicy.notificationKind(
+            recordAudioGranted = granted,
+            backgroundWakeEnabled = settingsEnabled,
+            wakeDeviceEnabled = wakeDevice.state.value != null,
+            phase = commandSession.phase,
+        )
+        val status = getString(
+            when (kind) {
+                WakeNotificationKind.WAITING_WAKE ->
+                    R.string.carfu_wake_notification_waiting
+                WakeNotificationKind.LISTENING_COMMAND ->
+                    R.string.carfu_wake_notification_listening
+                WakeNotificationKind.PROCESSING ->
+                    R.string.carfu_wake_notification_processing
+                WakeNotificationKind.MIC_OFF ->
+                    R.string.carfu_wake_notification_mic_off
+                WakeNotificationKind.NEED_PERMISSION ->
+                    R.string.carfu_wake_notification_need_permission
+            }
+        )
+
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val openPending = PendingIntent.getActivity(
+            this,
+            1,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val disablePending = PendingIntent.getService(
+            this,
+            0,
+            Intent(this, WakeService::class.java).apply {
+                action = ACTION_DISABLE_BACKGROUND_WAKE
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(this, FOREGROUND_NOTIFICATION_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_hearing_white)
-            .setContentTitle(
-                getString(
-                    if (isHeyDicio) R.string.wake_service_foreground_notification
-                    else R.string.wake_custom_service_foreground_notification
-                )
-            )
+            .setContentTitle(getString(R.string.carfu_wake_notification_title))
+            .setContentText(status)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(status))
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setShowWhen(false)
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .addAction(NotificationCompat.Action(
-                R.drawable.ic_stop_circle_white,
-                getString(R.string.stop),
-                PendingIntent.getService(
-                    this,
-                    0,
-                    Intent(this, WakeService::class.java)
-                        .apply { action = ACTION_STOP_WAKE_SERVICE },
-                    PendingIntent.FLAG_IMMUTABLE,
-                ),
-            ))
+            .setContentIntent(openPending)
+            .addAction(
+                NotificationCompat.Action(
+                    R.drawable.ic_stop_circle_white,
+                    getString(R.string.carfu_wake_notification_disable),
+                    disablePending,
+                )
+            )
+            .addAction(
+                NotificationCompat.Action(
+                    R.drawable.ic_hearing_white,
+                    getString(R.string.carfu_wake_notification_open),
+                    openPending,
+                )
+            )
             .build()
 
-        startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        } else {
+            0
+        }
+        try {
+            ServiceCompat.startForeground(this, FOREGROUND_NOTIFICATION_ID, notification, type)
+        } catch (t: Throwable) {
+            Log.w(TAG, "startForeground with microphone type failed, retrying basic", t)
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
+        }
     }
 
     private fun listenForWakeWord() {
@@ -197,11 +396,33 @@ class WakeService : Service() {
         var audio = ShortArray(0)
         var nextWakeWordAllowed = Instant.MIN
         var recording = false
+        var retryDelayMs = BackgroundWakePolicy.INITIAL_OPEN_RETRY_MS
+        lastSuccessfulReadElapsed.set(0L)
 
         try {
-            ar.startRecording()
-            recording = true
+            if (ar.state == AudioRecord.STATE_INITIALIZED) {
+                ar.startRecording()
+                recording = ar.recordingState == AudioRecord.RECORDSTATE_RECORDING
+            }
             while (listening.get()) {
+                if (wakeDevice.state.value == null) {
+                    listening.set(false)
+                    break
+                }
+                if (ContextCompat.checkSelfPermission(this, RECORD_AUDIO) != PERMISSION_GRANTED) {
+                    if (recording) {
+                        try {
+                            ar.stop()
+                        } catch (_: Throwable) {
+                        }
+                        recording = false
+                    }
+                    publishForegroundNotification()
+                    interruptibleSleep(retryDelayMs)
+                    retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
+                    continue
+                }
+
                 if (interactionPaused.get() || commandSession.isBusy) {
                     if (recording) {
                         try {
@@ -215,10 +436,47 @@ class WakeService : Service() {
                     continue
                 }
 
+                val repair = repairRequested.getAndSet(false)
+                val lastOk = lastSuccessfulReadElapsed.get()
+                val age = if (lastOk == 0L) Long.MAX_VALUE
+                else SystemClock.elapsedRealtime() - lastOk
+                val decision = BackgroundWakePolicy.onScreenEvent(
+                    action = if (repair) {
+                        BackgroundWakePolicy.ScreenAction.ON
+                    } else {
+                        BackgroundWakePolicy.ScreenAction.OFF
+                    },
+                    listening = true,
+                    commandSessionBusy = false,
+                    recording = recording,
+                    lastSuccessfulReadAgeMs = age,
+                    lastReadFailed = false,
+                )
+                if (repair && decision.openReplacementRecord) {
+                    recording = false
+                }
+
                 if (!recording) {
                     try {
                         wakeDevice.resetDetectionState()
+                        if (ar.state != AudioRecord.STATE_INITIALIZED) {
+                            try {
+                                ar.release()
+                            } catch (_: Throwable) {
+                            }
+                            ar = createAudioRecord()
+                        }
+                        if (ar.state != AudioRecord.STATE_INITIALIZED) {
+                            interruptibleSleep(retryDelayMs)
+                            retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
+                            continue
+                        }
                         ar.startRecording()
+                        if (ar.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                            interruptibleSleep(retryDelayMs)
+                            retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
+                            continue
+                        }
                     } catch (t: Throwable) {
                         Log.w(TAG, "Restarting AudioRecord after wake-mic pause", t)
                         try {
@@ -226,18 +484,53 @@ class WakeService : Service() {
                         } catch (_: Throwable) {
                         }
                         ar = createAudioRecord()
-                        ar.startRecording()
+                        interruptibleSleep(retryDelayMs)
+                        retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
+                        continue
                     }
                     recording = true
+                    retryDelayMs = BackgroundWakePolicy.INITIAL_OPEN_RETRY_MS
                 }
 
                 if (audio.size != wakeDevice.frameSize()) {
                     audio = ShortArray(wakeDevice.frameSize())
                 }
 
-                ar.read(audio, 0, audio.size)
+                val result = ar.read(audio, 0, audio.size)
+                if (BackgroundWakePolicy.shouldRecreateAfterReadError(result)) {
+                    recording = false
+                    try {
+                        ar.stop()
+                    } catch (_: Throwable) {
+                    }
+                    try {
+                        ar.release()
+                    } catch (_: Throwable) {
+                    }
+                    ar = createAudioRecord()
+                    interruptibleSleep(retryDelayMs)
+                    retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
+                    continue
+                }
 
-                val wakeWordDetected = wakeDevice.processFrame(audio)
+                lastSuccessfulReadElapsed.set(SystemClock.elapsedRealtime())
+                lastHeard.set(Instant.now())
+                retryDelayMs = BackgroundWakePolicy.INITIAL_OPEN_RETRY_MS
+
+                if (result != audio.size) {
+                    continue
+                }
+
+                val wakeWordDetected = try {
+                    wakeDevice.processFrame(audio)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Wake model process failed; will retry", t)
+                    recording = false
+                    publishForegroundNotification()
+                    interruptibleSleep(retryDelayMs)
+                    retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
+                    continue
+                }
                 if (wakeWordDetected && Instant.now() > nextWakeWordAllowed) {
                     nextWakeWordAllowed = Instant.now().plusMillis(WAKE_WORD_BACKOFF_MILLIS)
                     // Release the wake mic immediately so TTS and Vosk STT can use it.
@@ -249,8 +542,6 @@ class WakeService : Service() {
                     recording = false
                     onWakeWordDetected()
                 }
-
-                lastHeard.set(Instant.now())
             }
         } finally {
             try {
@@ -274,6 +565,15 @@ class WakeService : Service() {
         )
     }
 
+    private fun interruptibleSleep(delayMs: Long) {
+        var remaining = delayMs
+        while (remaining > 0 && listening.get()) {
+            val slice = minOf(80L, remaining)
+            Thread.sleep(slice)
+            remaining -= slice
+        }
+    }
+
     private fun onWakeWordDetected() {
         Log.d(TAG, "Wake word detected")
         if (commandSession.isBusy) {
@@ -281,6 +581,7 @@ class WakeService : Service() {
             return
         }
         pauseForInteraction()
+        publishForegroundNotification()
 
         val intent = Intent(this, MainActivity::class.java)
         intent.setAction(ACTION_WAKE_WORD)
@@ -379,6 +680,8 @@ class WakeService : Service() {
          * Start the service. Call this only from a foreground part of the app (e.g. the main
          * activity), or from BOOT_COMPLETED only before Android 11. For BOOT_COMPLETED on Android
          * 11+ use [createNotificationToStartLater] instead.
+         *
+         * Start is idempotent: a second call does not open a second AudioRecord.
          */
         fun start(context: Context) {
             Log.d(TAG, "WakeService.start() called from ${Throwable().stackTrace[1]}")
@@ -387,13 +690,21 @@ class WakeService : Service() {
         }
 
         fun stop(context: Context) {
+            disableAndStop(context)
+        }
+
+        fun disableAndStop(context: Context) {
             try {
-                context.startService(Intent(context, WakeService::class.java)
-                    .apply { action = ACTION_STOP_WAKE_SERVICE })
+                context.startService(
+                    Intent(context, WakeService::class.java)
+                        .apply { action = ACTION_DISABLE_BACKGROUND_WAKE }
+                )
             } catch (_: IllegalStateException) {
                 // Must not have been running. No problem with that.
             }
         }
+
+        fun isInstanceAlive(): Boolean = instanceAlive.get()
 
         // Consider the service running if it processed any audio data within the past half second.
         fun isRunning(): Boolean = lastHeard.get()?.isAfter(Instant.now().minusMillis(500)) == true
@@ -411,6 +722,8 @@ class WakeService : Service() {
 
         private val lastHeard = AtomicReference<Instant>()
         private val interactionPaused = AtomicBoolean(false)
+        private val instanceAlive = AtomicBoolean(false)
+        private val lastKnownBackgroundWakeEnabled = AtomicBoolean(true)
         private val resumeHandler = Handler(Looper.getMainLooper())
         private val autoResumeRunnable = Runnable { resumeAfterInteraction() }
 
@@ -430,6 +743,10 @@ class WakeService : Service() {
             Log.i(CommandSession.TAG, "WAKE_ENGINE_RESUMED")
         }
 
+        internal fun rememberBackgroundWakeEnabled(enabled: Boolean) {
+            lastKnownBackgroundWakeEnabled.set(enabled)
+        }
+
         private val TAG = WakeService::class.simpleName
         private const val FOREGROUND_NOTIFICATION_CHANNEL_ID =
             "org.stypox.dicio.io.wake.WakeService.FOREGROUND"
@@ -444,6 +761,8 @@ class WakeService : Service() {
         private const val WAKE_MIC_PAUSE_TIMEOUT_MILLIS = 45_000L
         private const val ACTION_STOP_WAKE_SERVICE =
             "org.stypox.dicio.io.wake.WakeService.ACTION_STOP"
+        private const val ACTION_DISABLE_BACKGROUND_WAKE =
+            "org.stypox.dicio.io.wake.WakeService.ACTION_DISABLE"
         private const val RELEASE_STT_RESOURCES_MILLIS = 1000L * 60 * 5 // 5 minutes
     }
 }

@@ -21,15 +21,14 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import androidx.datastore.core.DataStore
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
+import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.WakeService
-import org.stypox.dicio.io.wake.WakeState.Loaded
-import org.stypox.dicio.io.wake.WakeState.Loading
-import org.stypox.dicio.io.wake.WakeState.NotLoaded
+import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.ui.home.wakeWordPermissions
 import org.stypox.dicio.ui.nav.Navigation
 import org.stypox.dicio.util.BaseActivity
@@ -45,6 +44,8 @@ class MainActivity : BaseActivity() {
     lateinit var sttInputDevice: SttInputDeviceWrapper
     @Inject
     lateinit var wakeDevice: WakeDeviceWrapper
+    @Inject
+    lateinit var userSettings: DataStore<UserSettings>
 
     private var sttPermissionJob: Job? = null
     private var wakeServiceJob: Job? = null
@@ -96,6 +97,7 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onStop() {
+        // Home / another app in the foreground must not stop WakeService or the wake AudioRecord.
         super.onStop()
         isInForeground -= 1
 
@@ -119,20 +121,22 @@ class MainActivity : BaseActivity() {
             sttInputDevice.tryLoad(null)
         }
 
-        WakeService.start(this)
+        // The Activity may start the foreground wake service, but does not own its lifetime
+        // or the wake AudioRecord. onStop/onDestroy must not stop listening.
         wakeServiceJob?.cancel()
         wakeServiceJob = lifecycleScope.launch {
-            wakeDevice.state
-                .map { it == NotLoaded || it == Loading || it == Loaded }
-                .combine(
-                    PermissionFlow.getInstance().getMultiplePermissionState(*wakeWordPermissions)
-                ) { wakeState, permGranted ->
-                    wakeState && permGranted.allGranted
-                }
-                // avoid restarting the service if the state changes but the resulting value
-                // in the flow remains true (which happens when the user stops the WakeService from
-                // the notification, which releases resources and makes the WakeDevice go from
-                // Loaded to NotLoaded)
+            combine(
+                wakeDevice.state,
+                userSettings.data,
+                PermissionFlow.getInstance().getMultiplePermissionState(*wakeWordPermissions),
+            ) { state, settings, perm ->
+                BackgroundWakePolicy.shouldStartWakeService(
+                    backgroundWakeEnabled = BackgroundWakePolicy.isBackgroundWakeEnabled(settings),
+                    recordAudioGranted = perm.allGranted,
+                    wakeDeviceEnabled = state != null,
+                    wakeModelReadyOrPending = BackgroundWakePolicy.isWakeModelReadyOrPending(state),
+                )
+            }
                 .distinctUntilChanged()
                 .filter { it }
                 .collect { WakeService.start(this@MainActivity) }
@@ -162,8 +166,7 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
-        // the wake word service remains active in the background,
-        // so we need to release resources that it does not need manually
+        // STT can be unloaded when the Activity is gone; wake AudioRecord stays with WakeService.
         sttInputDevice.reinitializeToReleaseResources()
         isCreated -= 1
         super.onDestroy()

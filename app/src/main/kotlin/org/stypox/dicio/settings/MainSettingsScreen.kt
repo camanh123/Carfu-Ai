@@ -40,6 +40,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import org.stypox.dicio.R
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.probe.CarfuProbeActivity
+import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.Language
 import org.stypox.dicio.settings.datastore.SpeechOutputDevice
@@ -156,6 +157,12 @@ private fun MainSettingsScreen(
             )
         }
         if (wakeDevice == WakeDevice.WAKE_DEVICE_OWW) {
+            item {
+                backgroundWake().Render(
+                    BackgroundWakePolicy.isBackgroundWakeEnabled(settings),
+                    viewModel::setBackgroundWake,
+                )
+            }
             /* OpenWakeWord-specific settings */
             item {
                 val isHeyDicio by viewModel.isHeyDicio.collectAsState(true)

@@ -8,29 +8,54 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.datastore.core.DataStore
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import org.stypox.dicio.di.WakeDeviceWrapper
+import org.stypox.dicio.settings.datastore.UserSettings
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class BootBroadcastReceiver : BroadcastReceiver() {
     @Inject lateinit var wakeDevice: WakeDeviceWrapper
+    @Inject lateinit var userSettings: DataStore<UserSettings>
 
     override fun onReceive(context: Context, intent: Intent) {
         Log.d(TAG, "Got intent ${intent.action}")
-
-        if (ContextCompat.checkSelfPermission(context, RECORD_AUDIO) !=
-            PackageManager.PERMISSION_GRANTED) {
-            Log.d(TAG, "Audio permission not granted")
+        if (!BackgroundWakePolicy.isBootAction(intent.action)) {
             return
         }
 
-        when (wakeDevice.state.value) {
-            WakeState.NotLoaded,
-            WakeState.Loading,
-            WakeState.Loaded -> {
-                // any of these three states indicates that wake word recognition is enabled, and
-                // that the model has already been downloaded
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (ContextCompat.checkSelfPermission(context, RECORD_AUDIO) !=
+                    PackageManager.PERMISSION_GRANTED
+                ) {
+                    Log.d(TAG, "Audio permission not granted")
+                    return@launch
+                }
+
+                val settings = userSettings.data.first()
+                val enabled = BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
+                val state = wakeDevice.state.value
+                if (!BackgroundWakePolicy.shouldStartOnBoot(
+                        backgroundWakeEnabled = enabled,
+                        recordAudioGranted = true,
+                        wakeDeviceEnabled = state != null,
+                        wakeModelReadyOrPending =
+                            BackgroundWakePolicy.isWakeModelReadyOrPending(state),
+                    )
+                ) {
+                    Log.d(
+                        TAG,
+                        "Skipping boot start enabled=$enabled state=$state",
+                    )
+                    return@launch
+                }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     // Starting from Android 11, it is not possible to start a foreground service
@@ -43,9 +68,8 @@ class BootBroadcastReceiver : BroadcastReceiver() {
                     Log.d(TAG, "Starting service")
                     WakeService.start(context)
                 }
-            }
-            else -> {
-                Log.d(TAG, "Wrong wake device state: ${wakeDevice.state.value}")
+            } finally {
+                pending.finish()
             }
         }
     }

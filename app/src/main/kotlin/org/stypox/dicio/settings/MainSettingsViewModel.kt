@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.io.wake.oww.OpenWakeWordDevice
+import org.stypox.dicio.io.wake.WakeService
+import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.Language
 import org.stypox.dicio.settings.datastore.SpeechOutputDevice
@@ -75,4 +77,23 @@ class MainSettingsViewModel @Inject constructor(
         updateData { it.setSttSilenceDuration(value) }
     fun setAutoFinishSttPopup(value: Boolean) =
         updateData { it.setAutoFinishSttPopup(value) }
+
+    fun setBackgroundWake(enabled: Boolean) {
+        viewModelScope.launch {
+            dataStore.updateData {
+                it.toBuilder()
+                    .setBackgroundWake(
+                        if (enabled) BackgroundWake.BACKGROUND_WAKE_ENABLED
+                        else BackgroundWake.BACKGROUND_WAKE_DISABLED
+                    )
+                    .build()
+            }
+            val app = getApplication<Application>()
+            if (enabled) {
+                WakeService.start(app)
+            } else {
+                WakeService.disableAndStop(app)
+            }
+        }
+    }
 }
