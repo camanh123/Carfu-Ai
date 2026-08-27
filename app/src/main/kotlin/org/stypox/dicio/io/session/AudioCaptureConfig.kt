@@ -4,14 +4,14 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
-import kotlin.math.roundToInt
 
 /**
  * Detects a usable [AudioRecord] configuration on UIS7862 / generic Android.
  * Vosk small models (including `vosk-model-small-vn-0.4`) expect 16 kHz PCM.
- * Wake-word capture on this device already succeeds at 16 kHz, so that rate is preferred
- * when [AudioRecord.getMinBufferSize] reports it as valid. Otherwise we record at a
- * supported rate and resample to 16 kHz before feeding the recognizer.
+ *
+ * Path A prefers native 16 kHz (existing Vosk SpeechService). Path B probes fallback rates in
+ * this order and opens a real [AudioRecord] at the first rate that initializes:
+ * 48000, 44100, 32000, 8000.
  */
 data class AudioCaptureConfig(
     val captureRateHz: Int,
@@ -22,63 +22,97 @@ data class AudioCaptureConfig(
 ) {
     companion object {
         const val MODEL_RATE_HZ = 16_000
+        const val AUDIO_SOURCE = MediaRecorder.AudioSource.VOICE_RECOGNITION
+        const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
+        const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
+        val FALLBACK_RATES = intArrayOf(48_000, 44_100, 32_000, 8_000)
         private const val TAG = "AudioCaptureConfig"
-        private val CANDIDATE_RATES = intArrayOf(16_000, 48_000, 44_100, 32_000, 8_000)
+
+        val androidMinBufferProbe: CaptureRateProbe = CaptureRateProbe { rateHz ->
+            AudioRecord.getMinBufferSize(rateHz, CHANNEL, ENCODING)
+        }
+
+        fun isNative16kHzSupported(probe: CaptureRateProbe = androidMinBufferProbe): Boolean {
+            return probe.minBufferBytes(MODEL_RATE_HZ) > 0
+        }
 
         fun detect(
-            audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            audioSource: Int = AUDIO_SOURCE,
+            probe: CaptureRateProbe = androidMinBufferProbe,
         ): AudioCaptureConfig {
-            val supported = LinkedHashMap<Int, Int>()
-            for (rate in CANDIDATE_RATES) {
-                val minBuf = AudioRecord.getMinBufferSize(
-                    rate,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
+            if (isNative16kHzSupported(probe)) {
+                val minBuf = probe.minBufferBytes(MODEL_RATE_HZ).coerceAtLeast(2048)
+                Log.i(TAG, "supportedRates native=16000 source=$audioSource")
+                return AudioCaptureConfig(
+                    captureRateHz = MODEL_RATE_HZ,
+                    modelRateHz = MODEL_RATE_HZ,
+                    minBufferBytes = minBuf,
+                    audioSource = audioSource,
+                    needsResample = false,
                 )
-                if (minBuf > 0) {
-                    supported[rate] = minBuf
-                }
             }
-            Log.i(TAG, "supportedRates=$supported source=$audioSource")
 
-            val captureRate = when {
-                supported.containsKey(MODEL_RATE_HZ) -> MODEL_RATE_HZ
-                supported.isNotEmpty() -> supported.keys.first()
-                else -> MODEL_RATE_HZ
-            }
-            val minBuf = supported[captureRate]
-                ?: AudioRecord.getMinBufferSize(
-                    captureRate,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT,
-                ).coerceAtLeast(captureRate / 5 * 2)
-
-            return AudioCaptureConfig(
-                captureRateHz = captureRate,
+            val fallback = firstSupportedFallback(probe)
+            Log.i(
+                TAG,
+                "supportedRates native=none fallback=${fallback?.captureRateHz} source=$audioSource",
+            )
+            return fallback ?: AudioCaptureConfig(
+                captureRateHz = MODEL_RATE_HZ,
                 modelRateHz = MODEL_RATE_HZ,
-                minBufferBytes = minBuf.coerceAtLeast(2048),
+                minBufferBytes = 2048,
                 audioSource = audioSource,
-                needsResample = captureRate != MODEL_RATE_HZ,
+                needsResample = false,
             )
         }
 
+        fun firstSupportedFallback(
+            probe: CaptureRateProbe = androidMinBufferProbe,
+        ): AudioCaptureConfig? {
+            for (rate in FALLBACK_RATES) {
+                val minBuf = probe.minBufferBytes(rate)
+                if (minBuf > 0) {
+                    return AudioCaptureConfig(
+                        captureRateHz = rate,
+                        modelRateHz = MODEL_RATE_HZ,
+                        minBufferBytes = minBuf.coerceAtLeast(2048),
+                        audioSource = AUDIO_SOURCE,
+                        needsResample = true,
+                    )
+                }
+            }
+            return null
+        }
+
+        /**
+         * Production opener used by fallback command capture. Tries each fallback rate in order,
+         * requiring both a valid min-buffer probe and a successful [opener] (real AudioRecord).
+         */
+        fun <T> openFirstFallback(
+            rates: IntArray = FALLBACK_RATES,
+            probe: CaptureRateProbe,
+            opener: (rateHz: Int, bufferBytes: Int) -> T?,
+        ): T? {
+            for (rate in rates) {
+                val minBuf = probe.minBufferBytes(rate)
+                if (minBuf <= 0) continue
+                val bufferBytes = minBuf.coerceAtLeast(2048)
+                val opened = opener(rate, bufferBytes)
+                if (opened != null) return opened
+            }
+            return null
+        }
+
         fun resampleToModelRate(input: ShortArray, length: Int, fromRate: Int): ShortArray {
-            if (fromRate == MODEL_RATE_HZ || length <= 1) {
-                return input.copyOf(length)
+            val safeLength = length.coerceIn(0, input.size)
+            if (fromRate == MODEL_RATE_HZ || safeLength == 0) {
+                return input.copyOf(safeLength)
             }
-            val outLen = (length.toLong() * MODEL_RATE_HZ / fromRate).toInt().coerceAtLeast(1)
-            val out = ShortArray(outLen)
-            val step = fromRate.toDouble() / MODEL_RATE_HZ
-            var src = 0.0
-            for (i in 0 until outLen) {
-                val idx = src.toInt().coerceIn(0, length - 2)
-                val frac = src - idx
-                val a = input[idx].toInt()
-                val b = input[idx + 1].toInt()
-                out[i] = (a + (b - a) * frac).roundToInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-                src += step
-            }
-            return out
+            val resampler = StreamingPcmResampler(fromRate, MODEL_RATE_HZ)
+            val out = ShortArray(resampler.maxOutputLength(safeLength) + 8)
+            val n = resampler.resample(input, safeLength, out)
+            val nFlush = resampler.flush(out, n)
+            return out.copyOf(n + nFlush)
         }
     }
 }

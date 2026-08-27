@@ -22,6 +22,7 @@ package org.stypox.dicio.io.input.vosk
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.ui.util.Progress
+import org.vosk.Recognizer
 import org.vosk.android.SpeechService
 
 /**
@@ -105,17 +106,22 @@ sealed interface VoskState {
     ) : VoskState
 
     /**
-     * The model, stored in [SpeechService], is ready in RAM, and can start listening at any time.
+     * The 16 kHz Vosk [Recognizer] is ready in RAM. [speechService] is non-null when native
+     * 16 kHz [SpeechService] initialized; otherwise command capture uses the fallback AudioRecord
+     * path against the same recognizer.
      */
     data class Loaded(
-        internal val speechService: SpeechService
+        internal val speechService: SpeechService?,
+        internal val recognizer: Recognizer,
     ) : VoskState
 
     /**
-     * The model, stored in [SpeechService], is listening.
+     * Command capture is listening, either via [speechService] (Path A) or fallback AudioRecord
+     * (Path B) feeding [recognizer].
      */
     data class Listening(
-        internal val speechService: SpeechService,
+        internal val speechService: SpeechService?,
+        internal val recognizer: Recognizer,
         internal val eventListener: (InputEvent) -> Unit,
     ) : VoskState
 

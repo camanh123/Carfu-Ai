@@ -49,8 +49,14 @@ import org.stypox.dicio.io.input.vosk.VoskState.NotDownloaded
 import org.stypox.dicio.io.input.vosk.VoskState.NotInitialized
 import org.stypox.dicio.io.input.vosk.VoskState.NotLoaded
 import org.stypox.dicio.io.input.vosk.VoskState.Unzipping
+import org.stypox.dicio.io.session.AndroidFallbackPcmCapture
 import org.stypox.dicio.io.session.AudioCaptureConfig
+import org.stypox.dicio.io.session.CommandCaptureCoordinator
+import org.stypox.dicio.io.session.CommandCaptureStartResult
 import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.CoroutineTimeoutScheduler
+import org.stypox.dicio.io.session.RecognizerWaveformAdapter
+import org.stypox.dicio.io.session.SpeechServiceDirectCapture
 import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.ui.util.Progress
 import org.stypox.dicio.util.FileToDownload
@@ -80,6 +86,7 @@ class VoskInputDevice(
 
     private var operationsJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default)
+    private var activeCapture: CommandCaptureCoordinator? = null
 
     private val filesDir: File = appContext.filesDir
     private val cacheDir: File = appContext.cacheDir
@@ -158,6 +165,8 @@ class VoskInputDevice(
     }
 
     private suspend fun deinit() {
+        activeCapture?.stop()
+        activeCapture = null
         val prevState = _state.getAndUpdate { NotInitialized }
         when (prevState) {
             // either interrupt the current
@@ -174,12 +183,13 @@ class VoskInputDevice(
                 when (val s = _state.getAndUpdate { NotInitialized }) {
                     NotInitialized -> {} // everything is ok
                     is Loaded -> {
-                        s.speechService.stop()
-                        s.speechService.shutdown()
+                        s.speechService?.stop()
+                        s.speechService?.shutdown()
                     }
                     is Listening -> {
-                        stopListening(s.speechService, s.eventListener, true)
-                        s.speechService.shutdown()
+                        s.speechService?.stop()
+                        s.eventListener(InputEvent.None)
+                        s.speechService?.shutdown()
                     }
                     else -> {
                         Log.w(TAG, "Unexpected state after loading: $s")
@@ -187,12 +197,13 @@ class VoskInputDevice(
                 }
             }
             is Loaded -> {
-                prevState.speechService.stop()
-                prevState.speechService.shutdown()
+                prevState.speechService?.stop()
+                prevState.speechService?.shutdown()
             }
             is Listening -> {
-                stopListening(prevState.speechService, prevState.eventListener, true)
-                prevState.speechService.shutdown()
+                prevState.speechService?.stop()
+                prevState.eventListener(InputEvent.None)
+                prevState.speechService?.shutdown()
             }
 
             // these states are all resting states, so there is nothing to interrupt
@@ -225,12 +236,12 @@ class VoskInputDevice(
             load(thenStartListeningEventListener)
             return true
         } else if (thenStartListeningEventListener != null && s is Loaded) {
-            startListening(s.speechService, thenStartListeningEventListener)
+            startListening(s.speechService, s.recognizer, thenStartListeningEventListener)
             return true
         } else if (thenStartListeningEventListener != null && s is Listening) {
             // Reset the previous command session cleanly before starting a new one.
-            stopListening(s.speechService, s.eventListener, false)
-            startListening(s.speechService, thenStartListeningEventListener)
+            stopListening(s.eventListener, false)
+            startListening(s.speechService, s.recognizer, thenStartListeningEventListener)
             return true
         } else {
             return false
@@ -263,8 +274,8 @@ class VoskInputDevice(
             is NotLoaded -> load(eventListener)
             is Loading -> toggleThenStartListening(eventListener) // wait for loading to finish
             is ErrorLoading -> load(eventListener) // retry
-            is Loaded -> startListening(s.speechService, eventListener)
-            is Listening -> stopListening(s.speechService, s.eventListener, true)
+            is Loaded -> startListening(s.speechService, s.recognizer, eventListener)
+            is Listening -> stopListening(s.eventListener, true)
         }
     }
 
@@ -273,8 +284,11 @@ class VoskInputDevice(
      */
     override fun stopListening() {
         when (val s = _state.value) {
-            is Listening -> stopListening(s.speechService, s.eventListener, true)
-            else -> {}
+            is Listening -> stopListening(s.eventListener, true)
+            else -> {
+                activeCapture?.stop()
+                activeCapture = null
+            }
         }
     }
 
@@ -364,7 +378,8 @@ class VoskInputDevice(
         _state.value = Loading(thenStartListeningEventListener)
 
         operationsJob = scope.launch {
-            val speechService: SpeechService
+            val recognizer: Recognizer
+            var speechService: SpeechService? = null
             try {
                 LibVosk.setLogLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.WARNINGS)
                 val model = Model(modelDirectory.absolutePath)
@@ -377,21 +392,38 @@ class VoskInputDevice(
                         "ivector=${modelExistFileCheck.exists()}"
                 )
                 // Free-form Vietnamese transcription: do not pass a grammar to Vosk.
-                val recognizer = Recognizer(model, SAMPLE_RATE)
+                recognizer = Recognizer(model, SAMPLE_RATE)
                 recognizer.setMaxAlternatives(ALTERNATIVE_COUNT)
-                speechService = SpeechService(recognizer, SAMPLE_RATE)
-                Log.i(
-                    CommandSession.TAG,
-                    "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
-                        "modelUrl=$lastModelUrl"
-                )
+                val native16k = AudioCaptureConfig.isNative16kHzSupported()
+                if (native16k) {
+                    try {
+                        speechService = SpeechService(recognizer, SAMPLE_RATE)
+                        Log.i(
+                            CommandSession.TAG,
+                            "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
+                                "modelUrl=$lastModelUrl path=DIRECT_READY",
+                        )
+                    } catch (e: Exception) {
+                        Log.w(
+                            CommandSession.TAG,
+                            "native 16kHz SpeechService init failed, fallback capture enabled",
+                            e,
+                        )
+                    }
+                } else {
+                    Log.i(
+                        CommandSession.TAG,
+                        "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
+                            "modelUrl=$lastModelUrl path=FALLBACK_READY native16k=false",
+                    )
+                }
             } catch (e: IOException) {
                 Log.e(TAG, "Can't load Vosk model", e)
                 _state.value = ErrorLoading(e)
                 return@launch
             }
 
-            if (!_state.compareAndSet(Loading(null), Loaded(speechService))) {
+            if (!_state.compareAndSet(Loading(null), Loaded(speechService, recognizer))) {
                 val state = _state.value
                 if (state is Loading && state.thenStartListening != null) {
                     // "state is Loading" will always be true except when the load() is begin
@@ -399,14 +431,19 @@ class VoskInputDevice(
                     // "state.thenStartListening" might be "null" if, in the brief moment between
                     // the compareAndSet() and reading _state.value, the state was changed by
                     // toggleThenStartListening().
-                    startListening(speechService, state.thenStartListening)
+                    startListening(speechService, recognizer, state.thenStartListening)
 
-                } else if (!_state.compareAndSet(Loading(null, true), Loaded(speechService))) {
+                } else if (
+                    !_state.compareAndSet(
+                        Loading(null, true),
+                        Loaded(speechService, recognizer),
+                    )
+                ) {
                     // The current state is not the Loading state, which is unexpected. This means
                     // that load() is begin joined by init(), which is reinitializing everything,
                     // so we should drop the speechService.
-                    speechService.stop()
-                    speechService.shutdown()
+                    speechService?.stop()
+                    speechService?.shutdown()
                 }
 
             } // else, the state was set to Loaded, so no need to do anything
@@ -431,8 +468,8 @@ class VoskInputDevice(
             // first checked before calling this function, and when the checks above are performed
             Log.w(TAG, "Cannot toggle thenStartListening")
             when (val newValue = _state.value) {
-                is Loaded -> startListening(newValue.speechService, eventListener)
-                is Listening -> stopListening(newValue.speechService, newValue.eventListener, true)
+                is Loaded -> startListening(newValue.speechService, newValue.recognizer, eventListener)
+                is Listening -> stopListening(newValue.eventListener, true)
                 is ErrorLoading -> {} // ignore the user's click
                 // the else should never happen, since load() only transitions from Loading(...) to
                 // one of Loaded, Listening or ErrorLoading
@@ -442,44 +479,86 @@ class VoskInputDevice(
     }
 
     /**
-     * Starts the speech service listening, and changes the state to [Listening].
+     * Starts command capture. Path A uses the existing 16 kHz [SpeechService] when it can
+     * initialize and start. Path B opens a fallback [android.media.AudioRecord], resamples PCM
+     * to 16 kHz via [org.stypox.dicio.io.session.StreamingPcmResampler], and feeds
+     * [Recognizer.acceptWaveForm] through [CommandCaptureCoordinator].
      */
     private fun startListening(
-        speechService: SpeechService,
+        speechService: SpeechService?,
+        recognizer: Recognizer,
         eventListener: (InputEvent) -> Unit,
     ) {
-        _state.value = Listening(speechService, eventListener)
-        val capture = AudioCaptureConfig.detect()
-        Log.i(
-            CommandSession.TAG,
-            "Vosk startListening sampleRate=$SAMPLE_RATE bufferSize=${capture.minBufferBytes} " +
-                "audioSource=${capture.audioSource} model=${modelDirectory.absolutePath}"
+        activeCapture?.stop()
+        activeCapture = null
+
+        val listener = VoskListener(this, eventListener, silencesBeforeStop.value)
+        val coordinator = CommandCaptureCoordinator(
+            direct = SpeechServiceDirectCapture(
+                speechService,
+                CommandSession.COMMAND_LISTEN_TIMEOUT_MS,
+            ),
+            fallback = AndroidFallbackPcmCapture(),
+            recognizer = RecognizerWaveformAdapter(recognizer),
+            timeoutMs = CommandSession.COMMAND_LISTEN_TIMEOUT_MS.toLong(),
+            timeoutScheduler = CoroutineTimeoutScheduler(scope),
         )
-        val listener = VoskListener(this, eventListener, silencesBeforeStop.value, speechService)
-        try {
-            speechService.startListening(listener, CommandSession.COMMAND_LISTEN_TIMEOUT_MS)
-        } catch (_: Throwable) {
-            speechService.startListening(listener)
+        activeCapture = coordinator
+        val result = coordinator.start(listener)
+        when (result) {
+            is CommandCaptureStartResult.Direct -> {
+                Log.i(
+                    CommandSession.TAG,
+                    "Vosk startListening path=DIRECT sampleRate=$SAMPLE_RATE " +
+                        "model=${modelDirectory.absolutePath}",
+                )
+                _state.value = Listening(speechService, recognizer, eventListener)
+            }
+            is CommandCaptureStartResult.Fallback -> {
+                Log.i(
+                    CommandSession.TAG,
+                    "Vosk startListening path=FALLBACK captureRate=${result.rateHz} " +
+                        "bufferSize=${result.bufferBytes} resample=true " +
+                        "model=${modelDirectory.absolutePath}",
+                )
+                _state.value = Listening(null, recognizer, eventListener)
+            }
+            is CommandCaptureStartResult.Failed -> {
+                activeCapture = null
+                Log.e(
+                    CommandSession.TAG,
+                    "COMMAND_CAPTURE_ERROR ${result.cause.message}",
+                    result.cause,
+                )
+                _state.value = Loaded(null, recognizer)
+                eventListener(InputEvent.Error(result.cause))
+            }
         }
     }
 
     /**
-     * Stops the speech service from listening, and changes the state to [Loaded]. This is
-     * `internal` because it is used by [VoskListener].
+     * Stops command capture (SpeechService and/or fallback AudioRecord + worker) and returns to
+     * [Loaded]. This is `internal` because it is used by [VoskListener].
      */
     internal fun stopListening(
-        speechService: SpeechService,
         eventListener: (InputEvent) -> Unit,
         sendNoneEvent: Boolean,
     ) {
-        _state.value = Loaded(speechService)
-        speechService.stop()
+        activeCapture?.stop()
+        activeCapture = null
+        val prev = _state.value
+        if (prev is Listening) {
+            prev.speechService?.stop()
+            _state.value = Loaded(prev.speechService, prev.recognizer)
+        }
         if (sendNoneEvent) {
             eventListener(InputEvent.None)
         }
     }
 
     override suspend fun destroy() {
+        activeCapture?.stop()
+        activeCapture = null
         deinit()
         // cancel everything
         scope.cancel()

@@ -25,7 +25,6 @@ import org.json.JSONObject
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
 
 
 /**
@@ -40,7 +39,6 @@ internal class VoskListener(
     private val voskInputDevice: VoskInputDevice,
     private val eventListener: (InputEvent) -> Unit,
     private var silencesBeforeStop: Int,
-    private val speechService: SpeechService,
 ) : RecognitionListener {
 
     /**
@@ -81,7 +79,7 @@ internal class VoskListener(
         } catch (e: JSONException) {
             Log.e(TAG, "Can't obtain result from $s", e)
             eventListener(InputEvent.Error(e))
-            voskInputDevice.stopListening(speechService, eventListener, false)
+            voskInputDevice.stopListening(eventListener, false)
             return
         }
 
@@ -91,13 +89,13 @@ internal class VoskListener(
                 Log.d(TAG, "Ignoring empty/weak hypothesis; silences left=$silencesBeforeStop")
                 return
             }
-            voskInputDevice.stopListening(speechService, eventListener, false)
+            voskInputDevice.stopListening(eventListener, false)
             eventListener(InputEvent.None)
             return
         }
 
         // we only want to listen one sentence at a time
-        voskInputDevice.stopListening(speechService, eventListener, false)
+        voskInputDevice.stopListening(eventListener, false)
 
         eventListener(InputEvent.Final(inputs))
     }
@@ -143,7 +141,7 @@ internal class VoskListener(
     override fun onError(e: Exception) {
         // TODO set error state in VoskInputDevice
         Log.e(TAG, "onError called", e)
-        voskInputDevice.stopListening(speechService, eventListener, false)
+        voskInputDevice.stopListening(eventListener, false)
         eventListener(InputEvent.Error(e))
     }
 
@@ -152,7 +150,7 @@ internal class VoskListener(
      */
     override fun onTimeout() {
         Log.d(TAG, "onTimeout called")
-        voskInputDevice.stopListening(speechService, eventListener, true)
+        voskInputDevice.stopListening(eventListener, true)
     }
 
     companion object {
