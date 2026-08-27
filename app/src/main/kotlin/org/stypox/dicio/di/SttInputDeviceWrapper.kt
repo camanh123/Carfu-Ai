@@ -24,6 +24,8 @@ import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.input.external_popup.ExternalPopupInputDevice
 import org.stypox.dicio.io.input.vosk.VoskInputDevice
+import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.InputDevice.INPUT_DEVICE_EXTERNAL_POPUP
 import org.stypox.dicio.settings.datastore.InputDevice.INPUT_DEVICE_NOTHING
@@ -54,6 +56,7 @@ class SttInputDeviceWrapperImpl(
     private val localeManager: LocaleManager,
     private val okHttpClient: OkHttpClient,
     private val activityForResultManager: ActivityForResultManager,
+    private val commandSession: CommandSession,
 ) : SttInputDeviceWrapper {
     private val scope = CoroutineScope(Dispatchers.Default)
 
@@ -123,7 +126,10 @@ class SttInputDeviceWrapperImpl(
             uiStateJob = scope.launch {
                 newSttInputDevice.uiState.collect {
                     _uiState.emit(it)
-                    if (it == SttState.Listening) {
+                    if (it == SttState.Listening &&
+                        commandSession.phase != CommandSessionPhase.COMMAND_LISTENING &&
+                        commandSession.phase != CommandSessionPhase.ACKNOWLEDGING
+                    ) {
                         playSound(R.raw.listening_sound)
                     }
                 }
@@ -188,9 +194,11 @@ class SttInputDeviceWrapperModule {
         localeManager: LocaleManager,
         okHttpClient: OkHttpClient,
         activityForResultManager: ActivityForResultManager,
+        commandSession: CommandSession,
     ): SttInputDeviceWrapper {
         return SttInputDeviceWrapperImpl(
-            appContext, dataStore, localeManager, okHttpClient, activityForResultManager
+            appContext, dataStore, localeManager, okHttpClient, activityForResultManager,
+            commandSession,
         )
     }
 }

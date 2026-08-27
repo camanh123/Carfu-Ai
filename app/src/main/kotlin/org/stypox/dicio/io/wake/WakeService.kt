@@ -35,6 +35,7 @@ import org.stypox.dicio.R
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
+import org.stypox.dicio.io.session.CommandSession
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
@@ -54,6 +55,8 @@ class WakeService : Service() {
     lateinit var sttInputDevice: SttInputDeviceWrapper
     @Inject
     lateinit var wakeDevice: WakeDeviceWrapper
+    @Inject
+    lateinit var commandSession: CommandSession
 
     private val handler = Handler(Looper.getMainLooper())
     private val releaseSttResourcesRunnable = Runnable {
@@ -199,7 +202,7 @@ class WakeService : Service() {
             ar.startRecording()
             recording = true
             while (listening.get()) {
-                if (interactionPaused.get()) {
+                if (interactionPaused.get() || commandSession.isBusy) {
                     if (recording) {
                         try {
                             ar.stop()
@@ -273,6 +276,10 @@ class WakeService : Service() {
 
     private fun onWakeWordDetected() {
         Log.d(TAG, "Wake word detected")
+        if (commandSession.isBusy) {
+            Log.i(CommandSession.TAG, "COMMAND_SESSION_OVERLAP ignored")
+            return
+        }
         pauseForInteraction()
 
         val intent = Intent(this, MainActivity::class.java)
@@ -420,6 +427,7 @@ class WakeService : Service() {
         fun resumeAfterInteraction() {
             resumeHandler.removeCallbacks(autoResumeRunnable)
             interactionPaused.set(false)
+            Log.i(CommandSession.TAG, "WAKE_ENGINE_RESUMED")
         }
 
         private val TAG = WakeService::class.simpleName

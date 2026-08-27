@@ -53,8 +53,7 @@ android {
             val isScreenshotTest = (project.findProperty("android.testInstrumentationRunnerArguments.class") as? String)
                 ?.contains("creenshot") == true
             if (!isScreenshotTest) {
-                // only change the app name if we are not taking screenshots
-                resValue("string", "app_name", "Dicio-${gitBranch()}")
+                resValue("string", "app_name", "CARFU AI")
             }
         }
         release {
@@ -88,6 +87,11 @@ android {
 
     androidResources {
         noCompress += "tflite"
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 }
 

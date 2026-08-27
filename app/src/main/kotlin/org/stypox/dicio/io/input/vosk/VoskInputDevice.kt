@@ -49,6 +49,8 @@ import org.stypox.dicio.io.input.vosk.VoskState.NotDownloaded
 import org.stypox.dicio.io.input.vosk.VoskState.NotInitialized
 import org.stypox.dicio.io.input.vosk.VoskState.NotLoaded
 import org.stypox.dicio.io.input.vosk.VoskState.Unzipping
+import org.stypox.dicio.io.session.AudioCaptureConfig
+import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.ui.util.Progress
 import org.stypox.dicio.util.FileToDownload
@@ -85,6 +87,7 @@ class VoskInputDevice(
     private val sameModelUrlCheck: File get() = File(filesDir, "vosk-model-url")
     private val modelDirectory: File get() = File(filesDir, "vosk-model")
     private val modelExistFileCheck: File get() = File(modelDirectory, "ivector")
+    private var lastModelUrl: String? = null
 
     init {
         // Run blocking, because the locale is always available right away since LocaleManager also
@@ -111,6 +114,12 @@ class VoskInputDevice(
     private fun init(locale: Locale): VoskState {
         // choose the model url based on the locale
         val modelUrl = LocaleUtils.resolveValueForSupportedLocale(locale, MODEL_URLS)
+        lastModelUrl = modelUrl
+        Log.i(
+            CommandSession.TAG,
+            "Vosk init locale=$locale modelUrl=$modelUrl dir=${modelDirectory.absolutePath} " +
+                "ivectorExists=${modelExistFileCheck.exists()}"
+        )
 
         // the model url may change if the user changes app language, or in case of model updates
         val modelUrlChanged = try {
@@ -216,6 +225,11 @@ class VoskInputDevice(
             load(thenStartListeningEventListener)
             return true
         } else if (thenStartListeningEventListener != null && s is Loaded) {
+            startListening(s.speechService, thenStartListeningEventListener)
+            return true
+        } else if (thenStartListeningEventListener != null && s is Listening) {
+            // Reset the previous command session cleanly before starting a new one.
+            stopListening(s.speechService, s.eventListener, false)
             startListening(s.speechService, thenStartListeningEventListener)
             return true
         } else {
@@ -354,9 +368,23 @@ class VoskInputDevice(
             try {
                 LibVosk.setLogLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.WARNINGS)
                 val model = Model(modelDirectory.absolutePath)
+                val capture = AudioCaptureConfig.detect()
+                Log.i(
+                    CommandSession.TAG,
+                    "Vosk load modelDir=${modelDirectory.absolutePath} url=$lastModelUrl " +
+                        "recognizerRate=$SAMPLE_RATE captureRate=${capture.captureRateHz} " +
+                        "minBuffer=${capture.minBufferBytes} resample=${capture.needsResample} " +
+                        "ivector=${modelExistFileCheck.exists()}"
+                )
+                // Free-form Vietnamese transcription: do not pass a grammar to Vosk.
                 val recognizer = Recognizer(model, SAMPLE_RATE)
                 recognizer.setMaxAlternatives(ALTERNATIVE_COUNT)
                 speechService = SpeechService(recognizer, SAMPLE_RATE)
+                Log.i(
+                    CommandSession.TAG,
+                    "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
+                        "modelUrl=$lastModelUrl"
+                )
             } catch (e: IOException) {
                 Log.e(TAG, "Can't load Vosk model", e)
                 _state.value = ErrorLoading(e)
@@ -421,7 +449,18 @@ class VoskInputDevice(
         eventListener: (InputEvent) -> Unit,
     ) {
         _state.value = Listening(speechService, eventListener)
-        speechService.startListening(VoskListener(this, eventListener, silencesBeforeStop.value, speechService))
+        val capture = AudioCaptureConfig.detect()
+        Log.i(
+            CommandSession.TAG,
+            "Vosk startListening sampleRate=$SAMPLE_RATE bufferSize=${capture.minBufferBytes} " +
+                "audioSource=${capture.audioSource} model=${modelDirectory.absolutePath}"
+        )
+        val listener = VoskListener(this, eventListener, silencesBeforeStop.value, speechService)
+        try {
+            speechService.startListening(listener, CommandSession.COMMAND_LISTEN_TIMEOUT_MS)
+        } catch (_: Throwable) {
+            speechService.startListening(listener)
+        }
     }
 
     /**
@@ -447,7 +486,7 @@ class VoskInputDevice(
     }
 
     companion object {
-        private const val SAMPLE_RATE = 44100.0f
+        private const val SAMPLE_RATE = 16000.0f
         private const val ALTERNATIVE_COUNT = 5
         private val TAG = VoskInputDevice::class.simpleName
 

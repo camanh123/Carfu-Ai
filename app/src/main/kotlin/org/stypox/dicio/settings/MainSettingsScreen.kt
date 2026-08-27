@@ -1,6 +1,7 @@
 package org.stypox.dicio.settings
 
 import android.app.Application
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -12,8 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -28,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
@@ -35,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.stypox.dicio.R
 import org.stypox.dicio.io.input.SttInputDevice
+import org.stypox.dicio.probe.CarfuProbeActivity
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.Language
 import org.stypox.dicio.settings.datastore.SpeechOutputDevice
@@ -51,6 +56,7 @@ import org.stypox.dicio.ui.theme.AppTheme
 fun MainSettingsScreen(
     navigationIcon: @Composable () -> Unit,
     navigateToSkillSettings: () -> Unit,
+    navigateToAbout: () -> Unit = {},
     viewModel: MainSettingsViewModel = hiltViewModel(),
 ) {
     Scaffold(
@@ -64,6 +70,7 @@ fun MainSettingsScreen(
     ) {
         MainSettingsScreen(
             navigateToSkillSettings = navigateToSkillSettings,
+            navigateToAbout = navigateToAbout,
             viewModel = viewModel,
             modifier = Modifier.padding(it),
         )
@@ -73,10 +80,12 @@ fun MainSettingsScreen(
 @Composable
 private fun MainSettingsScreen(
     navigateToSkillSettings: () -> Unit,
+    navigateToAbout: () -> Unit,
     viewModel: MainSettingsViewModel,
     modifier: Modifier = Modifier,
 ) {
     val settings by viewModel.settingsState.collectAsState()
+    val context = LocalContext.current
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
         if (it != null) {
             viewModel.addOwwUserWakeFile(it)
@@ -212,6 +221,27 @@ private fun MainSettingsScreen(
         item {
             Spacer(modifier = Modifier.height(8.dp))
         }
+        item {
+            SettingsItem(
+                title = stringResource(R.string.carfu_diagnostics),
+                icon = Icons.Default.BugReport,
+                description = stringResource(R.string.carfu_diagnostics_summary),
+                modifier = Modifier.clickable {
+                    context.startActivity(Intent(context, CarfuProbeActivity::class.java))
+                },
+            )
+        }
+        item {
+            SettingsItem(
+                title = stringResource(R.string.about),
+                icon = Icons.Default.Info,
+                description = stringResource(R.string.about_description),
+                modifier = Modifier.clickable(onClick = navigateToAbout),
+            )
+        }
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+        }
     }
 }
 
@@ -224,6 +254,7 @@ private fun MainSettingsScreenPreview() {
         ) {
             MainSettingsScreen(
                 navigateToSkillSettings = {},
+                navigateToAbout = {},
                 viewModel = MainSettingsViewModel(
                     application = Application(),
                     wakeDeviceWrapper = null,

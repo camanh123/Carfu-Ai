@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
-    <string name="app_name" translatable="false">Dicio</string>
+    <string name="app_name" translatable="false">CARFU AI</string>
     <string name="drawer_open">Open navigation drawer</string>
     <string name="drawer_close">Close navigation drawer</string>
     <string name="drawer_header_subtitle">May I help you?</string>
@@ -100,7 +100,23 @@
     <string name="wake_word_phrase">CARFU ơi</string>
     <string name="wake_word_phrase_alt">Xin chào CARFU</string>
     <string name="wake_word_phrase_summary">Default wake word. Say this to activate CARFU, then give a command after the assistant replies.</string>
-    <string name="wake_word_acknowledgment">Tôi nghe đây?</string>
+    <string name="wake_word_acknowledgment">Tôi nghe đây</string>
+    <string name="carfu_state_ready">Sẵn sàng</string>
+    <string name="carfu_state_ack">Tôi nghe đây</string>
+    <string name="carfu_state_listening">Đang nghe…</string>
+    <string name="carfu_state_processing">Đang xử lý…</string>
+    <string name="carfu_state_unclear">Tôi chưa nghe rõ</string>
+    <string name="carfu_action_nav">Dẫn đường</string>
+    <string name="carfu_action_music">Nhạc</string>
+    <string name="carfu_action_call">Gọi điện</string>
+    <string name="carfu_action_apps">Ứng dụng</string>
+    <string name="carfu_action_volume">Âm lượng</string>
+    <string name="carfu_status_offline">Offline</string>
+    <string name="carfu_status_online">Online</string>
+    <string name="carfu_mic_ready">Mic sẵn sàng</string>
+    <string name="carfu_mic_listening">Mic đang nghe</string>
+    <string name="carfu_diagnostics">Diagnostics</string>
+    <string name="carfu_diagnostics_summary">Open the CARFU probe log (long-press the assistant orb)</string>
     <string name="pref_skill_not_available">This skill is not yet available for your language. Contributions are welcome!</string>
     <string name="pref_skill_missing_permissions">Requires these permissions: %1$s</string>
     <string name="pref_skill_grant_permissions">Grant</string>

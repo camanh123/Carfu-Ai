@@ -23,6 +23,7 @@ import android.util.Log
 import org.json.JSONException
 import org.json.JSONObject
 import org.stypox.dicio.io.input.InputEvent
+import org.stypox.dicio.io.session.VietnameseTranscript
 import org.vosk.android.RecognitionListener
 import org.vosk.android.SpeechService
 
@@ -84,20 +85,21 @@ internal class VoskListener(
             return
         }
 
-        if (inputs.isEmpty() && silencesBeforeStop > 1) {
-            silencesBeforeStop -= 1
+        if (inputs.isEmpty() || VietnameseTranscript.isTooWeakToSubmit(inputs[0].first)) {
+            if (silencesBeforeStop > 1) {
+                silencesBeforeStop -= 1
+                Log.d(TAG, "Ignoring empty/weak hypothesis; silences left=$silencesBeforeStop")
+                return
+            }
+            voskInputDevice.stopListening(speechService, eventListener, false)
+            eventListener(InputEvent.None)
             return
         }
 
         // we only want to listen one sentence at a time
         voskInputDevice.stopListening(speechService, eventListener, false)
 
-        // emit the final event
-        if (inputs.isEmpty()) {
-            eventListener(InputEvent.None)
-        } else {
-            eventListener(InputEvent.Final(inputs))
-        }
+        eventListener(InputEvent.Final(inputs))
     }
 
     private fun utterancesFromJson(jsonResult: JSONObject): List<Pair<String, Float>> {

@@ -9,8 +9,13 @@ pause:
   - tắt nhạc?
 
 previous:
+  - bài trước?
   - bài trước nhạc?
+  - bài trước đó?
 
 next:
+  - bài tiếp theo?
+  - bài tiếp?
   - bài tiếp nhạc?
+  - qua bài?
   - qua bài nhạc?

@@ -19,7 +19,7 @@
     <string name="wake_word_phrase">CARFU ơi</string>
     <string name="wake_word_phrase_alt">Xin chào CARFU</string>
     <string name="wake_word_phrase_summary">Cụm từ đánh thức mặc định. Nói câu này để kích hoạt CARFU, rồi ra lệnh sau khi trợ lý trả lời.</string>
-    <string name="wake_word_acknowledgment">Tôi nghe đây?</string>
+    <string name="wake_word_acknowledgment">Tôi nghe đây</string>
     <string name="wake_service_foreground_notification">Đang nghe cụm từ đánh thức \"CARFU ơi\"</string>
     <string name="wake_word_setup_title">Thiết lập từ đánh thức</string>
     <string name="wake_word_setup_description">CARFU sẽ tự kích hoạt mỗi khi bạn nói \"CARFU ơi\" hoặc \"Xin chào CARFU\". Việc này dùng một dịch vụ luôn lắng nghe ở chế độ nền. Mô hình từ đánh thức CARFU được đóng gói sẵn trong ứng dụng; toàn bộ xử lý giọng nói diễn ra ngay trên máy.</string>
@@ -49,5 +49,21 @@
     <string name="skill_name_current_time">Giờ hiện tại</string>
     <string name="skill_sentence_example_current_time">Mấy giờ rồi?</string>
     <string name="skill_time_current_time">Bây giờ là %1$s</string>
+    <string name="carfu_state_ready">Sẵn sàng</string>
+    <string name="carfu_state_ack">Tôi nghe đây</string>
+    <string name="carfu_state_listening">Đang nghe…</string>
+    <string name="carfu_state_processing">Đang xử lý…</string>
+    <string name="carfu_state_unclear">Tôi chưa nghe rõ</string>
+    <string name="carfu_action_nav">Dẫn đường</string>
+    <string name="carfu_action_music">Nhạc</string>
+    <string name="carfu_action_call">Gọi điện</string>
+    <string name="carfu_action_apps">Ứng dụng</string>
+    <string name="carfu_action_volume">Âm lượng</string>
+    <string name="carfu_status_offline">Offline</string>
+    <string name="carfu_status_online">Online</string>
+    <string name="carfu_mic_ready">Mic sẵn sàng</string>
+    <string name="carfu_mic_listening">Mic đang nghe</string>
+    <string name="carfu_diagnostics">Chẩn đoán</string>
+    <string name="carfu_diagnostics_summary">Mở nhật ký probe CARFU (nhấn giữ quả cầu trợ lý)</string>
     <string name="pref_skill_not_available">Kỹ năng này chưa có cho tiếng Việt.</string>
 </resources>

@@ -1,8 +1,13 @@
 package org.stypox.dicio.eval
 
 import android.util.Log
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -17,6 +22,10 @@ import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.io.graphical.ErrorSkillOutput
 import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
 import org.stypox.dicio.io.input.InputEvent
+import org.stypox.dicio.io.session.AudioCaptureConfig
+import org.stypox.dicio.io.session.CarfuCommandRouter
+import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.ui.home.Interaction
 import org.stypox.dicio.ui.home.InteractionLog
@@ -24,10 +33,6 @@ import org.stypox.dicio.ui.home.PendingQuestion
 import org.stypox.dicio.ui.home.QuestionAnswer
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Singleton
-import dagger.Module
-import dagger.Provides
-import dagger.hilt.InstallIn
-import dagger.hilt.components.SingletonComponent
 
 interface SkillEvaluator {
     val state: StateFlow<InteractionLog>
@@ -37,8 +42,8 @@ interface SkillEvaluator {
     fun processInputEvent(event: InputEvent)
 
     /**
-     * Called when the wake word is detected. Speaks the acknowledgment (e.g. "Tôi nghe đây?")
-     * and, once TTS has finished, starts the STT microphone so the user can give a command.
+     * Called when the wake word is detected. Speaks the acknowledgment (e.g. "Tôi nghe đây")
+     * and, once TTS has finished plus a short echo-guard, starts the STT microphone.
      */
     fun onWakeWordDetected()
 }
@@ -47,6 +52,7 @@ class SkillEvaluatorImpl(
     private val skillContext: SkillContextInternal,
     private val skillHandler: SkillHandler,
     private val sttInputDevice: SttInputDeviceWrapper,
+    private val commandSession: CommandSession,
 ) : SkillEvaluator {
 
     private val scope = CoroutineScope(Dispatchers.Default)
@@ -73,25 +79,57 @@ class SkillEvaluatorImpl(
     }
 
     override fun onWakeWordDetected() {
+        if (!commandSession.tryBeginWakeSession()) {
+            WakeService.resumeAfterInteraction()
+            return
+        }
         wakeSessionActive.set(true)
+        sttInputDevice.stopListening()
         scope.launch {
             val acknowledgment = skillContext.android.getString(R.string.wake_word_acknowledgment)
             withContext(Dispatchers.Main) {
                 skillContext.speechOutputDevice.stopSpeaking()
+                commandSession.onTtsStarted()
                 skillContext.speechOutputDevice.speak(acknowledgment)
                 skillContext.speechOutputDevice.runWhenFinishedSpeaking {
-                    val started = sttInputDevice.tryLoad(::processInputEvent)
-                    if (!started) {
-                        endWakeSession()
+                    scope.launch {
+                        commandSession.onTtsCompleted()
+                        startCommandListening("wake_ack")
                     }
                 }
             }
         }
     }
 
-    private fun endWakeSession() {
+    private suspend fun startCommandListening(reason: String) {
+        delay(CommandSession.POST_TTS_GUARD_MS)
+        if (!wakeSessionActive.get() || !commandSession.canStartCommandRecognition()) {
+            if (wakeSessionActive.get()) {
+                endWakeSession("stale_session_$reason")
+            }
+            return
+        }
+        val capture = AudioCaptureConfig.detect()
+        commandSession.onCommandAudioStarted(
+            sampleRate = capture.captureRateHz,
+            bufferSize = capture.minBufferBytes,
+            audioSource = capture.audioSource,
+            modelPath = "vosk-model",
+            needsResample = capture.needsResample,
+        )
+        withContext(Dispatchers.Main) {
+            sttInputDevice.stopListening()
+            val started = sttInputDevice.tryLoad(::processInputEvent)
+            if (!started) {
+                endWakeSession("stt_not_ready")
+            }
+        }
+    }
+
+    private fun endWakeSession(reason: String) {
         if (wakeSessionActive.compareAndSet(true, false)) {
             skillContext.speechOutputDevice.runWhenFinishedSpeaking {
+                commandSession.endSession(reason)
                 WakeService.resumeAfterInteraction()
             }
         }
@@ -101,29 +139,63 @@ class SkillEvaluatorImpl(
         when (event) {
             is InputEvent.Error -> {
                 addErrorInteractionFromPending(event.throwable)
-                endWakeSession()
+                endWakeSession("error")
             }
             is InputEvent.Final -> {
+                val original = event.utterances[0].first
+                if (VietnameseTranscript.isTooWeakToSubmit(original)) {
+                    commandSession.onUnclear()
+                    withContext(Dispatchers.Main) {
+                        skillContext.speechOutputDevice.speak(
+                            skillContext.android.getString(R.string.carfu_state_unclear)
+                        )
+                    }
+                    endWakeSession("reject_noise")
+                    return
+                }
+                commandSession.onSpeechBegin()
+                commandSession.onFinalText(original)
+                val routed = CarfuCommandRouter.match(original)
+                if (routed != null) {
+                    commandSession.onIntentMatch(routed.skillId)
+                }
+                val forMatch = buildList {
+                    if (routed != null) {
+                        add(Pair(routed.canonicalVi, 1.0f))
+                    }
+                    event.utterances.forEach { (text, score) ->
+                        val folded = VietnameseTranscript.parse(text).folded
+                        add(Pair(folded.ifBlank { text }, score))
+                    }
+                }
                 _state.value = _state.value.copy(
                     pendingQuestion = PendingQuestion(
-                        userInput = event.utterances[0].first,
+                        userInput = original,
                         continuesLastInteraction = skillRanker.hasAnyBatches(),
                         skillBeingEvaluated = null,
                     )
                 )
-                evaluateMatchingSkill(event.utterances.map { it.first })
+                evaluateMatchingSkill(
+                    utterances = forMatch.map { it.first },
+                    displayInput = original,
+                    routedSkillId = routed?.skillId,
+                )
             }
             InputEvent.None -> {
                 _state.value = _state.value.copy(pendingQuestion = null)
-                endWakeSession()
+                commandSession.onUnclear()
+                withContext(Dispatchers.Main) {
+                    skillContext.speechOutputDevice.speak(
+                        skillContext.android.getString(R.string.carfu_state_unclear)
+                    )
+                }
+                endWakeSession("timeout_or_silence")
             }
             is InputEvent.Partial -> {
+                commandSession.onPartial(event.utterance)
                 _state.value = _state.value.copy(
                     pendingQuestion = PendingQuestion(
                         userInput = event.utterance,
-                        // the next input can be a continuation of the last interaction only if the
-                        // last skill invocation provided some skill batches (which are the only way
-                        // to continue an interaction/conversation)
                         continuesLastInteraction = skillRanker.hasAnyBatches(),
                         skillBeingEvaluated = null,
                     )
@@ -132,7 +204,11 @@ class SkillEvaluatorImpl(
         }
     }
 
-    private suspend fun evaluateMatchingSkill(utterances: List<String>) {
+    private suspend fun evaluateMatchingSkill(
+        utterances: List<String>,
+        displayInput: String = utterances.firstOrNull().orEmpty(),
+        routedSkillId: String? = null,
+    ) {
         val (chosenInput, chosenSkill) = try {
             utterances.firstNotNullOfOrNull { input: String ->
                 skillContext.standardMatchHelper = MatchHelper(skillContext.parserFormatter, input)
@@ -142,7 +218,7 @@ class SkillEvaluatorImpl(
             } ?: Pair(utterances[0], skillRanker.getFallbackSkill(skillContext, utterances[0]))
         } catch (throwable: Throwable) {
             addErrorInteractionFromPending(throwable)
-            endWakeSession()
+            endWakeSession("skill_match_error")
             return
         } finally {
             // standardMatchHelper only needs to be set while calling score() on skills, so once
@@ -151,10 +227,11 @@ class SkillEvaluatorImpl(
             skillContext.standardMatchHelper = null
         }
         val skillInfo = chosenSkill.skill.correspondingSkillInfo
+        commandSession.onIntentMatch(routedSkillId ?: skillInfo.id)
 
         _state.value = _state.value.copy(
             pendingQuestion = PendingQuestion(
-                userInput = chosenInput,
+                userInput = displayInput,
                 // the skill ranker would have discarded all batches, if the chosen skill was not
                 // the continuation of the last interaction (since continuing an
                 // interaction/conversation is done through the stack of batches)
@@ -168,7 +245,7 @@ class SkillEvaluatorImpl(
             if (permissions.isNotEmpty() && !permissionRequester(permissions)) {
                 // permissions were not granted, show message
                 addInteractionFromPending(MissingPermissionsSkillOutput(skillInfo))
-                endWakeSession()
+                endWakeSession("missing_permissions")
                 return
             }
 
@@ -178,12 +255,15 @@ class SkillEvaluatorImpl(
 
             val interactionPlan = output.getInteractionPlan(skillContext)
             addInteractionFromPending(output)
-            output.getSpeechOutput(skillContext).let {
-                if (it.isNotBlank()) {
-                    withContext (Dispatchers.Main) {
-                        skillContext.speechOutputDevice.speak(it)
-                    }
+            val speech = output.getSpeechOutput(skillContext)
+            if (speech.isNotBlank()) {
+                commandSession.onReply(speech)
+                withContext(Dispatchers.Main) {
+                    commandSession.onTtsStarted()
+                    skillContext.speechOutputDevice.speak(speech)
                 }
+            } else {
+                commandSession.onReply("")
             }
 
             when (interactionPlan) {
@@ -208,18 +288,18 @@ class SkillEvaluatorImpl(
 
             if (interactionPlan.reopenMicrophone) {
                 skillContext.speechOutputDevice.runWhenFinishedSpeaking {
-                    val started = sttInputDevice.tryLoad(this::processInputEvent)
-                    if (!started) {
-                        endWakeSession()
+                    scope.launch {
+                        commandSession.onTtsCompleted()
+                        startCommandListening("reopen")
                     }
                 }
             } else {
-                endWakeSession()
+                endWakeSession("complete")
             }
 
         } catch (throwable: Throwable) {
             addErrorInteractionFromPending(throwable)
-            endWakeSession()
+            endWakeSession("skill_error")
             return
         }
     }
@@ -271,7 +351,8 @@ class SkillEvaluatorModule {
         skillContext: SkillContextInternal,
         skillHandler: SkillHandler,
         sttInputDevice: SttInputDeviceWrapper,
+        commandSession: CommandSession,
     ): SkillEvaluator {
-        return SkillEvaluatorImpl(skillContext, skillHandler, sttInputDevice)
+        return SkillEvaluatorImpl(skillContext, skillHandler, sttInputDevice, commandSession)
     }
 }
