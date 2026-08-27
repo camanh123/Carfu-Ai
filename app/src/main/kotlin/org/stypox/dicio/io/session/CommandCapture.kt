@@ -1,6 +1,5 @@
 package org.stypox.dicio.io.session
 
-import android.util.Log
 import org.vosk.android.RecognitionListener
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
@@ -117,7 +116,7 @@ class CommandCaptureCoordinator(
                 path = CommandCapturePath.DIRECT
                 directRunning.set(true)
                 fallbackRunning.set(false)
-                Log.i(
+                CarfuLog.i(
                     CommandSession.TAG,
                     "COMMAND_CAPTURE path=DIRECT rate=${AudioCaptureConfig.MODEL_RATE_HZ} resample=false",
                 )
@@ -125,7 +124,7 @@ class CommandCaptureCoordinator(
             }
             direct.shutdown()
             directRunning.set(false)
-            Log.w(CommandSession.TAG, "native 16kHz SpeechService start failed, using fallback capture")
+            CarfuLog.w(CommandSession.TAG, "native 16kHz SpeechService start failed, using fallback capture")
         }
 
         if (direct.isRunning()) {
@@ -138,7 +137,7 @@ class CommandCaptureCoordinator(
             running.set(false)
             path = CommandCapturePath.NONE
             val error = IOException("command-capture: no usable microphone rate")
-            Log.e(CommandSession.TAG, "COMMAND_CAPTURE_ERROR no usable microphone rate")
+            CarfuLog.e(CommandSession.TAG, "COMMAND_CAPTURE_ERROR no usable microphone rate")
             return CommandCaptureStartResult.Failed(error)
         }
 
@@ -171,7 +170,7 @@ class CommandCaptureCoordinator(
             }
         }
 
-        Log.i(
+        CarfuLog.i(
             CommandSession.TAG,
             "COMMAND_CAPTURE path=FALLBACK rate=${session.rateHz} " +
                 "bufferSize=${session.bufferBytes} resample=true",
@@ -202,7 +201,7 @@ class CommandCaptureCoordinator(
     private fun feedFallbackPcm(samples: ShortArray, length: Int) {
         if (!running.get() || !fallbackRunning.get()) return
         if (direct.isRunning()) {
-            Log.e(CommandSession.TAG, "COMMAND_CAPTURE_ERROR direct and fallback both running")
+            CarfuLog.e(CommandSession.TAG, "COMMAND_CAPTURE_ERROR direct and fallback both running")
             stop()
             return
         }

@@ -3,7 +3,6 @@ package org.stypox.dicio.io.session
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.util.Log
 
 /**
  * Detects a usable [AudioRecord] configuration on UIS7862 / generic Android.
@@ -42,7 +41,7 @@ data class AudioCaptureConfig(
         ): AudioCaptureConfig {
             if (isNative16kHzSupported(probe)) {
                 val minBuf = probe.minBufferBytes(MODEL_RATE_HZ).coerceAtLeast(2048)
-                Log.i(TAG, "supportedRates native=16000 source=$audioSource")
+                CarfuLog.i(TAG, "supportedRates native=16000 source=$audioSource")
                 return AudioCaptureConfig(
                     captureRateHz = MODEL_RATE_HZ,
                     modelRateHz = MODEL_RATE_HZ,
@@ -53,7 +52,7 @@ data class AudioCaptureConfig(
             }
 
             val fallback = firstSupportedFallback(probe)
-            Log.i(
+            CarfuLog.i(
                 TAG,
                 "supportedRates native=none fallback=${fallback?.captureRateHz} source=$audioSource",
             )
