@@ -104,7 +104,7 @@ class WakeAcceptancePolicyTest : StringSpec({
         val clock = mutableListOf(1_000L)
         val policy = primedPolicy(clock)
         policy.markPostAssistantTtsCooldown()
-        clock[0] = 1_000L + WakeAcceptancePolicy.POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS - 1
+        clock[0] += WakeAcceptancePolicy.POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS - 1
         policy.onCooldownElapsed()
         policy.evaluate(true, CommandSessionPhase.IDLE_WAKE) shouldBe
             WakeAcceptancePolicy.Verdict.DISCARD_COOLDOWN
@@ -114,7 +114,7 @@ class WakeAcceptancePolicyTest : StringSpec({
         val clock = mutableListOf(1_000L)
         val policy = primedPolicy(clock)
         policy.markPostAssistantTtsCooldown()
-        clock[0] = 1_000L + WakeAcceptancePolicy.POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS
+        clock[0] += WakeAcceptancePolicy.POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS
         policy.onCooldownElapsed()
         policy.onRecorderStarted()
         clock[0] += WakeAcceptancePolicy.RECORDER_WARMUP_MS

@@ -46,6 +46,10 @@ class WakeAcceptancePolicy(
         consecutiveHits = 0
         paused = false
         lastProcessedGeneration = -1
+        if (!isCooldownActive()) {
+            sessionRefractory = false
+            gateOpen = true
+        }
     }
 
     fun onRepairRecreatedRecorder() {
@@ -110,13 +114,13 @@ class WakeAcceptancePolicy(
         commandCaptureActive: Boolean = false,
         frameRecorderGeneration: Int? = recorderGeneration,
     ): Verdict {
-        if (paused || sessionRefractory) {
-            consecutiveHits = 0
-            return Verdict.DISCARD_PAUSED
-        }
         if (isCooldownActive()) {
             consecutiveHits = 0
             return Verdict.DISCARD_COOLDOWN
+        }
+        if (paused || sessionRefractory) {
+            consecutiveHits = 0
+            return Verdict.DISCARD_PAUSED
         }
         if (isWarmupActive()) {
             consecutiveHits = 0
