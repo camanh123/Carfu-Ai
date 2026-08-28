@@ -30,10 +30,10 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
     var now = 1_000_000L
     var timer: CarfuPersistedAlarm? = null
     var reminder: CarfuPersistedAlarm? = null
-    var backgroundWakeEnabled = true
+    var wakePolicyEnabled = true
     var wakeStarted = 0
     var wakeStopped = 0
-    var torch = false
+    var torchAvailable = false
     var torchOn: Boolean? = null
     var mediaOk = true
     var volumeOk = true
@@ -126,7 +126,7 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
     override fun loadReminder(): CarfuPersistedAlarm? = reminder
 
     override fun setBackgroundWakeEnabled(enabled: Boolean) {
-        backgroundWakeEnabled = enabled
+        wakePolicyEnabled = enabled
     }
 
     override fun startWakeService() {
@@ -137,10 +137,10 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
         wakeStopped += 1
     }
 
-    override fun hasTorch(): Boolean = torch
+    override fun hasTorch(): Boolean = torchAvailable
 
     override fun setTorch(on: Boolean): Boolean {
-        if (!torch) return false
+        if (!torchAvailable) return false
         torchOn = on
         return true
     }
@@ -340,7 +340,7 @@ class CarfuVietnameseSkillExecutorTest : StringSpec({
         val stop = production("Tắt nghe nền", platform).second
         stop.speechVi shouldContain "Đã tắt nghe nền"
         stop.resumeWakeAfter.shouldBeFalse()
-        platform.backgroundWakeEnabled.shouldBeFalse()
+        platform.wakePolicyEnabled.shouldBeFalse()
         platform.wakeStopped shouldBe 0
         stop.afterTts.shouldNotBeNull()
         stop.afterTts!!.invoke()
@@ -348,7 +348,7 @@ class CarfuVietnameseSkillExecutorTest : StringSpec({
 
         val start = production("Bật nghe nền", platform).second
         start.actionTaken.shouldBeTrue()
-        platform.backgroundWakeEnabled.shouldBeTrue()
+        platform.wakePolicyEnabled.shouldBeTrue()
         platform.wakeStarted shouldBe 1
     }
 
@@ -392,7 +392,7 @@ class CarfuVietnameseSkillExecutorTest : StringSpec({
     }
 
     "flashlight without hardware does not claim success" {
-        val platform = FakeCarfuPlatform().apply { torch = false }
+        val platform = FakeCarfuPlatform().apply { torchAvailable = false }
         val result = production("Bật đèn pin", platform).second
         result.actionTaken.shouldBeFalse()
         result.speechVi shouldBe "Thiết bị này không có đèn pin."
