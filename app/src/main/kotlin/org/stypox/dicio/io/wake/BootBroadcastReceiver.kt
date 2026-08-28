@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.settings.datastore.UserSettings
+import org.stypox.dicio.skills.carfu.CarfuAlarmStore
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -28,6 +29,8 @@ class BootBroadcastReceiver : BroadcastReceiver() {
         if (!BackgroundWakePolicy.isBootAction(intent.action)) {
             return
         }
+
+        CarfuAlarmStore.restoreAll(context)
 
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {

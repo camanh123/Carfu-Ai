@@ -22,13 +22,19 @@ import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.io.graphical.ErrorSkillOutput
 import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
 import org.stypox.dicio.io.input.InputEvent
+import androidx.datastore.core.DataStore
 import org.stypox.dicio.io.session.AudioCaptureConfig
 import org.stypox.dicio.io.session.CarfuCommandRouter
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
+import org.stypox.dicio.io.session.RoutedCommand
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.wake.WakeService
+import org.stypox.dicio.settings.datastore.UserSettings
+import org.stypox.dicio.skills.carfu.AndroidCarfuSkillPlatform
+import org.stypox.dicio.skills.carfu.CarfuSpeechOutput
+import org.stypox.dicio.skills.carfu.CarfuVietnameseSkillExecutor
 import org.stypox.dicio.ui.home.Interaction
 import org.stypox.dicio.ui.home.InteractionLog
 import org.stypox.dicio.ui.home.PendingQuestion
@@ -55,10 +61,14 @@ class SkillEvaluatorImpl(
     private val skillHandler: SkillHandler,
     private val sttInputDevice: SttInputDeviceWrapper,
     private val commandSession: CommandSession,
+    userSettings: DataStore<UserSettings>,
 ) : SkillEvaluator {
 
     private val scope = CoroutineScope(Dispatchers.Default)
     private val wakeSessionActive = AtomicBoolean(false)
+    private val skillExecutor = CarfuVietnameseSkillExecutor(
+        AndroidCarfuSkillPlatform(skillContext.android, userSettings),
+    )
 
     private val skillRanker: SkillRanker
         get() = skillHandler.skillRanker.value
@@ -168,6 +178,40 @@ class SkillEvaluatorImpl(
         }
     }
 
+    private fun finishSessionWithoutWakeResume(reason: String) {
+        if (wakeSessionActive.compareAndSet(true, false)) {
+            commandSession.endSession(reason)
+        }
+    }
+
+    private suspend fun executeRoutedCommand(routed: RoutedCommand) {
+        val result = try {
+            withContext(Dispatchers.IO) {
+                skillExecutor.execute(routed)
+            }
+        } catch (throwable: Throwable) {
+            addErrorInteractionFromPending(throwable)
+            endWakeSession("skill_error")
+            return
+        }
+        addInteractionFromPending(CarfuSpeechOutput(result.speechVi))
+        commandSession.onReply(result.speechVi)
+        withContext(Dispatchers.Main) {
+            if (result.speechVi.isNotBlank()) {
+                commandSession.onTtsStarted()
+                skillContext.speechOutputDevice.speak(result.speechVi)
+            }
+            skillContext.speechOutputDevice.runWhenFinishedSpeaking {
+                result.afterTts?.invoke()
+                if (result.resumeWakeAfter) {
+                    endWakeSession("complete")
+                } else {
+                    finishSessionWithoutWakeResume("listening_disabled")
+                }
+            }
+        }
+    }
+
     private suspend fun suspendProcessInputEvent(event: InputEvent) {
         when (event) {
             is InputEvent.Error -> {
@@ -191,15 +235,19 @@ class SkillEvaluatorImpl(
                 val routed = CarfuCommandRouter.match(original)
                 if (routed != null) {
                     commandSession.onIntentMatch(routed.skillId)
+                    _state.value = _state.value.copy(
+                        pendingQuestion = PendingQuestion(
+                            userInput = original,
+                            continuesLastInteraction = false,
+                            skillBeingEvaluated = null,
+                        )
+                    )
+                    executeRoutedCommand(routed)
+                    return
                 }
-                val forMatch = buildList {
-                    if (routed != null) {
-                        add(Pair(routed.canonicalVi, 1.0f))
-                    }
-                    event.utterances.forEach { (text, score) ->
-                        val folded = VietnameseTranscript.parse(text).folded
-                        add(Pair(folded.ifBlank { text }, score))
-                    }
+                val forMatch = event.utterances.map { (text, _) ->
+                    val folded = VietnameseTranscript.parse(text).folded
+                    folded.ifBlank { text }
                 }
                 _state.value = _state.value.copy(
                     pendingQuestion = PendingQuestion(
@@ -209,9 +257,9 @@ class SkillEvaluatorImpl(
                     )
                 )
                 evaluateMatchingSkill(
-                    utterances = forMatch.map { it.first },
+                    utterances = forMatch,
                     displayInput = original,
-                    routedSkillId = routed?.skillId,
+                    routedSkillId = null,
                 )
             }
             InputEvent.None -> {
@@ -385,7 +433,14 @@ class SkillEvaluatorModule {
         skillHandler: SkillHandler,
         sttInputDevice: SttInputDeviceWrapper,
         commandSession: CommandSession,
+        userSettings: DataStore<UserSettings>,
     ): SkillEvaluator {
-        return SkillEvaluatorImpl(skillContext, skillHandler, sttInputDevice, commandSession)
+        return SkillEvaluatorImpl(
+            skillContext,
+            skillHandler,
+            sttInputDevice,
+            commandSession,
+            userSettings,
+        )
     }
 }

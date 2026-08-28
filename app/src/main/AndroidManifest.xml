@@ -133,6 +133,10 @@
         </service>
 
         <receiver
+            android:name=".skills.carfu.CarfuAlarmReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".io.wake.BootBroadcastReceiver"
             android:exported="true">
             <intent-filter>

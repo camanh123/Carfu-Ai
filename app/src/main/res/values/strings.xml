@@ -324,4 +324,12 @@
     <string name="about_privacy_title">Privacy policy</string>
     <string name="about_privacy_description">Dicio connects to external services only when a skill is expected to do so, or to download machine learning models during setup. All speech processing is performed locally on-device, and most skills can be used offline.</string>
     <string name="about_privacy_link" translatable="false">https://stypox.org/dicio-privacy-policy.html</string>
+    <string name="carfu_skill_status_working">Hoạt động</string>
+    <string name="carfu_skill_status_need_permission">Cần cấp quyền</string>
+    <string name="carfu_skill_status_need_internet">Cần Internet</string>
+    <string name="carfu_skill_status_unsupported">Không hỗ trợ trên thiết bị này</string>
+    <string name="carfu_skill_status_not_implemented">Chưa triển khai</string>
+    <string name="carfu_alarm_channel">Timers and reminders</string>
+    <string name="carfu_timer_fired">Timer finished</string>
+    <string name="carfu_reminder_fired">Reminder</string>
 </resources>

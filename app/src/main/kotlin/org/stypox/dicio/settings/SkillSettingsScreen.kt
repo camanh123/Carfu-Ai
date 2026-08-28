@@ -52,17 +52,16 @@ import org.stypox.dicio.R
 import org.stypox.dicio.di.SkillContextImpl
 import org.stypox.dicio.eval.SkillHandler
 import org.stypox.dicio.settings.datastore.UserSettingsModule.Companion.newDataStoreForPreviews
+import org.stypox.dicio.skills.carfu.CarfuSkillCatalog
+import org.stypox.dicio.skills.carfu.CarfuSkillUiStatus
 import org.stypox.dicio.skills.lyrics.LyricsInfo
 import org.stypox.dicio.skills.search.SearchInfo
 import org.stypox.dicio.skills.weather.WeatherInfo
 import org.stypox.dicio.ui.theme.AppTheme
 import org.stypox.dicio.ui.util.SkillInfoPreviews
-import org.stypox.dicio.util.ShareUtils
 import org.stypox.dicio.util.getNonGrantedPermissions
 import org.stypox.dicio.util.commaJoinPermissions
 import org.stypox.dicio.util.requestAnyPermission
-
-const val DICIO_NUMBERS_LINK = "https://github.com/Stypox/dicio-numbers"
 
 @Composable
 fun SkillSettingsScreen(
@@ -89,38 +88,23 @@ fun SkillSettingsScreen(
 ) {
     val skills = viewModel.skills
     val enabledSkills by viewModel.enabledSkills.collectAsState()
+    val context = LocalContext.current
+    val catalog = CarfuSkillCatalog.visibleRows(context)
+    val skillsById = skills.associateBy { it.id }
 
     LazyColumn(
         contentPadding = PaddingValues(top = 4.dp, bottom = 4.dp),
         modifier = modifier,
     ) {
-        if (viewModel.numberLibraryNotAvailable) {
-            item {
-                val context = LocalContext.current
-                Card(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    onClick = { ShareUtils.openUrlInBrowser(context, DICIO_NUMBERS_LINK) },
-                ) {
-                    Text(
-                        text = stringResource(R.string.pref_skill_number_library_not_available),
-                        textAlign = TextAlign.Center,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    )
-                }
-            }
-        }
-        items(skills) { skill ->
-            // Note: calling build() here is slightly wasteful as it constructs a skill object
-            // just to check availability, but it ensures correct results regardless of whether
-            // the skill is enabled or disabled by the user.
+        items(catalog, key = { it.id }) { row ->
+            val skill = skillsById[row.id] ?: return@items
             SkillSettingsItem(
                 skill = skill,
-                isAvailable = skill.build(viewModel.skillContext) != null,
+                isAvailable = row.status != CarfuSkillUiStatus.NOT_IMPLEMENTED &&
+                    row.status != CarfuSkillUiStatus.UNSUPPORTED,
                 enabled = enabledSkills.getOrDefault(skill.id, true),
-                setEnabled = { enabled -> viewModel.setSkillEnabled(skill.id, enabled) }
+                setEnabled = { enabled -> viewModel.setSkillEnabled(skill.id, enabled) },
+                statusText = stringResource(CarfuSkillCatalog.statusStringRes(row.status)),
             )
         }
     }
@@ -132,6 +116,7 @@ fun SkillSettingsItem(
     isAvailable: Boolean,
     enabled: Boolean,
     setEnabled: (Boolean) -> Unit,
+    statusText: String? = null,
 ) {
     var expanded by rememberSaveable { mutableStateOf(false) }
     SkillSettingsItem(
@@ -141,6 +126,7 @@ fun SkillSettingsItem(
         setEnabled = setEnabled,
         expanded = expanded,
         toggleExpanded = { expanded = !expanded },
+        statusText = statusText,
     )
 }
 
@@ -152,6 +138,7 @@ fun SkillSettingsItem(
     setEnabled: (Boolean) -> Unit,
     expanded: Boolean,
     toggleExpanded: () -> Unit,
+    statusText: String? = null,
 ) {
     val canExpand = isAvailable && (
         skill.renderSettings != null || skill.neededPermissions.isNotEmpty()
@@ -172,7 +159,18 @@ fun SkillSettingsItem(
             isAvailable = isAvailable,
         )
 
-        if (!isAvailable) {
+        if (statusText != null) {
+            Text(
+                text = statusText,
+                textAlign = TextAlign.Start,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+            )
+        }
+
+        if (!isAvailable && statusText == null) {
             Text(
                 text = stringResource(R.string.pref_skill_not_available),
                 textAlign = TextAlign.Center,
@@ -181,8 +179,7 @@ fun SkillSettingsItem(
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
             )
-
-        } else if (expanded) {
+        } else if (expanded && isAvailable) {
             if (skill.neededPermissions.isNotEmpty()) {
                 SkillSettingsItemPermissionLine(
                     skill = skill,
