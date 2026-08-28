@@ -5,7 +5,6 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
-import android.util.Log
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -95,7 +94,7 @@ class CommandSession @Inject constructor(
 
     fun onPartial(text: String) {
         _ui.value = _ui.value.copy(partial = text, elapsedMs = machine.elapsedMs)
-        log("PARTIAL_TEXT")
+        log("PARTIAL_TEXT text=${text.take(80)}")
     }
 
     fun onFinalText(original: String) {
@@ -107,7 +106,7 @@ class CommandSession @Inject constructor(
             unclear = false,
             elapsedMs = machine.elapsedMs,
         )
-        log("FINAL_TEXT")
+        log("FINAL_TEXT text=${original.take(80)}")
         log("SPEECH_END")
     }
 
@@ -146,7 +145,7 @@ class CommandSession @Inject constructor(
             partial = null,
             elapsedMs = 0,
         )
-        log("WAKE_ENGINE_RESUMED")
+        log("WAKE_RESUME_SCHEDULED")
     }
 
     fun canStartCommandRecognition(): Boolean = machine.canStartCommandRecognition()
@@ -201,7 +200,7 @@ class CommandSession @Inject constructor(
     }
 
     private fun log(message: String) {
-        Log.i(TAG, message)
+        CarfuLog.i(TAG, "session=${machine.sessionId} phase=${machine.phase} $message")
     }
 
     companion object {

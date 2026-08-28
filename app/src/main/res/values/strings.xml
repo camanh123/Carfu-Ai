@@ -111,6 +111,14 @@
     <string name="carfu_action_call">Gọi điện</string>
     <string name="carfu_action_apps">Ứng dụng</string>
     <string name="carfu_action_volume">Âm lượng</string>
+    <string name="carfu_music_not_found">Không tìm thấy ứng dụng nghe nhạc</string>
+    <string name="carfu_volume_failed">Không điều chỉnh được âm lượng</string>
+    <string name="carfu_volume_down">Giảm</string>
+    <string name="carfu_volume_up">Tăng</string>
+    <string name="carfu_volume_mute">Tắt tiếng</string>
+    <string name="carfu_volume_unmute">Bật lại</string>
+    <string name="carfu_probe_copy_log">Sao chép nhật ký</string>
+    <string name="carfu_probe_copied">Đã sao chép nhật ký</string>
     <string name="carfu_status_offline">Offline</string>
     <string name="carfu_status_online">Online</string>
     <string name="carfu_mic_ready">Mic sẵn sàng</string>

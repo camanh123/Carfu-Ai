@@ -11,6 +11,7 @@ internal object CarfuLog {
             Log.i(tag, message)
         } catch (_: Throwable) {
         }
+        CarfuDiag.record(tag, message)
     }
 
     fun w(tag: String, message: String) {
@@ -18,6 +19,7 @@ internal object CarfuLog {
             Log.w(tag, message)
         } catch (_: Throwable) {
         }
+        CarfuDiag.record(tag, message)
     }
 
     fun e(tag: String, message: String) {
@@ -25,5 +27,6 @@ internal object CarfuLog {
             Log.e(tag, message)
         } catch (_: Throwable) {
         }
+        CarfuDiag.record(tag, message)
     }
 }

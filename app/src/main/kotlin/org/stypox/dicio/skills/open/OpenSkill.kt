@@ -50,8 +50,10 @@ class OpenSkill(correspondingSkillInfo: SkillInfo, data: StandardRecognizerData<
                 "com.google.android.apps.maps",
             ),
             setOf("musicloop", "music loop") to listOf(
+                "com.musicloop.car",
                 "com.musicloop",
                 "com.carfu.musicloop",
+                "com.syu.music",
             ),
         )
 

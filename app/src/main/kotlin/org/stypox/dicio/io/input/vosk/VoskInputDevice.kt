@@ -51,6 +51,7 @@ import org.stypox.dicio.io.input.vosk.VoskState.NotLoaded
 import org.stypox.dicio.io.input.vosk.VoskState.Unzipping
 import org.stypox.dicio.io.session.AndroidFallbackPcmCapture
 import org.stypox.dicio.io.session.AudioCaptureConfig
+import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CommandCaptureCoordinator
 import org.stypox.dicio.io.session.CommandCaptureStartResult
 import org.stypox.dicio.io.session.CommandSession
@@ -243,7 +244,19 @@ class VoskInputDevice(
             stopListening(s.eventListener, false)
             startListening(s.speechService, s.recognizer, thenStartListeningEventListener)
             return true
+        } else if (thenStartListeningEventListener != null && s is Loading) {
+            _state.compareAndSet(s, Loading(thenStartListeningEventListener))
+            CarfuLog.i(
+                CommandSession.TAG,
+                "tryLoad while Loading modelDir=${modelDirectory.absolutePath} will_start=true",
+            )
+            return true
         } else {
+            CarfuLog.w(
+                CommandSession.TAG,
+                "tryLoad rejected state=${s::class.simpleName} " +
+                    "modelDir=${modelDirectory.absolutePath} ivector=${modelExistFileCheck.exists()}",
+            )
             return false
         }
     }
@@ -487,15 +500,32 @@ class VoskInputDevice(
     private fun startListening(
         speechService: SpeechService?,
         recognizer: Recognizer,
-        eventListener: (InputEvent) -> Unit,
+        eventListener: ((InputEvent) -> Unit),
     ) {
         activeCapture?.stop()
         activeCapture = null
 
+        var service = speechService
+        if (service == null && AudioCaptureConfig.isNative16kHzSupported()) {
+            try {
+                service = SpeechService(recognizer, SAMPLE_RATE)
+                CarfuLog.i(
+                    CommandSession.TAG,
+                    "SPEECH_SERVICE_RETRY success after wake release " +
+                        "recognizerRate=$SAMPLE_RATE model=${modelDirectory.absolutePath}",
+                )
+            } catch (e: Exception) {
+                CarfuLog.w(
+                    CommandSession.TAG,
+                    "SPEECH_SERVICE_RETRY failed ${e.javaClass.simpleName}",
+                )
+            }
+        }
+
         val listener = VoskListener(this, eventListener, silencesBeforeStop.value)
         val coordinator = CommandCaptureCoordinator(
             direct = SpeechServiceDirectCapture(
-                speechService,
+                service,
                 CommandSession.COMMAND_LISTEN_TIMEOUT_MS,
             ),
             fallback = AndroidFallbackPcmCapture(),
@@ -507,30 +537,30 @@ class VoskInputDevice(
         val result = coordinator.start(listener)
         when (result) {
             is CommandCaptureStartResult.Direct -> {
-                Log.i(
+                CarfuLog.i(
                     CommandSession.TAG,
-                    "Vosk startListening path=DIRECT sampleRate=$SAMPLE_RATE " +
-                        "model=${modelDirectory.absolutePath}",
+                    "COMMAND_AUDIO_STARTED path=A captureRate=$SAMPLE_RATE " +
+                        "recognizerRate=$SAMPLE_RATE model=${modelDirectory.absolutePath} " +
+                        "ivector=${modelExistFileCheck.exists()}",
                 )
-                _state.value = Listening(speechService, recognizer, eventListener)
+                _state.value = Listening(service, recognizer, eventListener)
             }
             is CommandCaptureStartResult.Fallback -> {
-                Log.i(
+                CarfuLog.i(
                     CommandSession.TAG,
-                    "Vosk startListening path=FALLBACK captureRate=${result.rateHz} " +
-                        "bufferSize=${result.bufferBytes} resample=true " +
+                    "COMMAND_AUDIO_STARTED path=B captureRate=${result.rateHz} " +
+                        "recognizerRate=$SAMPLE_RATE resample=true " +
                         "model=${modelDirectory.absolutePath}",
                 )
                 _state.value = Listening(null, recognizer, eventListener)
             }
             is CommandCaptureStartResult.Failed -> {
                 activeCapture = null
-                Log.e(
+                CarfuLog.e(
                     CommandSession.TAG,
                     "COMMAND_CAPTURE_ERROR ${result.cause.message}",
-                    result.cause,
                 )
-                _state.value = Loaded(null, recognizer)
+                _state.value = Loaded(service, recognizer)
                 eventListener(InputEvent.Error(result.cause))
             }
         }

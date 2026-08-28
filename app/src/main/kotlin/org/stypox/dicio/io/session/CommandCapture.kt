@@ -88,6 +88,7 @@ class CommandCaptureCoordinator(
         private set
     var recognizerAccepts: Int = 0
         private set
+    private var firstPcmLogged = false
 
     private var fallbackSession: FallbackCaptureSession? = null
     private var resampler: StreamingPcmResampler? = null
@@ -105,6 +106,7 @@ class CommandCaptureCoordinator(
         running.set(true)
         resampleInvocations = 0
         recognizerAccepts = 0
+        firstPcmLogged = false
 
         if (direct.isAvailable()) {
             val started = try {
@@ -116,9 +118,10 @@ class CommandCaptureCoordinator(
                 path = CommandCapturePath.DIRECT
                 directRunning.set(true)
                 fallbackRunning.set(false)
+                firstPcmLogged = false
                 CarfuLog.i(
                     CommandSession.TAG,
-                    "COMMAND_CAPTURE path=DIRECT rate=${AudioCaptureConfig.MODEL_RATE_HZ} resample=false",
+                    "COMMAND_CAPTURE path=A rate=${AudioCaptureConfig.MODEL_RATE_HZ} resample=false",
                 )
                 return CommandCaptureStartResult.Direct
             }
@@ -172,7 +175,7 @@ class CommandCaptureCoordinator(
 
         CarfuLog.i(
             CommandSession.TAG,
-            "COMMAND_CAPTURE path=FALLBACK rate=${session.rateHz} " +
+            "COMMAND_CAPTURE path=B rate=${session.rateHz} " +
                 "bufferSize=${session.bufferBytes} resample=true",
         )
         return CommandCaptureStartResult.Fallback(session.rateHz, session.bufferBytes)
@@ -204,6 +207,10 @@ class CommandCaptureCoordinator(
             CarfuLog.e(CommandSession.TAG, "COMMAND_CAPTURE_ERROR direct and fallback both running")
             stop()
             return
+        }
+        if (!firstPcmLogged && length > 0) {
+            firstPcmLogged = true
+            CarfuLog.i(CommandSession.TAG, "FIRST_PCM received=true via=fallback length=$length")
         }
         val streamResampler = resampler ?: return
         var output = outBuf

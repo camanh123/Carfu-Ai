@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import org.stypox.dicio.io.session.CarfuLog
+import org.stypox.dicio.io.wake.WakeAcceptancePolicy
 import org.stypox.dicio.io.wake.WakeDevice
 import org.stypox.dicio.io.wake.WakeState
 import org.stypox.dicio.ui.util.Progress
@@ -119,8 +121,21 @@ class OpenWakeWordDevice(
             audio[i] = audio16bitPcm[i].toFloat() / 32768.0f
         }
 
-        val threshold = if (userWakeFileExists) CUSTOM_WAKE_THRESHOLD else CARFU_WAKE_THRESHOLD
-        return model!!.processFrame(audio) > threshold
+        val threshold = if (userWakeFileExists) {
+            WakeAcceptancePolicy.CUSTOM_WAKE_THRESHOLD
+        } else {
+            WakeAcceptancePolicy.CARFU_WAKE_THRESHOLD
+        }
+        val score = model!!.processFrame(audio)
+        if (score >= 0.40f) {
+            CarfuLog.i(
+                "CarfuWake",
+                "score=${"%.3f".format(score)} threshold=$threshold " +
+                    "range=[${WakeAcceptancePolicy.SCORE_RANGE_MIN}," +
+                    "${WakeAcceptancePolicy.SCORE_RANGE_MAX}]",
+            )
+        }
+        return score > threshold
     }
 
     override fun frameSize(): Int {
@@ -187,8 +202,6 @@ class OpenWakeWordDevice(
         const val MEL_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.tflite"
         const val EMB_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.tflite"
         const val WAKE_MODEL_FILENAME = "carfu.tflite"
-        private const val CARFU_WAKE_THRESHOLD = 0.65f
-        private const val CUSTOM_WAKE_THRESHOLD = 0.8f
 
         private fun userWakeFile(context: Context) =
             File(context.filesDir, "openWakeWord/userwake.tflite")

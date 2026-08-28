@@ -14,6 +14,7 @@ object FytPackages {
     val mediaRadio = listOf(
         "com.syu.radio",
         "com.syu.music",
+        "com.musicloop.car",
         "com.zing.mp3",
         "com.google.android.youtube",
     )

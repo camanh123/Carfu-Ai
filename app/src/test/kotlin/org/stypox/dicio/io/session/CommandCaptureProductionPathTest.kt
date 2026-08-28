@@ -408,4 +408,52 @@ class CommandCaptureProductionPathTest : StringSpec({
         coordinator.isFallbackRunning().shouldBeFalse()
         coordinator.isDirectRunning().shouldBeFalse()
     }
+
+    "12 native device support selects Path A" {
+        AudioCaptureConfig.isNative16kHzSupported { 2048 }.shouldBeTrue()
+        val direct = FakeDirectCapture(available = true, startSucceeds = true)
+        val coordinator = CommandCaptureCoordinator(
+            direct,
+            FakeFallbackPcmCapture(probe = { 4096 }),
+            FakeRecognizerAdapter(),
+        )
+        coordinator.start(FakeRecognitionListener()) shouldBe CommandCaptureStartResult.Direct
+        coordinator.path shouldBe CommandCapturePath.DIRECT
+    }
+
+    "13 command PCM reaches Vosk on the fallback path" {
+        val fallback = FakeFallbackPcmCapture(probe = { 4096 })
+        val recognizer = FakeRecognizerAdapter()
+        val coordinator = CommandCaptureCoordinator(
+            FakeDirectCapture(available = false),
+            fallback,
+            recognizer,
+        )
+        coordinator.start(FakeRecognitionListener())
+        fallback.session!!.emit(ShortArray(480) { 2 })
+        coordinator.recognizerAccepts shouldBeGreaterThan 0
+        recognizer.accepted.isEmpty().shouldBeFalse()
+    }
+
+    "14 Vietnamese partial and final transcript propagate" {
+        val fallback = FakeFallbackPcmCapture(probe = { 4096 })
+        val recognizer = FakeRecognizerAdapter().apply {
+            partial = """{"partial":"mở you"}"""
+            result = """{"text":"mở youtube"}"""
+        }
+        val listener = FakeRecognitionListener()
+        val coordinator = CommandCaptureCoordinator(
+            FakeDirectCapture(available = false),
+            fallback,
+            recognizer,
+        )
+        coordinator.start(listener)
+        fallback.session!!.emit(ShortArray(480) { 1 })
+        listener.partials.single() shouldBe """{"partial":"mở you"}"""
+        recognizer.nextIsFinal = true
+        fallback.session!!.emit(ShortArray(480) { 1 })
+        listener.results.single() shouldBe """{"text":"mở youtube"}"""
+        CarfuCommandRouter.match("mở youtube")!!.intent shouldBe CarfuIntent.OPEN_YOUTUBE
+        VietnameseTranscript.isTooWeakToSubmit("mở youtube").shouldBeFalse()
+    }
 })

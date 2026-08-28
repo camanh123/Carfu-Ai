@@ -78,4 +78,30 @@ class CommandSessionMachineTest : StringSpec({
         m.onCommandAudioStarted()
         m.phase shouldBe CommandSessionPhase.COMMAND_LISTENING
     }
+
+    "10 command STT starts once after TTS onDone" {
+        val m = CommandSessionMachine()
+        var starts = 0
+        m.onWakeDetected()
+        m.onTtsStarted()
+        if (m.canStartCommandRecognition()) starts += 1
+        m.onTtsCompleted()
+        if (m.canStartCommandRecognition()) starts += 1
+        m.onCommandAudioStarted()
+        if (m.canStartCommandRecognition()) starts += 1
+        starts shouldBe 1
+        m.phase shouldBe CommandSessionPhase.COMMAND_LISTENING
+    }
+
+    "11 wake and command capture are mutually exclusive in the session machine" {
+        val m = CommandSessionMachine()
+        m.onWakeDetected()
+        m.isBusy.shouldBeTrue()
+        m.onWakeDetected().shouldBeFalse()
+        m.onTtsStarted()
+        m.onTtsCompleted()
+        m.onCommandAudioStarted()
+        m.phase shouldBe CommandSessionPhase.COMMAND_LISTENING
+        m.onWakeDetected().shouldBeFalse()
+    }
 })

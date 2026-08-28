@@ -24,7 +24,9 @@ import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.session.AudioCaptureConfig
 import org.stypox.dicio.io.session.CarfuCommandRouter
+import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.ui.home.Interaction
@@ -79,21 +81,40 @@ class SkillEvaluatorImpl(
     }
 
     override fun onWakeWordDetected() {
-        if (!commandSession.tryBeginWakeSession()) {
-            WakeService.resumeAfterInteraction()
+        if (commandSession.phase == CommandSessionPhase.IDLE_WAKE) {
+            if (!commandSession.tryBeginWakeSession()) {
+                WakeService.resumeAfterInteraction()
+                return
+            }
+        } else if (commandSession.phase != CommandSessionPhase.WAKE_DETECTED) {
+            CarfuLog.i(
+                CommandSession.TAG,
+                "WAKE_CALLBACK_IGNORED phase=${commandSession.phase}",
+            )
             return
         }
-        wakeSessionActive.set(true)
+        if (!wakeSessionActive.compareAndSet(false, true)) {
+            CarfuLog.i(CommandSession.TAG, "WAKE_CALLBACK_DUPLICATE ignored")
+            return
+        }
         sttInputDevice.stopListening()
         scope.launch {
             val acknowledgment = skillContext.android.getString(R.string.wake_word_acknowledgment)
             withContext(Dispatchers.Main) {
                 skillContext.speechOutputDevice.stopSpeaking()
                 commandSession.onTtsStarted()
+                CarfuLog.i(
+                    CommandSession.TAG,
+                    "TTS_STARTED session=${commandSession.ui.value.sessionId} text=ack",
+                )
                 skillContext.speechOutputDevice.speak(acknowledgment)
                 skillContext.speechOutputDevice.runWhenFinishedSpeaking {
                     scope.launch {
                         commandSession.onTtsCompleted()
+                        CarfuLog.i(
+                            CommandSession.TAG,
+                            "TTS_ON_DONE session=${commandSession.ui.value.sessionId} kind=ack",
+                        )
                         startCommandListening("wake_ack")
                     }
                 }
@@ -109,6 +130,12 @@ class SkillEvaluatorImpl(
             }
             return
         }
+        if (!WakeService.isInteractionPaused()) {
+            CarfuLog.w(
+                CommandSession.TAG,
+                "COMMAND_STT_WAKE_NOT_PAUSED session=${commandSession.ui.value.sessionId}",
+            )
+        }
         val capture = AudioCaptureConfig.detect()
         commandSession.onCommandAudioStarted(
             sampleRate = capture.captureRateHz,
@@ -117,10 +144,16 @@ class SkillEvaluatorImpl(
             modelPath = "vosk-model",
             needsResample = capture.needsResample,
         )
+        CarfuLog.i(
+            CommandSession.TAG,
+            "COMMAND_STT_START_ONCE reason=$reason session=${commandSession.ui.value.sessionId} " +
+                "captureRate=${capture.captureRateHz} native16k=${AudioCaptureConfig.isNative16kHzSupported()}",
+        )
         withContext(Dispatchers.Main) {
             sttInputDevice.stopListening()
             val started = sttInputDevice.tryLoad(::processInputEvent)
             if (!started) {
+                CarfuLog.e(CommandSession.TAG, "stt_not_ready after TTS onDone reason=$reason")
                 endWakeSession("stt_not_ready")
             }
         }

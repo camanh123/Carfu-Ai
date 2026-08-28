@@ -46,7 +46,10 @@ import org.stypox.dicio.R
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
+import org.stypox.dicio.io.session.CarfuDiag
+import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.UserSettings
 import java.time.Instant
@@ -111,7 +114,9 @@ class WakeService : Service() {
                 },
                 lastReadFailed = false,
             )
-            if (decision.openReplacementRecord) {
+            if (decision.openReplacementRecord &&
+                !acceptancePolicy.shouldHoldWakeRecorderClosed(commandSession.isBusy)
+            ) {
                 repairRequested.set(true)
             }
             publishForegroundNotification()
@@ -391,45 +396,37 @@ class WakeService : Service() {
 
     private fun listenForWakeWord() {
         @SuppressLint("MissingPermission")
-        var ar = createAudioRecord()
+        var ar: AudioRecord? = null
 
         var audio = ShortArray(0)
-        var nextWakeWordAllowed = Instant.MIN
         var recording = false
         var retryDelayMs = BackgroundWakePolicy.INITIAL_OPEN_RETRY_MS
+        var warmupResetPending = false
         lastSuccessfulReadElapsed.set(0L)
 
         try {
-            if (ar.state == AudioRecord.STATE_INITIALIZED) {
-                ar.startRecording()
-                recording = ar.recordingState == AudioRecord.RECORDSTATE_RECORDING
-            }
             while (listening.get()) {
                 if (wakeDevice.state.value == null) {
                     listening.set(false)
                     break
                 }
                 if (ContextCompat.checkSelfPermission(this, RECORD_AUDIO) != PERMISSION_GRANTED) {
-                    if (recording) {
-                        try {
-                            ar.stop()
-                        } catch (_: Throwable) {
-                        }
-                        recording = false
-                    }
+                    ar = releaseWakeRecorder(ar)
+                    recording = false
                     publishForegroundNotification()
                     interruptibleSleep(retryDelayMs)
                     retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
                     continue
                 }
 
-                if (interactionPaused.get() || commandSession.isBusy) {
-                    if (recording) {
-                        try {
-                            ar.stop()
-                        } catch (_: Throwable) {
-                        }
+                val holdClosed = acceptancePolicy.shouldHoldWakeRecorderClosed(commandSession.isBusy) ||
+                    interactionPaused.get() ||
+                    commandSession.isBusy
+                if (holdClosed) {
+                    if (ar != null) {
+                        ar = releaseWakeRecorder(ar)
                         recording = false
+                        CarfuDiag.wake("WAKE_RECORDER_STOPPED reason=session_or_cooldown")
                     }
                     lastHeard.set(Instant.now())
                     Thread.sleep(80)
@@ -447,67 +444,74 @@ class WakeService : Service() {
                         BackgroundWakePolicy.ScreenAction.OFF
                     },
                     listening = true,
-                    commandSessionBusy = false,
+                    commandSessionBusy = commandSession.isBusy,
                     recording = recording,
                     lastSuccessfulReadAgeMs = age,
                     lastReadFailed = false,
                 )
-                if (repair && decision.openReplacementRecord) {
+                val mayReplace = repair &&
+                    decision.openReplacementRecord &&
+                    acceptancePolicy.mayOpenReplacementRecorder(
+                        commandSessionBusy = commandSession.isBusy,
+                        alreadyRecordingHealthy = recording && age < BackgroundWakePolicy.STALE_READ_MS,
+                    )
+                if (mayReplace) {
+                    ar = releaseWakeRecorder(ar)
                     recording = false
+                    CarfuDiag.wake("WAKE_RECORDER_REPAIR recreate=true")
                 }
 
                 if (!recording) {
                     try {
-                        wakeDevice.resetDetectionState()
-                        if (ar.state != AudioRecord.STATE_INITIALIZED) {
-                            try {
-                                ar.release()
-                            } catch (_: Throwable) {
-                            }
+                        val existing = ar
+                        if (existing == null || existing.state != AudioRecord.STATE_INITIALIZED) {
+                            ar = releaseWakeRecorder(ar)
                             ar = createAudioRecord()
                         }
-                        if (ar.state != AudioRecord.STATE_INITIALIZED) {
+                        val recorder = ar
+                        if (recorder == null || recorder.state != AudioRecord.STATE_INITIALIZED) {
                             interruptibleSleep(retryDelayMs)
                             retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
                             continue
                         }
-                        ar.startRecording()
-                        if (ar.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                        recorder.startRecording()
+                        if (recorder.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
                             interruptibleSleep(retryDelayMs)
                             retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
                             continue
                         }
                     } catch (t: Throwable) {
                         Log.w(TAG, "Restarting AudioRecord after wake-mic pause", t)
-                        try {
-                            ar.release()
-                        } catch (_: Throwable) {
-                        }
-                        ar = createAudioRecord()
+                        ar = releaseWakeRecorder(ar)
                         interruptibleSleep(retryDelayMs)
                         retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
                         continue
                     }
                     recording = true
                     retryDelayMs = BackgroundWakePolicy.INITIAL_OPEN_RETRY_MS
+                    acceptancePolicy.onRecorderStarted()
+                    wakeDevice.resetDetectionState()
+                    acceptancePolicy.onDetectorAndPcmReset()
+                    warmupResetPending = true
+                    CarfuDiag.wake(
+                        "WAKE_RECORDER_STARTED warmupMs=${WakeAcceptancePolicy.RECORDER_WARMUP_MS}",
+                    )
+                }
+
+                val recorder = ar
+                if (recorder == null) {
+                    recording = false
+                    continue
                 }
 
                 if (audio.size != wakeDevice.frameSize()) {
                     audio = ShortArray(wakeDevice.frameSize())
                 }
 
-                val result = ar.read(audio, 0, audio.size)
+                val result = recorder.read(audio, 0, audio.size)
                 if (BackgroundWakePolicy.shouldRecreateAfterReadError(result)) {
+                    ar = releaseWakeRecorder(ar)
                     recording = false
-                    try {
-                        ar.stop()
-                    } catch (_: Throwable) {
-                    }
-                    try {
-                        ar.release()
-                    } catch (_: Throwable) {
-                    }
-                    ar = createAudioRecord()
                     interruptibleSleep(retryDelayMs)
                     retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
                     continue
@@ -521,37 +525,80 @@ class WakeService : Service() {
                     continue
                 }
 
-                val wakeWordDetected = try {
+                if (acceptancePolicy.isWarmupActive()) {
+                    continue
+                }
+                if (warmupResetPending) {
+                    wakeDevice.resetDetectionState()
+                    acceptancePolicy.onDetectorAndPcmReset()
+                    warmupResetPending = false
+                    CarfuDiag.wake("WAKE_DETECTOR_RESET after_warmup")
+                    continue
+                }
+
+                val scoreHit = try {
                     wakeDevice.processFrame(audio)
                 } catch (t: Throwable) {
                     Log.w(TAG, "Wake model process failed; will retry", t)
+                    ar = releaseWakeRecorder(ar)
                     recording = false
                     publishForegroundNotification()
                     interruptibleSleep(retryDelayMs)
                     retryDelayMs = BackgroundWakePolicy.nextOpenRetryDelayMs(retryDelayMs)
                     continue
                 }
-                if (wakeWordDetected && Instant.now() > nextWakeWordAllowed) {
-                    nextWakeWordAllowed = Instant.now().plusMillis(WAKE_WORD_BACKOFF_MILLIS)
-                    // Release the wake mic immediately so TTS and Vosk STT can use it.
-                    pauseForInteraction()
-                    try {
-                        ar.stop()
-                    } catch (_: Throwable) {
+
+                val ttsSpeaking = commandSession.phase == CommandSessionPhase.ACKNOWLEDGING ||
+                    commandSession.phase == CommandSessionPhase.RESPONDING
+                val verdict = acceptancePolicy.evaluate(
+                    scoreAboveThreshold = scoreHit,
+                    phase = commandSession.phase,
+                    ttsSpeaking = ttsSpeaking,
+                    commandCaptureActive = commandSession.phase ==
+                        CommandSessionPhase.COMMAND_LISTENING,
+                )
+                if (verdict != WakeAcceptancePolicy.Verdict.ACCEPT) {
+                    if (verdict != WakeAcceptancePolicy.Verdict.BELOW_THRESHOLD &&
+                        verdict != WakeAcceptancePolicy.Verdict.ACCUMULATING
+                    ) {
+                        CarfuDiag.wake("WAKE_REJECTED reason=$verdict phase=${commandSession.phase}")
                     }
-                    recording = false
-                    onWakeWordDetected()
+                    continue
                 }
+
+                if (!commandSession.tryBeginWakeSession()) {
+                    CarfuDiag.wake("WAKE_REJECTED reason=session_overlap")
+                    acceptancePolicy.onDetectorAndPcmReset()
+                    continue
+                }
+                acceptancePolicy.closeGate()
+                pauseForInteraction()
+                ar = releaseWakeRecorder(ar)
+                recording = false
+                wakeDevice.resetDetectionState()
+                acceptancePolicy.onDetectorAndPcmReset()
+                CarfuDiag.wake(
+                    "WAKE_ACCEPTED session=${commandSession.ui.value.sessionId} " +
+                        "recorder_released=true before_tts=true",
+                )
+                onWakeWordDetected()
             }
         } finally {
-            try {
-                if (recording) {
-                    ar.stop()
-                }
-            } catch (_: Throwable) {
-            }
-            ar.release()
+            releaseWakeRecorder(ar)
         }
+    }
+
+    private fun releaseWakeRecorder(record: AudioRecord?): AudioRecord? {
+        if (record == null) return null
+        try {
+            record.stop()
+        } catch (_: Throwable) {
+        }
+        try {
+            record.release()
+        } catch (_: Throwable) {
+        }
+        return null
     }
 
     @SuppressLint("MissingPermission")
@@ -575,9 +622,11 @@ class WakeService : Service() {
     }
 
     private fun onWakeWordDetected() {
-        Log.d(TAG, "Wake word detected")
-        if (commandSession.isBusy) {
-            Log.i(CommandSession.TAG, "COMMAND_SESSION_OVERLAP ignored")
+        CarfuDiag.wake("WAKE_CALLBACK phase=${commandSession.phase}")
+        if (commandSession.phase != CommandSessionPhase.WAKE_DETECTED &&
+            commandSession.phase != CommandSessionPhase.IDLE_WAKE
+        ) {
+            CarfuLog.i(CommandSession.TAG, "COMMAND_SESSION_OVERLAP ignored")
             return
         }
         pauseForInteraction()
@@ -706,6 +755,8 @@ class WakeService : Service() {
 
         fun isInstanceAlive(): Boolean = instanceAlive.get()
 
+        fun isInteractionPaused(): Boolean = interactionPaused.get()
+
         // Consider the service running if it processed any audio data within the past half second.
         fun isRunning(): Boolean = lastHeard.get()?.isAfter(Instant.now().minusMillis(500)) == true
 
@@ -726,12 +777,14 @@ class WakeService : Service() {
         private val lastKnownBackgroundWakeEnabled = AtomicBoolean(true)
         private val resumeHandler = Handler(Looper.getMainLooper())
         private val autoResumeRunnable = Runnable { resumeAfterInteraction() }
+        internal val acceptancePolicy = WakeAcceptancePolicy { SystemClock.elapsedRealtime() }
 
         /**
-         * Stop the always-on wake microphone so TTS / Vosk STT can use it.
+         * Stop and keep the wake AudioRecord released so TTS / Vosk STT can use the microphone.
          * Automatically resumes after [WAKE_MIC_PAUSE_TIMEOUT_MILLIS] as a safety net.
          */
         fun pauseForInteraction() {
+            acceptancePolicy.onPauseForInteraction()
             interactionPaused.set(true)
             resumeHandler.removeCallbacks(autoResumeRunnable)
             resumeHandler.postDelayed(autoResumeRunnable, WAKE_MIC_PAUSE_TIMEOUT_MILLIS)
@@ -739,8 +792,15 @@ class WakeService : Service() {
 
         fun resumeAfterInteraction() {
             resumeHandler.removeCallbacks(autoResumeRunnable)
-            interactionPaused.set(false)
-            Log.i(CommandSession.TAG, "WAKE_ENGINE_RESUMED")
+            acceptancePolicy.markPostAssistantTtsCooldown()
+            val delayMs = acceptancePolicy.remainingCooldownMs()
+                .coerceAtLeast(WakeAcceptancePolicy.POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS)
+            CarfuDiag.wake("WAKE_RESUME_SCHEDULED cooldownMs=$delayMs")
+            resumeHandler.postDelayed({
+                acceptancePolicy.onCooldownElapsed()
+                interactionPaused.set(false)
+                CarfuDiag.wake("WAKE_ENGINE_RESUMED")
+            }, delayMs)
         }
 
         internal fun rememberBackgroundWakeEnabled(enabled: Boolean) {
@@ -757,7 +817,6 @@ class WakeService : Service() {
         private const val FOREGROUND_NOTIFICATION_ID = 19803672
         private const val START_NOTIFICATION_ID = 48019274
         private const val TRIGGERED_NOTIFICATION_ID = 601398647
-        private const val WAKE_WORD_BACKOFF_MILLIS = 4000L
         private const val WAKE_MIC_PAUSE_TIMEOUT_MILLIS = 45_000L
         private const val ACTION_STOP_WAKE_SERVICE =
             "org.stypox.dicio.io.wake.WakeService.ACTION_STOP"

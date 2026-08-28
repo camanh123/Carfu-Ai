@@ -79,8 +79,17 @@
             android:id="@+id/btn_clear_log"
             android:layout_width="0dp"
             android:layout_height="56dp"
+            android:layout_marginEnd="8dp"
             android:layout_weight="1"
             android:text="@string/carfu_probe_clear_log"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_copy_log"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="@string/carfu_probe_copy_log"
             android:textAllCaps="false" />
     </LinearLayout>
 
