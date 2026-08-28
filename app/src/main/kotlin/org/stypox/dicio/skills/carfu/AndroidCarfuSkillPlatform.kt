@@ -47,11 +47,32 @@ class AndroidCarfuSkillPlatform(
         }
     }
 
-    override fun resolvePackage(intent: Intent): String? {
-        return intent.resolveActivity(context.packageManager)?.packageName
+    override fun resolveLaunch(spec: CarfuLaunchSpec): String? {
+        return toIntent(spec).resolveActivity(context.packageManager)?.packageName
     }
 
-    override fun startActivity(intent: Intent): Boolean {
+    override fun startLaunch(spec: CarfuLaunchSpec): Boolean {
+        return startActivity(toIntent(spec))
+    }
+
+    private fun toIntent(spec: CarfuLaunchSpec): Intent {
+        val intent = Intent(spec.action)
+        if (!spec.packageName.isNullOrBlank() && !spec.className.isNullOrBlank()) {
+            intent.setClassName(spec.packageName, spec.className)
+        } else if (!spec.packageName.isNullOrBlank()) {
+            intent.setPackage(spec.packageName)
+        }
+        if (!spec.data.isNullOrBlank()) {
+            intent.data = android.net.Uri.parse(spec.data)
+        }
+        if (spec.extraQuery != null) {
+            intent.putExtra("query", spec.extraQuery)
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return intent
+    }
+
+    private fun startActivity(intent: Intent): Boolean {
         return try {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)

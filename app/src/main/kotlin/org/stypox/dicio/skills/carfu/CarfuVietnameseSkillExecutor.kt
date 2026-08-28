@@ -1,13 +1,12 @@
 package org.stypox.dicio.skills.carfu
 
 import android.Manifest
-import android.content.Intent
-import android.net.Uri
 import android.view.KeyEvent
 import org.stypox.dicio.io.session.CarfuIntent
 import org.stypox.dicio.io.session.RoutedCommand
 import org.stypox.dicio.io.session.WeatherWhen
 import org.stypox.dicio.io.session.VietnameseTranscript
+import java.net.URLEncoder
 
 data class SkillExecutionResult(
     val speechVi: String,
@@ -89,12 +88,14 @@ class CarfuVietnameseSkillExecutor(
         if (place.isBlank()) {
             return SkillExecutionResult("Hãy nói nơi bạn muốn đến.", actionTaken = false)
         }
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=${Uri.encode(place)}"))
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (CarfuDialer.isBlockedPackage(platform.resolvePackage(intent))) {
+        val spec = CarfuLaunchSpec(
+            action = CarfuDialer.ACTION_VIEW,
+            data = "geo:0,0?q=${URLEncoder.encode(place, "UTF-8")}",
+        )
+        if (CarfuDialer.isBlockedPackage(platform.resolveLaunch(spec))) {
             return SkillExecutionResult("Không tìm thấy ứng dụng bản đồ.", actionTaken = false)
         }
-        val ok = platform.startActivity(intent)
+        val ok = platform.startLaunch(spec)
         return if (ok) {
             SkillExecutionResult("Đang dẫn đường đến $place.", actionTaken = true)
         } else {
@@ -186,22 +187,22 @@ class CarfuVietnameseSkillExecutor(
     }
 
     private fun launchFirstUnblocked(
-        candidates: List<Intent>,
+        candidates: List<CarfuLaunchSpec>,
         success: String,
         missing: String,
         zalo: String,
     ): SkillExecutionResult {
         var sawZaloOnly = false
         var attempted = 0
-        for (intent in candidates) {
-            val pkg = platform.resolvePackage(intent)
+        for (spec in candidates) {
+            val pkg = platform.resolveLaunch(spec)
             if (pkg == null) continue
             if (CarfuDialer.isBlockedPackage(pkg)) {
                 sawZaloOnly = true
                 continue
             }
             attempted += 1
-            if (platform.startActivity(intent)) {
+            if (platform.startLaunch(spec)) {
                 return SkillExecutionResult(success, actionTaken = true)
             }
         }
@@ -322,19 +323,19 @@ class CarfuVietnameseSkillExecutor(
         if (query.isBlank()) {
             return SkillExecutionResult("Hãy nói nội dung cần tìm.", actionTaken = false)
         }
-        val webSearch = Intent(Intent.ACTION_WEB_SEARCH).apply {
-            putExtra("query", query)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        }
-        val pkg = platform.resolvePackage(webSearch)
-        if (pkg != null && !CarfuDialer.isBlockedPackage(pkg) && platform.startActivity(webSearch)) {
+        val webSearch = CarfuLaunchSpec(
+            action = CarfuDialer.ACTION_WEB_SEARCH,
+            extraQuery = query,
+        )
+        val pkg = platform.resolveLaunch(webSearch)
+        if (pkg != null && !CarfuDialer.isBlockedPackage(pkg) && platform.startLaunch(webSearch)) {
             return SkillExecutionResult("Đang tìm $query.", actionTaken = true)
         }
-        val browser = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("https://www.google.com/search?q=${Uri.encode(query)}"),
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        if (platform.resolvePackage(browser) != null && platform.startActivity(browser)) {
+        val browser = CarfuLaunchSpec(
+            action = CarfuDialer.ACTION_VIEW,
+            data = "https://www.google.com/search?q=${URLEncoder.encode(query, "UTF-8")}",
+        )
+        if (platform.resolveLaunch(browser) != null && platform.startLaunch(browser)) {
             return SkillExecutionResult("Đang tìm $query.", actionTaken = true)
         }
         return SkillExecutionResult("Không tìm thấy trình duyệt.", actionTaken = false)

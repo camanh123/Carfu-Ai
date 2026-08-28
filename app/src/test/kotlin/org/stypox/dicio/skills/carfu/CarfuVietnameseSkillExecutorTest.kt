@@ -1,6 +1,5 @@
 package org.stypox.dicio.skills.carfu
 
-import android.content.Intent
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
@@ -43,41 +42,40 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
     val httpUrls = mutableListOf<String>()
 
     override fun hasPermission(permission: String): Boolean =
-        permission != android.Manifest.permission.READ_CONTACTS || contactsPermission
+        permission != "android.permission.READ_CONTACTS" || contactsPermission
 
     override fun lookupContacts(foldedQuery: String): List<CarfuContact> = contacts
 
-    override fun resolvePackage(intent: Intent): String? {
+    override fun resolveLaunch(spec: CarfuLaunchSpec): String? {
         if (zaloOnly) return CarfuDialer.ZALO_PACKAGE
-        val component = intent.component?.className
-        if (component == CarfuDialer.FYT_PHONE_ACTIVITY) {
+        if (spec.className == CarfuDialer.FYT_PHONE_ACTIVITY) {
             return if (fytPresent) CarfuDialer.FYT_BT_PACKAGE else null
         }
-        if (intent.`package` == CarfuDialer.FYT_BT_PACKAGE) {
+        if (spec.packageName == CarfuDialer.FYT_BT_PACKAGE && spec.className == null) {
             return if (fytPresent) CarfuDialer.FYT_BT_PACKAGE else null
         }
-        return when (intent.action) {
-            Intent.ACTION_DIAL -> if (dialerPresent) "com.android.dialer" else null
-            Intent.ACTION_VIEW -> when {
-                intent.dataString?.startsWith("geo:") == true -> "com.google.android.apps.maps"
-                intent.dataString?.startsWith("http") == true -> "com.android.browser"
-                intent.dataString?.startsWith("tel:") == true && fytPresent -> CarfuDialer.FYT_BT_PACKAGE
-                intent.dataString?.startsWith("tel:") == true && dialerPresent -> "com.android.dialer"
+        return when (spec.action) {
+            CarfuDialer.ACTION_DIAL -> if (dialerPresent) "com.android.dialer" else null
+            CarfuDialer.ACTION_VIEW -> when {
+                spec.data?.startsWith("geo:") == true -> "com.google.android.apps.maps"
+                spec.data?.startsWith("http") == true -> "com.android.browser"
+                spec.data?.startsWith("tel:") == true && fytPresent -> CarfuDialer.FYT_BT_PACKAGE
+                spec.data?.startsWith("tel:") == true && dialerPresent -> "com.android.dialer"
                 else -> null
             }
-            Intent.ACTION_WEB_SEARCH -> "com.android.browser"
-            else -> intent.component?.packageName ?: intent.`package`
+            CarfuDialer.ACTION_WEB_SEARCH -> "com.android.browser"
+            else -> spec.packageName
         }
     }
 
-    override fun startActivity(intent: Intent): Boolean {
-        val pkg = resolvePackage(intent) ?: return false
+    override fun startLaunch(spec: CarfuLaunchSpec): Boolean {
+        val pkg = resolveLaunch(spec) ?: return false
         if (CarfuDialer.isBlockedPackage(pkg)) return false
         activities += StartedActivity(
-            action = intent.action,
+            action = spec.action,
             packageName = pkg,
-            className = intent.component?.className,
-            data = intent.dataString,
+            className = spec.className,
+            data = spec.data,
         )
         return true
     }
@@ -198,7 +196,7 @@ class CarfuVietnameseSkillExecutorTest : StringSpec({
         result.actionTaken.shouldBeTrue()
         result.speechVi shouldContain "0912345678"
         platform.activities.shouldHaveSize(1)
-        platform.activities[0].action shouldBe Intent.ACTION_DIAL
+        platform.activities[0].action shouldBe CarfuDialer.ACTION_DIAL
         platform.activities[0].data shouldContain "0912345678"
         platform.activities[0].packageName shouldBe "com.android.dialer"
     }
@@ -358,7 +356,7 @@ class CarfuVietnameseSkillExecutorTest : StringSpec({
         search.first.intent shouldBe CarfuIntent.SEARCH
         search.second.actionTaken.shouldBeTrue()
         platform.activities.shouldHaveSize(1)
-        platform.activities[0].action shouldBe Intent.ACTION_WEB_SEARCH
+        platform.activities[0].action shouldBe CarfuDialer.ACTION_WEB_SEARCH
 
         CarfuCommandRouter.match("Chỉ đường đến sân bay")!!.intent shouldBe CarfuIntent.NAVIGATE_AIRPORT
         CarfuCommandRouter.match("chi duong den cho ben thanh")!!.intent shouldBe CarfuIntent.NAVIGATE_PLACE

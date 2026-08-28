@@ -1,7 +1,5 @@
 package org.stypox.dicio.skills.carfu
 
-import android.content.Intent
-
 data class CarfuContact(
     val name: String,
     val numbers: List<String>,
@@ -13,6 +11,14 @@ sealed class HttpFetchResult {
     data object Timeout : HttpFetchResult()
     data class Error(val message: String) : HttpFetchResult()
 }
+
+data class CarfuLaunchSpec(
+    val action: String? = null,
+    val packageName: String? = null,
+    val className: String? = null,
+    val data: String? = null,
+    val extraQuery: String? = null,
+)
 
 data class StartedActivity(
     val action: String?,
@@ -28,8 +34,8 @@ data class StartedActivity(
 interface CarfuSkillPlatform {
     fun hasPermission(permission: String): Boolean
     fun lookupContacts(foldedQuery: String): List<CarfuContact>
-    fun resolvePackage(intent: Intent): String?
-    fun startActivity(intent: Intent): Boolean
+    fun resolveLaunch(spec: CarfuLaunchSpec): String?
+    fun startLaunch(spec: CarfuLaunchSpec): Boolean
     fun isPackageLaunchable(packageName: String): Boolean
     fun launchPackage(packageName: String): Boolean
     fun dispatchMediaKey(keyCode: Int): Boolean

@@ -1,49 +1,40 @@
 package org.stypox.dicio.skills.carfu
 
-import android.content.Intent
-import android.net.Uri
-
 /**
  * FYT-first dialer. Never silently hands a call to Zalo.
- * Prefers `com.syu.bt` / `PhoneActivity`, then [Intent.ACTION_DIAL].
+ * Prefers `com.syu.bt` / `PhoneActivity`, then ACTION_DIAL.
  */
 object CarfuDialer {
     const val FYT_BT_PACKAGE = "com.syu.bt"
     const val FYT_PHONE_ACTIVITY = "com.syu.bt.PhoneActivity"
     const val ZALO_PACKAGE = "com.zing.zalo"
+    const val ACTION_DIAL = "android.intent.action.DIAL"
+    const val ACTION_VIEW = "android.intent.action.VIEW"
+    const val ACTION_WEB_SEARCH = "android.intent.action.WEB_SEARCH"
 
-    fun openPhoneCandidates(): List<Intent> = listOf(
-        Intent().apply {
-            setClassName(FYT_BT_PACKAGE, FYT_PHONE_ACTIVITY)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        },
-        Intent(Intent.ACTION_DIAL).apply {
-            setPackage(FYT_BT_PACKAGE)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        },
-        Intent(Intent.ACTION_DIAL).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK
-        },
+    fun openPhoneCandidates(): List<CarfuLaunchSpec> = listOf(
+        CarfuLaunchSpec(packageName = FYT_BT_PACKAGE, className = FYT_PHONE_ACTIVITY),
+        CarfuLaunchSpec(action = ACTION_DIAL, packageName = FYT_BT_PACKAGE),
+        CarfuLaunchSpec(action = ACTION_DIAL),
     )
 
-    fun dialCandidates(number: String): List<Intent> {
-        val tel = Uri.parse("tel:$number")
+    fun dialCandidates(number: String): List<CarfuLaunchSpec> {
+        val tel = "tel:$number"
         return listOf(
-            Intent(Intent.ACTION_DIAL, tel).apply {
-                setClassName(FYT_BT_PACKAGE, FYT_PHONE_ACTIVITY)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            },
-            Intent(Intent.ACTION_VIEW, tel).apply {
-                setClassName(FYT_BT_PACKAGE, FYT_PHONE_ACTIVITY)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            },
-            Intent(Intent.ACTION_DIAL, tel).apply {
-                setPackage(FYT_BT_PACKAGE)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            },
-            Intent(Intent.ACTION_DIAL, tel).apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            },
+            CarfuLaunchSpec(
+                action = ACTION_DIAL,
+                packageName = FYT_BT_PACKAGE,
+                className = FYT_PHONE_ACTIVITY,
+                data = tel,
+            ),
+            CarfuLaunchSpec(
+                action = ACTION_VIEW,
+                packageName = FYT_BT_PACKAGE,
+                className = FYT_PHONE_ACTIVITY,
+                data = tel,
+            ),
+            CarfuLaunchSpec(action = ACTION_DIAL, packageName = FYT_BT_PACKAGE, data = tel),
+            CarfuLaunchSpec(action = ACTION_DIAL, data = tel),
         )
     }
 

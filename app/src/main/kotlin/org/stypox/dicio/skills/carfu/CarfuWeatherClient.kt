@@ -1,13 +1,13 @@
 package org.stypox.dicio.skills.carfu
 
-import org.json.JSONObject
 import org.stypox.dicio.io.session.WeatherWhen
-import org.stypox.dicio.util.ConnectionUtils
-import java.util.Locale
+import java.net.URLEncoder
 
 /**
  * Open-Meteo geocoding + forecast. Documented public API, no secret key.
  * https://open-meteo.com/en/docs
+ *
+ * JSON is parsed without Android `org.json` so production-path JVM tests can run.
  */
 object CarfuWeatherClient {
     const val TIMEOUT_MS = 8_000
@@ -26,7 +26,7 @@ object CarfuWeatherClient {
     )
 
     fun geocodeUrl(city: String): String {
-        val q = ConnectionUtils.urlEncode(city)
+        val q = URLEncoder.encode(city, "UTF-8")
         return "$GEOCODE_URL?name=$q&count=1&language=vi&format=json"
     }
 
@@ -39,32 +39,26 @@ object CarfuWeatherClient {
     }
 
     fun parseGeocode(json: String): Triple<String, Double, Double>? {
-        val root = JSONObject(json)
-        val results = root.optJSONArray("results") ?: return null
-        if (results.length() == 0) return null
-        val first = results.getJSONObject(0)
-        val name = first.optString("name").ifBlank { return null }
-        val lat = first.optDouble("latitude", Double.NaN)
-        val lon = first.optDouble("longitude", Double.NaN)
-        if (lat.isNaN() || lon.isNaN()) return null
+        val name = jsonString(json, "name")?.ifBlank { null } ?: return null
+        val lat = jsonNumber(json, "latitude") ?: return null
+        val lon = jsonNumber(json, "longitude") ?: return null
         return Triple(name, lat, lon)
     }
 
     fun parseForecast(city: String, json: String): Snapshot? {
-        val root = JSONObject(json)
-        val current = root.optJSONObject("current")
-        val daily = root.optJSONObject("daily")
-        val dailyCodes = daily?.optJSONArray("weather_code")
-        val dailyMax = daily?.optJSONArray("temperature_2m_max")
-        val dailyRain = daily?.optJSONArray("precipitation_probability_max")
+        val currentPart = json.substringBefore("\"daily\"")
+        val dailyPart = json.substringAfter("\"daily\"", missingDelimiterValue = "")
+        val dailyCodes = jsonNumberArray(dailyPart, "weather_code")
+        val dailyMax = jsonNumberArray(dailyPart, "temperature_2m_max")
+        val dailyRain = jsonNumberArray(dailyPart, "precipitation_probability_max")
         return Snapshot(
             city = city,
-            tempC = current?.optDouble("temperature_2m"),
-            weatherCode = current?.optInt("weather_code"),
-            precipitationMm = current?.optDouble("precipitation"),
-            tomorrowCode = dailyCodes?.optInt(1),
-            tomorrowTempC = dailyMax?.optDouble(1),
-            tomorrowRainChance = dailyRain?.optInt(1),
+            tempC = jsonNumber(currentPart, "temperature_2m"),
+            weatherCode = jsonNumber(currentPart, "weather_code")?.toInt(),
+            precipitationMm = jsonNumber(currentPart, "precipitation"),
+            tomorrowCode = dailyCodes.getOrNull(1)?.toInt(),
+            tomorrowTempC = dailyMax.getOrNull(1),
+            tomorrowRainChance = dailyRain.getOrNull(1)?.toInt(),
         )
     }
 
@@ -93,9 +87,7 @@ object CarfuWeatherClient {
         val temp = snapshot.tempC?.let { "${it.toInt()} độ" } ?: ""
         return listOf("Hôm nay $city", temp, desc)
             .filter { it.isNotBlank() }
-            .joinToString(" ")
-            .replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale("vi")) else it.toString() } +
-            "."
+            .joinToString(" ") + "."
     }
 
     fun describe(code: Int?): String = when (code) {
@@ -108,5 +100,21 @@ object CarfuWeatherClient {
         71, 73, 75, 77, 85, 86 -> "có tuyết"
         95, 96, 99 -> "có dông"
         else -> "thời tiết bình thường"
+    }
+
+    private fun jsonString(json: String, key: String): String? {
+        val match = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\"((?:\\\\.|[^\"\\\\])*)\"").find(json)
+        return match?.groupValues?.get(1)
+    }
+
+    private fun jsonNumber(json: String, key: String): Double? {
+        val match = Regex("\"${Regex.escape(key)}\"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)").find(json)
+        return match?.groupValues?.get(1)?.toDouble()
+    }
+
+    private fun jsonNumberArray(json: String, key: String): List<Double> {
+        val match = Regex("\"${Regex.escape(key)}\"\\s*:\\s*\\[([^]]*)]").find(json)
+        val body = match?.groupValues?.get(1) ?: return emptyList()
+        return body.split(',').mapNotNull { it.trim().toDoubleOrNull() }
     }
 }
