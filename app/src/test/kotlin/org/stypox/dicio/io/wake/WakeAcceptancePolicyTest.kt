@@ -78,7 +78,7 @@ class WakeAcceptancePolicyTest : StringSpec({
         policy.consecutiveHits shouldBe 0
         clock[0] = 4_000L
         policy.markPostAssistantTtsCooldown()
-        clock[0] = 6_000L
+        clock[0] = 4_000L + WakeAcceptancePolicy.POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS
         policy.onCooldownElapsed()
         policy.onRecorderStarted()
         policy.onDetectorAndPcmReset()
@@ -183,6 +183,10 @@ class WakeAcceptancePolicyTest : StringSpec({
             ) shouldBe WakeAcceptancePolicy.Verdict.REJECT_NO_VAD
         }
         policy.consecutiveHits shouldBe 0
+    }
+
+    "post-assistant TTS cooldown lasts five seconds" {
+        WakeAcceptancePolicy.POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS shouldBe 5_000L
     }
 
     "automatic false-wake cooldown lasts 10 seconds" {

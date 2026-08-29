@@ -39,12 +39,16 @@ object CarfuActivationSource {
     fun isUserInitiated(): Boolean =
         kind == Kind.MANUAL_MIC || kind == Kind.HARDWARE_BUTTON
 
-    fun shouldSpeakUnclear(): Boolean {
-        if (!isUserInitiated()) return false
+    fun shouldSpeakUnclear(
+        origin: Kind = kind,
+    ): Boolean {
+        if (origin != Kind.MANUAL_MIC && origin != Kind.HARDWARE_BUTTON) return false
         return userUnclearConsumed.compareAndSet(false, true)
     }
 
-    fun shouldApplyFalseWakeCooldown(): Boolean = kind == Kind.AUTOMATIC_WAKE
+    fun shouldApplyFalseWakeCooldown(
+        origin: Kind = kind,
+    ): Boolean = origin == Kind.AUTOMATIC_WAKE
 
     fun resetForTests() {
         kind = Kind.AUTOMATIC_WAKE

@@ -41,15 +41,18 @@ class CommandSession @Inject constructor(
     val phase: CommandSessionPhase get() = machine.phase
     val isBusy: Boolean get() = machine.isBusy
     val elapsedMs: Long get() = machine.elapsedMs
+    val activationOrigin: CarfuActivationSource.Kind get() = machine.activationOrigin
 
-    fun tryBeginWakeSession(): Boolean {
-        val started = machine.onWakeDetected()
+    fun tryBeginWakeSession(
+        origin: CarfuActivationSource.Kind = CarfuActivationSource.Kind.AUTOMATIC_WAKE,
+    ): Boolean {
+        val started = machine.onWakeDetected(origin)
         if (!started) {
             log("COMMAND_SESSION_OVERLAP ignored elapsed=${machine.elapsedMs}")
             return false
         }
         publish()
-        log("COMMAND_SESSION_START id=${machine.sessionId}")
+        log("COMMAND_SESSION_START id=${machine.sessionId} origin=$origin")
         log("WAKE_PCM_ROUTE=discard recorder_held=true")
         return true
     }
@@ -208,5 +211,6 @@ class CommandSession @Inject constructor(
         const val POST_TTS_GUARD_MS = 450L
         const val COMMAND_LISTEN_TIMEOUT_MS = 10_000
         const val DEFAULT_SILENCES_BEFORE_STOP = 5
+        const val COMMAND_ENDPOINT_GRACE_MS = 2_500L
     }
 }

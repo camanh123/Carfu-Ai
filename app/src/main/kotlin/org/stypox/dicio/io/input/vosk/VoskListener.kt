@@ -24,7 +24,9 @@ import org.json.JSONException
 import org.json.JSONObject
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.session.CarfuLog
+import org.stypox.dicio.io.session.CommandEndpointPolicy
 import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.EmptyEndpointAction
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.vosk.android.RecognitionListener
 
@@ -40,11 +42,15 @@ import org.vosk.android.RecognitionListener
 internal class VoskListener(
     private val voskInputDevice: VoskInputDevice,
     private val eventListener: (InputEvent) -> Unit,
-    private var silencesBeforeStop: Int,
+    silencesBeforeStop: Int,
 ) : RecognitionListener {
 
-    private val initialSilences = silencesBeforeStop
+    private val endpoint = CommandEndpointPolicy(silencesBeforeStop)
     private var firstCallback = true
+
+    init {
+        endpoint.onListeningStarted()
+    }
 
     /**
      * Called when partial recognition result is available.
@@ -61,6 +67,7 @@ internal class VoskListener(
 
         partialInput?.also {
             if (it.isNotBlank()) {
+                endpoint.onNonEmptyPartial()
                 CarfuLog.i(CommandSession.TAG, "PARTIAL_TEXT text=${it.take(80)}")
                 eventListener(InputEvent.Partial(it))
             }
@@ -86,29 +93,36 @@ internal class VoskListener(
         }
 
         if (inputs.isEmpty() || VietnameseTranscript.isTooWeakToSubmit(inputs[0].first)) {
-            if (silencesBeforeStop > 1) {
-                silencesBeforeStop -= 1
-                CarfuLog.i(
-                    CommandSession.TAG,
-                    "SILENCE count=${initialSilences - silencesBeforeStop} " +
-                        "left=$silencesBeforeStop reason=weak_or_empty",
-                )
-                return
+            when (endpoint.onEmptyOrWeakResult()) {
+                EmptyEndpointAction.IGNORE -> {
+                    CarfuLog.i(
+                        CommandSession.TAG,
+                        "SILENCE ignored reason=endpoint_grace leftover=${endpoint.remaining}",
+                    )
+                    return
+                }
+                EmptyEndpointAction.COUNT -> {
+                    CarfuLog.i(
+                        CommandSession.TAG,
+                        "SILENCE counted leftover=${endpoint.remaining} reason=weak_or_empty",
+                    )
+                    return
+                }
+                EmptyEndpointAction.STOP -> {
+                    CarfuLog.i(
+                        CommandSession.TAG,
+                        "FINAL_TEXT rejected reason=silence_or_weak leftover=0",
+                    )
+                    voskInputDevice.stopListening(eventListener, false)
+                    eventListener(InputEvent.None)
+                    return
+                }
             }
-            CarfuLog.i(
-                CommandSession.TAG,
-                "FINAL_TEXT rejected reason=silence_or_weak " +
-                    "silenceCount=$initialSilences",
-            )
-            voskInputDevice.stopListening(eventListener, false)
-            eventListener(InputEvent.None)
-            return
         }
 
         CarfuLog.i(
             CommandSession.TAG,
-            "FINAL_TEXT text=${inputs[0].first.take(80)} " +
-                "silenceRemaining=$silencesBeforeStop",
+            "FINAL_TEXT text=${inputs[0].first.take(80)} leftover=${endpoint.remaining}",
         )
 
         // we only want to listen one sentence at a time

@@ -104,4 +104,18 @@ class CommandSessionMachineTest : StringSpec({
         m.phase shouldBe CommandSessionPhase.COMMAND_LISTENING
         m.onWakeDetected().shouldBeFalse()
     }
+
+    "session stores activation origin at begin so empty automatic stays silent" {
+        val m = CommandSessionMachine()
+        m.onWakeDetected(CarfuActivationSource.Kind.AUTOMATIC_WAKE).shouldBeTrue()
+        m.activationOrigin shouldBe CarfuActivationSource.Kind.AUTOMATIC_WAKE
+        m.onWakeDetected(CarfuActivationSource.Kind.HARDWARE_BUTTON).shouldBeFalse()
+        m.activationOrigin shouldBe CarfuActivationSource.Kind.AUTOMATIC_WAKE
+    }
+
+    "hardware origin is stored when MODE starts the session" {
+        val m = CommandSessionMachine()
+        m.onWakeDetected(CarfuActivationSource.Kind.HARDWARE_BUTTON).shouldBeTrue()
+        m.activationOrigin shouldBe CarfuActivationSource.Kind.HARDWARE_BUTTON
+    }
 })

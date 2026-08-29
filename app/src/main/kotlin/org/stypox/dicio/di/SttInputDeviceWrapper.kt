@@ -176,7 +176,9 @@ class SttInputDeviceWrapperImpl(
     }
 
     override fun onClick(eventListener: (InputEvent) -> Unit) {
-        CarfuActivationSource.markManualMic()
+        if (!commandSession.isBusy) {
+            CarfuActivationSource.markManualMic()
+        }
         sttInputDevice?.onClick(wrapEventListener(eventListener))
     }
 

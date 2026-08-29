@@ -86,7 +86,10 @@ class WakeService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val releaseSttResourcesRunnable = Runnable {
-        if (MainActivity.isCreated <= 0) {
+        if (MainActivity.isCreated <= 0 &&
+            !commandSession.isBusy &&
+            !isInteractionPaused()
+        ) {
             // if the main activity is neither visible nor in the background,
             // then unload the STT after a while because it would be using resources uselessly
             sttInputDevice.reinitializeToReleaseResources()

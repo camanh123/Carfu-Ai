@@ -114,11 +114,12 @@ class MainActivity : BaseActivity() {
         isCreated += 1
 
         handleWakeWordTurnOnScreen(intent)
+        // Preload Vosk (Vietnamese) without listening so COMMAND_LISTENING can attach immediately.
+        if (intent.action != ACTION_WAKE_WORD) {
+            sttInputDevice.tryLoad(null)
+        }
         if (isAssistIntent(intent)) {
             onAssistIntentReceived(intent)
-        } else if (intent.action != ACTION_WAKE_WORD) {
-            // load the input device, without starting to listen
-            sttInputDevice.tryLoad(null)
         }
 
         // The Activity may start the foreground wake service, but does not own its lifetime

@@ -36,4 +36,18 @@ class CarfuActivationSourceTest : StringSpec({
         CarfuActivationSource.shouldSpeakUnclear().shouldBeFalse()
         CarfuActivationSource.shouldApplyFalseWakeCooldown().shouldBeFalse()
     }
+
+    "automatic session origin stays silent even if global kind is overwritten" {
+        CarfuActivationSource.markAutomaticWake()
+        CarfuActivationSource.markManualMic()
+        CarfuActivationSource.shouldSpeakUnclear(
+            CarfuActivationSource.Kind.AUTOMATIC_WAKE,
+        ).shouldBeFalse()
+        CarfuActivationSource.shouldApplyFalseWakeCooldown(
+            CarfuActivationSource.Kind.AUTOMATIC_WAKE,
+        ).shouldBeTrue()
+        CarfuActivationSource.shouldSpeakUnclear(
+            CarfuActivationSource.Kind.MANUAL_MIC,
+        ).shouldBeTrue()
+    }
 })

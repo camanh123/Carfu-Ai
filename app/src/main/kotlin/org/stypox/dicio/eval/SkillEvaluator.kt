@@ -29,6 +29,7 @@ import org.stypox.dicio.io.session.AudioCaptureConfig
 import org.stypox.dicio.io.session.CarfuActivationSource
 import org.stypox.dicio.io.session.CarfuCommandRouter
 import org.stypox.dicio.io.session.CarfuLog
+import org.stypox.dicio.io.session.CarfuPcmHub
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.io.session.RoutedCommand
@@ -122,7 +123,7 @@ class SkillEvaluatorImpl(
         resumeWakeIfBeginFails: Boolean,
     ) {
         if (commandSession.phase == CommandSessionPhase.IDLE_WAKE) {
-            if (!commandSession.tryBeginWakeSession()) {
+            if (!commandSession.tryBeginWakeSession(origin)) {
                 if (resumeWakeIfBeginFails) {
                     WakeService.resumeAfterInteraction()
                 }
@@ -144,6 +145,7 @@ class SkillEvaluatorImpl(
             CarfuActivationSource.Kind.MANUAL_MIC -> CarfuActivationSource.markManualMic()
             CarfuActivationSource.Kind.HARDWARE_BUTTON -> CarfuActivationSource.markHardwareButton()
         }
+        sttInputDevice.tryLoad(null)
         if (origin == CarfuActivationSource.Kind.HARDWARE_BUTTON) {
             WakeService.pauseForHardwareButton()
             wakeDevice.resetDetectionState()
@@ -193,26 +195,57 @@ class SkillEvaluatorImpl(
             )
         }
         val capture = AudioCaptureConfig.detect()
+        CarfuLog.i(
+            CommandSession.TAG,
+            "COMMAND_STT_START_ONCE reason=$reason session=${commandSession.ui.value.sessionId} " +
+                "origin=${commandSession.activationOrigin} " +
+                "captureRate=${capture.captureRateHz} native16k=${AudioCaptureConfig.isNative16kHzSupported()} " +
+                "hubRecording=${CarfuPcmHub.isRecording()} hubConsumer=${CarfuPcmHub.hasCommandConsumer()}",
+        )
+        val started = withContext(Dispatchers.Main) {
+            sttInputDevice.stopListening()
+            sttInputDevice.tryLoad(::processInputEvent)
+        }
+        if (!started) {
+            CarfuLog.e(CommandSession.TAG, "stt_not_ready after TTS onDone reason=$reason")
+            endWakeSession("stt_not_ready")
+            return
+        }
+        if (!CarfuPcmHub.hasCommandConsumer() && CarfuPcmHub.isRecording()) {
+            awaitCommandConsumer(500L)
+        }
+        if (!wakeSessionActive.get() || !commandSession.canStartCommandRecognition()) {
+            if (wakeSessionActive.get()) {
+                endWakeSession("stale_session_$reason")
+            }
+            return
+        }
         commandSession.onCommandAudioStarted(
             sampleRate = capture.captureRateHz,
             bufferSize = capture.minBufferBytes,
             audioSource = capture.audioSource,
-            modelPath = "vosk-model",
+            modelPath = "vosk-model-small-vn-0.4",
             needsResample = capture.needsResample,
         )
         CarfuLog.i(
             CommandSession.TAG,
-            "COMMAND_STT_START_ONCE reason=$reason session=${commandSession.ui.value.sessionId} " +
-                "captureRate=${capture.captureRateHz} native16k=${AudioCaptureConfig.isNative16kHzSupported()}",
+            "COMMAND_LISTENING_ARMED origin=${commandSession.activationOrigin} " +
+                "hubConsumer=${CarfuPcmHub.hasCommandConsumer()} " +
+                "pendingFrames=${CarfuPcmHub.pendingFrameCount()}",
         )
-        withContext(Dispatchers.Main) {
-            sttInputDevice.stopListening()
-            val started = sttInputDevice.tryLoad(::processInputEvent)
-            if (!started) {
-                CarfuLog.e(CommandSession.TAG, "stt_not_ready after TTS onDone reason=$reason")
-                endWakeSession("stt_not_ready")
-            }
+    }
+
+    private suspend fun awaitCommandConsumer(timeoutMs: Long): Boolean {
+        if (CarfuPcmHub.hasCommandConsumer()) return true
+        if (!CarfuPcmHub.isRecording()) return false
+        var waited = 0L
+        while (waited < timeoutMs) {
+            if (!wakeSessionActive.get()) return false
+            if (CarfuPcmHub.hasCommandConsumer()) return true
+            delay(40L)
+            waited += 40L
         }
+        return CarfuPcmHub.hasCommandConsumer()
     }
 
     private fun endWakeSession(reason: String, automaticFalseWake: Boolean = false) {
@@ -226,8 +259,9 @@ class SkillEvaluatorImpl(
 
     private suspend fun handleEmptyOrUnclear(reason: String) {
         commandSession.onUnclear()
-        val speak = CarfuActivationSource.shouldSpeakUnclear()
-        val falseWake = CarfuActivationSource.shouldApplyFalseWakeCooldown()
+        val origin = commandSession.activationOrigin
+        val speak = CarfuActivationSource.shouldSpeakUnclear(origin)
+        val falseWake = CarfuActivationSource.shouldApplyFalseWakeCooldown(origin)
         if (speak) {
             withContext(Dispatchers.Main) {
                 skillContext.speechOutputDevice.speak(
@@ -237,7 +271,7 @@ class SkillEvaluatorImpl(
         } else {
             CarfuLog.i(
                 CommandSession.TAG,
-                "UNCLEAR_SILENT reason=$reason origin=${CarfuActivationSource.kind}",
+                "UNCLEAR_SILENT reason=$reason origin=$origin",
             )
         }
         endWakeSession(reason, automaticFalseWake = falseWake)

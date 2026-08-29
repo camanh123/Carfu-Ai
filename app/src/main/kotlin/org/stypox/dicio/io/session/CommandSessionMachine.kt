@@ -16,8 +16,12 @@ import org.stypox.dicio.io.session.CommandSessionPhase.WAKE_DETECTED
 class CommandSessionMachine(
     private val clockMs: () -> Long = { System.currentTimeMillis() },
 ) {
+    @Volatile
     var phase: CommandSessionPhase = IDLE_WAKE
         private set
+
+    @Volatile
+    var activationOrigin: CarfuActivationSource.Kind = CarfuActivationSource.Kind.AUTOMATIC_WAKE
 
     var sessionId: Long = 0
         private set
@@ -37,13 +41,16 @@ class CommandSessionMachine(
     /**
      * @return false if a session is already running (overlapping wake detections are ignored)
      */
-    fun onWakeDetected(): Boolean {
+    fun onWakeDetected(
+        origin: CarfuActivationSource.Kind = CarfuActivationSource.Kind.AUTOMATIC_WAKE,
+    ): Boolean {
         if (isBusy) {
             return false
         }
         sessionId += 1
         startedAtMs = clockMs()
         ttsCompleted = false
+        activationOrigin = origin
         phase = WAKE_DETECTED
         return true
     }

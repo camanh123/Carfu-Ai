@@ -204,7 +204,7 @@ class WakeAcceptancePolicy(
         const val SCORE_RANGE_MAX = 1.0f
         const val CONSECUTIVE_HITS_REQUIRED = 3
         const val RECORDER_WARMUP_MS = 500L
-        const val POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS = 1500L
+        const val POST_ASSISTANT_TTS_WAKE_COOLDOWN_MS = 5_000L
         const val AUTOMATIC_FALSE_WAKE_COOLDOWN_MS = 10_000L
 
         /** The one physical recorder is never released just to hand the mic to command STT. */
