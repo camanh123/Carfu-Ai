@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.io.wake.oww.OpenWakeWordDevice
 import org.stypox.dicio.io.wake.WakeService
+import org.stypox.dicio.io.session.CarfuSessionGate
 import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.Language
@@ -80,6 +81,7 @@ class MainSettingsViewModel @Inject constructor(
 
     fun setBackgroundWake(enabled: Boolean) {
         viewModelScope.launch {
+            CarfuSessionGate.setBackgroundWakeEnabled(enabled)
             dataStore.updateData {
                 it.toBuilder()
                     .setBackgroundWake(

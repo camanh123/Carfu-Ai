@@ -46,12 +46,11 @@ import org.stypox.dicio.R
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
-import org.stypox.dicio.io.session.CarfuActivationSource
 import org.stypox.dicio.io.session.CarfuDiag
-import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CarfuPcmHub
 import org.stypox.dicio.io.session.CarfuPcmRoute
 import org.stypox.dicio.io.session.CarfuPcmRouter
+import org.stypox.dicio.io.session.CarfuSessionGate
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.io.session.PcmHealthMonitor
@@ -145,9 +144,9 @@ class WakeService : Service() {
             combine(commandSession.ui, userSettings.data, wakeDevice.state) { _, settings, _ ->
                 settings
             }.collect { settings ->
-                rememberBackgroundWakeEnabled(
-                    BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
-                )
+                val enabled = BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
+                rememberBackgroundWakeEnabled(enabled)
+                CarfuSessionGate.setBackgroundWakeEnabled(enabled)
                 publishForegroundNotification()
             }
         }
@@ -173,13 +172,18 @@ class WakeService : Service() {
             intent?.action == ACTION_DISABLE_BACKGROUND_WAKE
         ) {
             listening.set(false)
-            resumeAfterInteraction()
+            CarfuSessionGate.setBackgroundWakeEnabled(false)
+            skillEvaluator.cancelActiveSession("background_wake_disabled")
+            holdIdleWithoutWake()
             scope.launch {
                 persistBackgroundWakeEnabled(false)
-                commandSession.endSession("background_wake_disabled")
                 stopWithMessage()
             }
             return START_NOT_STICKY
+        }
+
+        if (!listening.get()) {
+            CarfuSessionGate.logServiceRestart(intent?.action, commandSession.phase)
         }
 
         scope.launch {
@@ -193,9 +197,12 @@ class WakeService : Service() {
                 rememberBackgroundWakeEnabled(
                     BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
                 )
+                CarfuSessionGate.setBackgroundWakeEnabled(
+                    BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
+                )
                 if (!BackgroundWakePolicy.isBackgroundWakeEnabled(settings)) {
                     listening.set(false)
-                    resumeAfterInteraction()
+                    holdIdleWithoutWake()
                     stopWithMessage()
                     return@launch
                 }
@@ -558,6 +565,8 @@ class WakeService : Service() {
                     phase = commandSession.phase,
                     cooldownActive = acceptancePolicy.isCooldownActive(),
                     interactionPaused = interactionPaused.get(),
+                    backgroundWakeEnabled = lastKnownBackgroundWakeEnabled.get() &&
+                        CarfuSessionGate.backgroundWakeEnabled,
                 )
                 if (lastRoute != null && lastRoute != route) {
                     if (CarfuPcmRouter.shouldResetWakeDetectors(lastRoute, route)) {
@@ -633,14 +642,18 @@ class WakeService : Service() {
                     continue
                 }
 
-                if (!commandSession.tryBeginWakeSession()) {
-                    CarfuDiag.wake("WAKE_REJECTED reason=session_overlap")
+                if (!CarfuSessionGate.backgroundWakeEnabled) {
+                    CarfuDiag.wake("WAKE_REJECTED reason=background_wake_off")
                     acceptancePolicy.onDetectorAndPcmReset()
                     continue
                 }
-                CarfuActivationSource.markAutomaticWake()
+                skillEvaluator.onWakeWordDetected()
+                if (!commandSession.isBusy) {
+                    CarfuDiag.wake("WAKE_REJECTED reason=session_gate")
+                    acceptancePolicy.onDetectorAndPcmReset()
+                    continue
+                }
                 acceptancePolicy.closeGate()
-                pauseForInteraction()
                 wakeDevice.resetDetectionState()
                 acceptancePolicy.onDetectorAndPcmReset()
                 CarfuDiag.wake(
@@ -691,22 +704,11 @@ class WakeService : Service() {
 
     private fun onWakeWordDetected() {
         CarfuDiag.wake("WAKE_CALLBACK phase=${commandSession.phase}")
-        if (commandSession.phase != CommandSessionPhase.WAKE_DETECTED &&
-            commandSession.phase != CommandSessionPhase.IDLE_WAKE
-        ) {
-            CarfuLog.i(CommandSession.TAG, "COMMAND_SESSION_OVERLAP ignored")
-            return
-        }
-        pauseForInteraction()
         publishForegroundNotification()
 
         val intent = Intent(this, MainActivity::class.java)
         intent.setAction(ACTION_WAKE_WORD)
         intent.setFlags(FLAG_ACTIVITY_NEW_TASK)
-
-        // Speak the wake-word acknowledgment ("Tôi nghe đây?") then start STT once TTS finishes.
-        // Note that this works even if the MainActivity is opened later!
-        skillEvaluator.onWakeWordDetected()
 
         // Unload the STT after a while because it would be using RAM uselessly
         handler.removeCallbacks(releaseSttResourcesRunnable)
@@ -867,8 +869,19 @@ class WakeService : Service() {
             acceptancePolicy.onDetectorAndPcmReset()
         }
 
+        fun holdIdleWithoutWake() {
+            resumeHandler.removeCallbacks(autoResumeRunnable)
+            interactionPaused.set(true)
+            acceptancePolicy.closeGate()
+            CarfuDiag.wake("WAKE_HELD_IDLE background_wake=false")
+        }
+
         fun resumeAfterInteraction(automaticFalseWake: Boolean = false) {
             resumeHandler.removeCallbacks(autoResumeRunnable)
+            if (!CarfuSessionGate.backgroundWakeEnabled) {
+                holdIdleWithoutWake()
+                return
+            }
             if (automaticFalseWake) {
                 acceptancePolicy.markAutomaticFalseWakeCooldown()
             } else {

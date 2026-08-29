@@ -110,6 +110,7 @@ class CommandCaptureCoordinator(
         resampleInvocations = 0
         recognizerAccepts = 0
         firstPcmLogged = false
+        CommandPcmStats.reset()
         recognizer.reset()
 
         val hubPcmConsumer = object : FallbackPcmConsumer {
@@ -249,12 +250,18 @@ class CommandCaptureCoordinator(
             CarfuLog.i(CommandSession.TAG, "FIRST_PCM received=true via=shared_hub length=$length")
         }
         if (length <= 0) return
+        val (peak, rms) = PcmHealthMonitor.peakAndRms(samples, length)
+        CommandPcmStats.onHubFrame(length, peak, rms)
         val isUtteranceEnd = recognizer.acceptWaveForm(samples, length)
+        CommandPcmStats.onAcceptWaveForm(length)
         recognizerAccepts += 1
+        CommandPcmStats.maybeLog(System.currentTimeMillis())
         val sink = listener ?: return
         if (isUtteranceEnd) {
+            CommandPcmStats.onFinal()
             sink.onResult(recognizer.resultJson())
         } else {
+            CommandPcmStats.onPartial()
             sink.onPartialResult(recognizer.partialJson())
         }
     }
@@ -280,12 +287,18 @@ class CommandCaptureCoordinator(
         val nOut = streamResampler.resample(samples, length, output)
         resampleInvocations += 1
         if (nOut <= 0) return
+        val (peak, rms) = PcmHealthMonitor.peakAndRms(output, nOut)
+        CommandPcmStats.onHubFrame(nOut, peak, rms)
         val isUtteranceEnd = recognizer.acceptWaveForm(output, nOut)
+        CommandPcmStats.onAcceptWaveForm(nOut)
         recognizerAccepts += 1
+        CommandPcmStats.maybeLog(System.currentTimeMillis())
         val sink = listener ?: return
         if (isUtteranceEnd) {
+            CommandPcmStats.onFinal()
             sink.onResult(recognizer.resultJson())
         } else {
+            CommandPcmStats.onPartial()
             sink.onPartialResult(recognizer.partialJson())
         }
     }

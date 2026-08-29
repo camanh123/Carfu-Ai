@@ -148,7 +148,11 @@ class CommandSession @Inject constructor(
             partial = null,
             elapsedMs = 0,
         )
-        log("WAKE_RESUME_SCHEDULED")
+        if (CarfuSessionGate.returningToWakeMayRestartListening()) {
+            log("WAKE_RESUME_SCHEDULED")
+        } else {
+            log("WAKE_IDLE_NO_RESUME background_wake=false")
+        }
     }
 
     fun canStartCommandRecognition(): Boolean = machine.canStartCommandRecognition()

@@ -485,6 +485,23 @@ class CommandCaptureProductionPathTest : StringSpec({
         listener.partials.size shouldBe 1
     }
 
+    "low-RMS command PCM still reaches Vosk" {
+        CommandPcmStats.reset()
+        val direct = FakeDirectCapture(available = true, startSucceeds = true)
+        val fallback = FakeFallbackPcmCapture(probe = { 4096 })
+        val recognizer = FakeRecognizerAdapter()
+        val coordinator = CommandCaptureCoordinator(direct, fallback, recognizer)
+        coordinator.start(FakeRecognitionListener()) shouldBe CommandCaptureStartResult.Direct
+        val quiet = ShortArray(512) { if (it % 8 == 0) 3 else 0 }
+        direct.emit(quiet)
+        coordinator.recognizerAccepts shouldBeGreaterThan 0
+        recognizer.accepted.single().size shouldBe 512
+        CommandPcmStats.sampleCount() shouldBe 512
+        CommandPcmStats.acceptCount() shouldBe 1
+        fallback.openCount shouldBe 0
+        coordinator.bothPathsRunning().shouldBeFalse()
+    }
+
     "hub already recording refuses a second AudioRecord on Path B" {
         CarfuPcmHub.markRecording(true)
         val fallback = FakeFallbackPcmCapture(probe = { 4096 })

@@ -80,7 +80,12 @@
     <string name="pref_input_method_summary">Choose the service to use to talk to Dicio</string>
     <string name="pref_input_method_text">Only text box</string>
     <string name="pref_input_method_vosk">Vosk offline speech recognition</string>
-    <string name="pref_input_method_vosk_summary">Downloads and runs a Vosk SpeechToText model offline inside Dicio</string>
+    <string name="pref_input_method_vosk_summary">Downloads vosk-model-small-vn-0.4 (~50 MB) and runs offline Vietnamese speech recognition inside CARFU. External SpeechToText popups are disabled on the one-microphone path.</string>
+    <string name="carfu_vosk_downloading_tts">Đang tải mô hình giọng nói</string>
+    <string name="carfu_vosk_downloading">Đang tải mô hình giọng nói… %1$d%%</string>
+    <string name="carfu_vosk_unpacking">Đang giải nén mô hình giọng nói…</string>
+    <string name="carfu_vosk_error">Không tải được mô hình giọng nói. Nhấn mic để thử lại.</string>
+    <string name="carfu_vosk_missing">Cần tải mô hình giọng nói tiếng Việt</string>
     <string name="pref_input_method_external_popup">External SpeechToText popup</string>
     <string name="pref_input_method_external_popup_summary">Opens the UI of another app through ACTION\u200B_\u200BRECOGNIZE\u200B_\u200BSPEECH, for example whisperIME, Kõnele, Futo Voice Input</string>
     <string name="pref_speech_output_method">Speech output method</string>

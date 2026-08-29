@@ -7,6 +7,7 @@ import android.service.voice.VoiceInteractionSession
 import android.view.View
 import org.stypox.dicio.MainActivity
 import org.stypox.dicio.io.session.CarfuDiag
+import org.stypox.dicio.io.session.CarfuSessionGate
 
 /**
  * System assistant session for MODE / Assist. Shows no overlay and does not
@@ -42,6 +43,10 @@ class CarfuVoiceInteractionSession(context: Context) : VoiceInteractionSession(c
             putExtra(CarfuAssistIntents.EXTRA_FROM_VOICE_INTERACTION, true)
             putExtra(CarfuAssistIntents.EXTRA_SHOW_FLAGS, showFlags)
         }
+        CarfuSessionGate.noteIncomingIntent(
+            action = Intent.ACTION_ASSIST,
+            component = "VoiceInteractionSession",
+        )
         try {
             startAssistantActivity(intent)
         } catch (throwable: Throwable) {

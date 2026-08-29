@@ -117,6 +117,11 @@ class VoskInputDevice(
             // perform initialization again every time the locale changes
             nextLocaleFlow.collect { reinit(it) }
         }
+
+        scope.launch {
+            logInventory("init")
+            ensureModelPipeline()
+        }
     }
 
     private fun init(locale: Locale): VoskState {
@@ -219,45 +224,71 @@ class VoskInputDevice(
         }
     }
 
+    fun isRecognizerReady(): Boolean {
+        return when (_state.value) {
+            is Loaded, is Listening -> true
+            else -> false
+        }
+    }
+
+    fun lifecycle(): VoskModelLifecycle {
+        return VoskModelInventory.lifecycleFromVoskStateName(_state.value::class.simpleName ?: "")
+    }
+
+    fun ensureModelPipeline() {
+        logInventory("ensure")
+        when (val s = _state.value) {
+            is NotDownloaded -> download(s.modelUrl)
+            is ErrorDownloading -> download(s.modelUrl)
+            Downloaded -> unzip()
+            is ErrorUnzipping -> unzip()
+            NotLoaded -> load(null)
+            is ErrorLoading -> load(null)
+            else -> {}
+        }
+    }
+
+    private fun logInventory(reason: String) {
+        val snap = VoskModelInventory.inspect(filesDir, lastModelUrl, lifecycle())
+        CarfuLog.i(CommandSession.TAG, "$reason ${snap.logLine()}")
+    }
+
     /**
-     * Loads the model with [thenStartListeningEventListener] if the model is already downloaded
-     * but not loaded in RAM (which will then start listening if [thenStartListeningEventListener]
-     * is not `null` and pass events there), or starts listening if the model is already ready
-     * and [thenStartListeningEventListener] is not `null` and passes events there.
-     *
-     * @param thenStartListeningEventListener if not `null`, causes the [VoskInputDevice] to start
-     * listening after it has finished loading, and the received input events are sent there
-     * @return `true` if the input device will start listening (or be ready to do so in case
-     * `thenStartListeningEventListener == null`) at some point,
-     * `false` if manual user intervention is required to start listening
+     * Returns true only when the Vietnamese recognizer is READY (Loaded/Listening).
+     * Loading, downloading and missing are never treated as ready, and never enter
+     * COMMAND_LISTENING.
      */
     override fun tryLoad(thenStartListeningEventListener: ((InputEvent) -> Unit)?): Boolean {
-        val s = _state.value
-        if (s == NotLoaded || s is ErrorLoading) {
-            load(thenStartListeningEventListener)
-            return true
-        } else if (thenStartListeningEventListener != null && s is Loaded) {
-            startListening(s.speechService, s.recognizer, thenStartListeningEventListener)
-            return true
-        } else if (thenStartListeningEventListener != null && s is Listening) {
-            // Reset the previous command session cleanly before starting a new one.
-            stopListening(s.eventListener, false)
-            startListening(s.speechService, s.recognizer, thenStartListeningEventListener)
-            return true
-        } else if (thenStartListeningEventListener != null && s is Loading) {
-            _state.compareAndSet(s, Loading(thenStartListeningEventListener))
-            CarfuLog.i(
-                CommandSession.TAG,
-                "tryLoad while Loading modelDir=${modelDirectory.absolutePath} will_start=true",
-            )
-            return true
-        } else {
-            CarfuLog.w(
-                CommandSession.TAG,
-                "tryLoad rejected state=${s::class.simpleName} " +
-                    "modelDir=${modelDirectory.absolutePath} ivector=${modelExistFileCheck.exists()}",
-            )
-            return false
+        ensureModelPipeline()
+        when (val s = _state.value) {
+            is Loaded -> {
+                if (thenStartListeningEventListener != null) {
+                    startListening(s.speechService, s.recognizer, thenStartListeningEventListener)
+                }
+                return true
+            }
+            is Listening -> {
+                if (thenStartListeningEventListener != null) {
+                    stopListening(s.eventListener, false)
+                    startListening(s.speechService, s.recognizer, thenStartListeningEventListener)
+                }
+                return true
+            }
+            is Loading -> {
+                CarfuLog.i(
+                    CommandSession.TAG,
+                    "tryLoad while Loading modelDir=${modelDirectory.absolutePath} will_start=false",
+                )
+                return false
+            }
+            else -> {
+                CarfuLog.w(
+                    CommandSession.TAG,
+                    "tryLoad rejected state=${s::class.simpleName} lifecycle=${lifecycle()} " +
+                        "modelDir=${modelDirectory.absolutePath} ivector=${modelExistFileCheck.exists()}",
+                )
+                return false
+            }
         }
     }
 
@@ -310,7 +341,12 @@ class VoskInputDevice(
      * with downloading progress, until either [ErrorDownloading] or [Downloaded] are set as state.
      */
     private fun download(modelUrl: String) {
+        when (_state.value) {
+            is Downloading, is Unzipping, is Loading, is Loaded, is Listening -> return
+            else -> {}
+        }
         _state.value = Downloading(Progress.UNKNOWN)
+        logInventory("download_start")
 
         operationsJob = scope.launch(Dispatchers.IO) {
             try {
@@ -331,6 +367,7 @@ class VoskInputDevice(
             } catch (e: IOException) {
                 Log.e(TAG, "Can't download Vosk model", e)
                 _state.value = ErrorDownloading(modelUrl, e)
+                logInventory("download_error")
                 return@launch
             }
 
@@ -343,6 +380,10 @@ class VoskInputDevice(
      * Sets the state to [Unzipping] and calls [unzipImpl] in the background.
      */
     private fun unzip() {
+        when (_state.value) {
+            is Unzipping, is Loading, is Loaded, is Listening -> return
+            else -> {}
+        }
         _state.value = Unzipping(Progress.UNKNOWN)
 
         operationsJob = scope.launch {
@@ -369,6 +410,7 @@ class VoskInputDevice(
         } catch (e: Throwable) {
             Log.e(TAG, "Can't unzip Vosk model", e)
             _state.value = ErrorUnzipping(e)
+            logInventory("unzip_error")
             return
         }
 
@@ -377,7 +419,16 @@ class VoskInputDevice(
             Log.w(TAG, "Can't delete Vosk model zip: $modelZipFile")
         }
 
+        if (!VoskModelInventory.isValidUnpackedModel(modelDirectory)) {
+            val snap = VoskModelInventory.inspect(filesDir, lastModelUrl, VoskModelLifecycle.ERROR)
+            CarfuLog.e(CommandSession.TAG, "unzip_invalid ${snap.logLine()}")
+            _state.value = ErrorUnzipping(IOException("invalid vosk-model-small-vn-0.4 unpack"))
+            return
+        }
+
         _state.value = NotLoaded
+        logInventory("unzip_ok")
+        load(null)
     }
 
     /**
@@ -388,6 +439,15 @@ class VoskInputDevice(
      * if the user clicked on the button while loading).
      */
     private fun load(thenStartListeningEventListener: ((InputEvent) -> Unit)?) {
+        when (val s = _state.value) {
+            is Loading, is Loaded, is Listening, is Downloading, is Unzipping -> {
+                if (s is Loading && thenStartListeningEventListener != null) {
+                    _state.compareAndSet(s, Loading(thenStartListeningEventListener))
+                }
+                return
+            }
+            else -> {}
+        }
         _state.value = Loading(thenStartListeningEventListener)
 
         operationsJob = scope.launch {
@@ -408,14 +468,21 @@ class VoskInputDevice(
                 // Free-form Vietnamese transcription: do not pass a grammar to Vosk.
                 recognizer = Recognizer(model, SAMPLE_RATE)
                 recognizer.setMaxAlternatives(ALTERNATIVE_COUNT)
+                logInventory("recognizer_ok")
                 Log.i(
                     CommandSession.TAG,
                     "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
-                        "modelUrl=$lastModelUrl path=SHARED_HUB_READY",
+                        "modelUrl=$lastModelUrl path=${modelDirectory.absolutePath} " +
+                        "recognizerConstruction=ok path=SHARED_HUB_READY",
                 )
             } catch (e: IOException) {
                 Log.e(TAG, "Can't load Vosk model", e)
+                CarfuLog.e(
+                    CommandSession.TAG,
+                    "recognizerConstruction=fail ${e.javaClass.simpleName} ${e.message}",
+                )
                 _state.value = ErrorLoading(e)
+                logInventory("recognizer_fail")
                 return@launch
             }
 

@@ -64,6 +64,11 @@
     <string name="carfu_state_listening">Đang nghe…</string>
     <string name="carfu_state_processing">Đang xử lý…</string>
     <string name="carfu_state_unclear">Tôi chưa nghe rõ</string>
+    <string name="carfu_vosk_downloading_tts">Đang tải mô hình giọng nói</string>
+    <string name="carfu_vosk_downloading">Đang tải mô hình giọng nói… %1$d%%</string>
+    <string name="carfu_vosk_unpacking">Đang giải nén mô hình giọng nói…</string>
+    <string name="carfu_vosk_error">Không tải được mô hình giọng nói. Nhấn mic để thử lại.</string>
+    <string name="carfu_vosk_missing">Cần tải mô hình giọng nói tiếng Việt</string>
     <string name="carfu_action_nav">Dẫn đường</string>
     <string name="carfu_action_music">Nhạc</string>
     <string name="carfu_action_call">Gọi điện</string>

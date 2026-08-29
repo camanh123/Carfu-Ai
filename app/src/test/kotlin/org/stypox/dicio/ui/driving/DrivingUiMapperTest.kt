@@ -55,4 +55,16 @@ class DrivingUiMapperTest : StringSpec({
         )
         p.visual shouldBe DrivingVisualState.SUCCESS
     }
+
+    "downloading model surfaces a progress banner" {
+        val status = DrivingUiMapper.modelStatus(
+            org.stypox.dicio.io.input.SttState.Downloading(
+                org.stypox.dicio.ui.util.Progress(0, 1, 25_000_000, 50_000_000)
+            )
+        )
+        status!!.percent shouldBe 50
+        DrivingUiMapper.modelStatus(org.stypox.dicio.io.input.SttState.Loaded) shouldBe null
+        DrivingUiMapper.modelStatus(org.stypox.dicio.io.input.SttState.NotDownloaded) shouldBe
+            DrivingModelStatus(org.stypox.dicio.R.string.carfu_vosk_missing)
+    }
 })

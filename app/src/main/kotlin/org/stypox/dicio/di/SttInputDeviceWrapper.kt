@@ -22,9 +22,9 @@ import org.stypox.dicio.R
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.io.input.SttState
-import org.stypox.dicio.io.input.external_popup.ExternalPopupInputDevice
 import org.stypox.dicio.io.input.vosk.VoskInputDevice
 import org.stypox.dicio.io.session.CarfuActivationSource
+import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.settings.datastore.InputDevice
@@ -49,6 +49,12 @@ interface SttInputDeviceWrapper {
     fun onClick(eventListener: (InputEvent) -> Unit)
 
     fun reinitializeToReleaseResources()
+
+    /** True only when the Vietnamese recognizer is constructed (Loaded/Listening). */
+    fun isRecognizerReady(): Boolean = false
+
+    /** Start download/unzip/load if needed. Never treats Loading as ready. */
+    fun ensureModelPipeline() {}
 }
 
 class SttInputDeviceWrapperImpl(
@@ -107,14 +113,37 @@ class SttInputDeviceWrapperImpl(
     }
 
     private fun buildInputDevice(setting: InputDevice): SttInputDevice? {
-        return when (setting) {
+        return when (resolveCarfuInputDevice(setting)) {
             UNRECOGNIZED,
             INPUT_DEVICE_UNSET,
-            INPUT_DEVICE_VOSK -> VoskInputDevice(appContext, okHttpClient, localeManager, silencesBeforeStop)
+            INPUT_DEVICE_VOSK,
             INPUT_DEVICE_EXTERNAL_POPUP ->
-                ExternalPopupInputDevice(appContext, activityForResultManager, localeManager)
+                VoskInputDevice(appContext, okHttpClient, localeManager, silencesBeforeStop)
             INPUT_DEVICE_NOTHING -> null
         }
+    }
+
+    override fun isRecognizerReady(): Boolean {
+        val device = sttInputDevice
+        return device is VoskInputDevice && device.isRecognizerReady()
+    }
+
+    override fun ensureModelPipeline() {
+        val device = sttInputDevice
+        if (device is VoskInputDevice) {
+            device.ensureModelPipeline()
+        }
+    }
+
+    override fun onClick(eventListener: (InputEvent) -> Unit) {
+        if (commandSession.isBusy) {
+            CarfuLog.i(CommandSession.TAG, "UI_CLICK_IGNORED session_busy=true")
+            return
+        }
+        if (!commandSession.isBusy) {
+            CarfuActivationSource.markManualMic()
+        }
+        sttInputDevice?.onClick(wrapEventListener(eventListener))
     }
 
     private suspend fun restartUiStateJob() {
@@ -166,6 +195,7 @@ class SttInputDeviceWrapperImpl(
     }
 
     override fun tryLoad(thenStartListeningEventListener: ((InputEvent) -> Unit)?): Boolean {
+        ensureModelPipeline()
         return sttInputDevice?.tryLoad(if (thenStartListeningEventListener != null) {
             wrapEventListener(thenStartListeningEventListener)
         } else { null }) ?: false
@@ -175,15 +205,15 @@ class SttInputDeviceWrapperImpl(
         sttInputDevice?.stopListening()
     }
 
-    override fun onClick(eventListener: (InputEvent) -> Unit) {
-        if (!commandSession.isBusy) {
-            CarfuActivationSource.markManualMic()
-        }
-        sttInputDevice?.onClick(wrapEventListener(eventListener))
-    }
-
     override fun reinitializeToReleaseResources() {
         scope.launch { changeInputDeviceTo(inputDeviceSetting) }
+    }
+}
+
+private fun resolveCarfuInputDevice(setting: InputDevice): InputDevice {
+    return when (setting) {
+        INPUT_DEVICE_EXTERNAL_POPUP -> INPUT_DEVICE_VOSK
+        else -> setting
     }
 }
 

@@ -1,7 +1,10 @@
 package org.stypox.dicio.ui.driving
 
+import org.stypox.dicio.R
+import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.io.session.CommandUiState
+import org.stypox.dicio.ui.util.Progress
 
 enum class DrivingVisualState {
     READY,
@@ -25,6 +28,11 @@ enum class DrivingLabel {
     PROCESSING,
     UNCLEAR,
 }
+
+data class DrivingModelStatus(
+    val textRes: Int,
+    val percent: Int? = null,
+)
 
 object DrivingUiMapper {
     fun presentation(ui: CommandUiState): DrivingPresentation {
@@ -71,5 +79,25 @@ object DrivingUiMapper {
                 showPartial = false,
             )
         }
+    }
+
+    fun modelStatus(sttState: SttState?): DrivingModelStatus? {
+        return when (sttState) {
+            SttState.NotDownloaded -> DrivingModelStatus(R.string.carfu_vosk_missing)
+            is SttState.Downloading -> DrivingModelStatus(
+                textRes = R.string.carfu_vosk_downloading,
+                percent = progressPercent(sttState.progress),
+            )
+            is SttState.Unzipping -> DrivingModelStatus(R.string.carfu_vosk_unpacking)
+            is SttState.ErrorDownloading,
+            is SttState.ErrorUnzipping,
+            is SttState.ErrorLoading -> DrivingModelStatus(R.string.carfu_vosk_error)
+            else -> null
+        }
+    }
+
+    fun progressPercent(progress: Progress): Int {
+        if (progress.totalBytes <= 0L) return 0
+        return ((progress.currentBytes * 100L) / progress.totalBytes).toInt().coerceIn(0, 100)
     }
 }

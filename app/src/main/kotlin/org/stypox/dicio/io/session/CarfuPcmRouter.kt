@@ -15,9 +15,16 @@ object CarfuPcmRouter {
         phase: CommandSessionPhase,
         cooldownActive: Boolean = false,
         interactionPaused: Boolean = false,
+        backgroundWakeEnabled: Boolean = true,
     ): CarfuPcmRoute {
         if (phase == CommandSessionPhase.COMMAND_LISTENING) {
             return CarfuPcmRoute.COMMAND_RECOGNIZER
+        }
+        if (!backgroundWakeEnabled &&
+            (phase == CommandSessionPhase.IDLE_WAKE ||
+                phase == CommandSessionPhase.RETURNING_TO_WAKE)
+        ) {
+            return CarfuPcmRoute.DISCARD
         }
         if (cooldownActive || interactionPaused) {
             return CarfuPcmRoute.DISCARD

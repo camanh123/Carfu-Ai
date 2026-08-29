@@ -25,13 +25,13 @@ import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
 import org.stypox.dicio.io.assist.CarfuAssistIntents
+import org.stypox.dicio.io.session.CarfuSessionGate
 import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.ui.home.wakeWordPermissions
 import org.stypox.dicio.ui.nav.Navigation
 import org.stypox.dicio.util.BaseActivity
-import java.time.Instant
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -49,22 +49,19 @@ class MainActivity : BaseActivity() {
     private var sttPermissionJob: Job? = null
     private var wakeServiceJob: Job? = null
 
-    private var nextAssistAllowed = Instant.MIN
-
     /**
      * FYT MODE / system Assist. Starts the existing CommandSession with origin
-     * HARDWARE_BUTTON. Does not open a second AudioRecord or browser search.
+     * HARDWARE_BUTTON. Duplicate VIS + ASSIST + VOICE_COMMAND fan-out is rejected
+     * by [CarfuSessionGate], not by a 100 ms Activity-only backoff.
      */
     private fun onAssistIntentReceived(intent: Intent?) {
         CarfuAssistIntents.logIncoming("MainActivity", intent)
-        val now = Instant.now()
-        if (nextAssistAllowed < now) {
-            nextAssistAllowed = now.plusMillis(INTENT_BACKOFF_MILLIS)
-            Log.d(TAG, "Received assist intent action=${intent?.action}")
-            skillEvaluator.onHardwareButtonDetected()
-        } else {
-            Log.w(TAG, "Ignoring duplicate assist intent")
-        }
+        CarfuSessionGate.noteIncomingIntent(
+            action = intent?.action,
+            component = intent?.component?.flattenToShortString(),
+        )
+        Log.d(TAG, "Received assist intent action=${intent?.action}")
+        skillEvaluator.onHardwareButtonDetected()
     }
 
     private fun handleWakeWordTurnOnScreen(intent: Intent?) {
@@ -114,8 +111,9 @@ class MainActivity : BaseActivity() {
         isCreated += 1
 
         handleWakeWordTurnOnScreen(intent)
-        // Preload Vosk (Vietnamese) without listening so COMMAND_LISTENING can attach immediately.
+        // Preload / auto-download Vietnamese Vosk. tryLoad is true only when READY.
         if (intent.action != ACTION_WAKE_WORD) {
+            sttInputDevice.ensureModelPipeline()
             sttInputDevice.tryLoad(null)
         }
         if (isAssistIntent(intent)) {
@@ -174,7 +172,6 @@ class MainActivity : BaseActivity() {
     }
 
     companion object {
-        private const val INTENT_BACKOFF_MILLIS = 100L
         private val TAG = MainActivity::class.simpleName
         const val ACTION_WAKE_WORD = "org.stypox.dicio.MainActivity.ACTION_WAKE_WORD"
 

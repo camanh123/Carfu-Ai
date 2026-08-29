@@ -118,12 +118,21 @@ fun DrivingScreen(
         volumePanelVisible = false
     }
 
-    val label = when (presentation.labelResHint) {
-        DrivingLabel.READY -> stringResource(R.string.carfu_state_ready)
-        DrivingLabel.ACK -> stringResource(R.string.carfu_state_ack)
-        DrivingLabel.LISTENING -> stringResource(R.string.carfu_state_listening)
-        DrivingLabel.PROCESSING -> stringResource(R.string.carfu_state_processing)
-        DrivingLabel.UNCLEAR -> stringResource(R.string.carfu_state_unclear)
+    val modelStatus = DrivingUiMapper.modelStatus(sttState)
+    val label = if (modelStatus != null) {
+        if (modelStatus.percent != null) {
+            stringResource(modelStatus.textRes, modelStatus.percent)
+        } else {
+            stringResource(modelStatus.textRes)
+        }
+    } else {
+        when (presentation.labelResHint) {
+            DrivingLabel.READY -> stringResource(R.string.carfu_state_ready)
+            DrivingLabel.ACK -> stringResource(R.string.carfu_state_ack)
+            DrivingLabel.LISTENING -> stringResource(R.string.carfu_state_listening)
+            DrivingLabel.PROCESSING -> stringResource(R.string.carfu_state_processing)
+            DrivingLabel.UNCLEAR -> stringResource(R.string.carfu_state_unclear)
+        }
     }
     val heard = if (presentation.showPartial) {
         commandUi.partial?.takeIf { it.isNotBlank() } ?: lastCommand

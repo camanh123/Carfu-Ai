@@ -39,6 +39,21 @@ class CarfuPcmRouterTest : StringSpec({
             CarfuPcmRoute.OPEN_WAKE_WORD
     }
 
+    "RETURNING_TO_WAKE and IDLE discard when background wake is OFF" {
+        CarfuPcmRouter.route(
+            phase = CommandSessionPhase.RETURNING_TO_WAKE,
+            backgroundWakeEnabled = false,
+        ) shouldBe CarfuPcmRoute.DISCARD
+        CarfuPcmRouter.route(
+            phase = CommandSessionPhase.IDLE_WAKE,
+            backgroundWakeEnabled = false,
+        ) shouldBe CarfuPcmRoute.DISCARD
+        CarfuPcmRouter.route(
+            phase = CommandSessionPhase.COMMAND_LISTENING,
+            backgroundWakeEnabled = false,
+        ) shouldBe CarfuPcmRoute.COMMAND_RECOGNIZER
+    }
+
     "cooldown and interaction pause discard idle PCM so TTS cannot self-trigger" {
         CarfuPcmRouter.route(
             phase = CommandSessionPhase.IDLE_WAKE,
