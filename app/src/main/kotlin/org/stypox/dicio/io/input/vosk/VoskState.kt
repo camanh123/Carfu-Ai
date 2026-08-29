@@ -106,9 +106,9 @@ sealed interface VoskState {
     ) : VoskState
 
     /**
-     * The 16 kHz Vosk [Recognizer] is ready in RAM. [speechService] is non-null when native
-     * 16 kHz [SpeechService] initialized; otherwise command capture uses the fallback AudioRecord
-     * path against the same recognizer.
+     * The 16 kHz Vosk [Recognizer] is ready in RAM. Command capture taps the shared
+     * PCM hub; [speechService] stays null on the CARFU path (SpeechService must not
+     * open a second AudioRecord).
      */
     data class Loaded(
         internal val speechService: SpeechService?,
@@ -116,8 +116,8 @@ sealed interface VoskState {
     ) : VoskState
 
     /**
-     * Command capture is listening, either via [speechService] (Path A) or fallback AudioRecord
-     * (Path B) feeding [recognizer].
+     * Command capture is listening via the shared 16 kHz hub (Path A) or a fallback
+     * AudioRecord (Path B, only when the hub is not recording) feeding [recognizer].
      */
     data class Listening(
         internal val speechService: SpeechService?,

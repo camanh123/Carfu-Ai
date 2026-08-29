@@ -24,6 +24,7 @@ import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
 import org.stypox.dicio.io.input.InputEvent
 import androidx.datastore.core.DataStore
 import org.stypox.dicio.io.session.AudioCaptureConfig
+import org.stypox.dicio.io.session.CarfuActivationSource
 import org.stypox.dicio.io.session.CarfuCommandRouter
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CommandSession
@@ -169,13 +170,32 @@ class SkillEvaluatorImpl(
         }
     }
 
-    private fun endWakeSession(reason: String) {
+    private fun endWakeSession(reason: String, automaticFalseWake: Boolean = false) {
         if (wakeSessionActive.compareAndSet(true, false)) {
             skillContext.speechOutputDevice.runWhenFinishedSpeaking {
                 commandSession.endSession(reason)
-                WakeService.resumeAfterInteraction()
+                WakeService.resumeAfterInteraction(automaticFalseWake)
             }
         }
+    }
+
+    private suspend fun handleEmptyOrUnclear(reason: String) {
+        commandSession.onUnclear()
+        val speak = CarfuActivationSource.shouldSpeakUnclear()
+        val falseWake = CarfuActivationSource.shouldApplyFalseWakeCooldown()
+        if (speak) {
+            withContext(Dispatchers.Main) {
+                skillContext.speechOutputDevice.speak(
+                    skillContext.android.getString(R.string.carfu_state_unclear)
+                )
+            }
+        } else {
+            CarfuLog.i(
+                CommandSession.TAG,
+                "UNCLEAR_SILENT reason=$reason automatic=${!CarfuActivationSource.isManual()}",
+            )
+        }
+        endWakeSession(reason, automaticFalseWake = falseWake)
     }
 
     private fun finishSessionWithoutWakeResume(reason: String) {
@@ -221,13 +241,7 @@ class SkillEvaluatorImpl(
             is InputEvent.Final -> {
                 val original = event.utterances[0].first
                 if (VietnameseTranscript.isTooWeakToSubmit(original)) {
-                    commandSession.onUnclear()
-                    withContext(Dispatchers.Main) {
-                        skillContext.speechOutputDevice.speak(
-                            skillContext.android.getString(R.string.carfu_state_unclear)
-                        )
-                    }
-                    endWakeSession("reject_noise")
+                    handleEmptyOrUnclear("reject_noise")
                     return
                 }
                 commandSession.onSpeechBegin()
@@ -264,13 +278,7 @@ class SkillEvaluatorImpl(
             }
             InputEvent.None -> {
                 _state.value = _state.value.copy(pendingQuestion = null)
-                commandSession.onUnclear()
-                withContext(Dispatchers.Main) {
-                    skillContext.speechOutputDevice.speak(
-                        skillContext.android.getString(R.string.carfu_state_unclear)
-                    )
-                }
-                endWakeSession("timeout_or_silence")
+                handleEmptyOrUnclear("timeout_or_silence")
             }
             is InputEvent.Partial -> {
                 commandSession.onPartial(event.utterance)

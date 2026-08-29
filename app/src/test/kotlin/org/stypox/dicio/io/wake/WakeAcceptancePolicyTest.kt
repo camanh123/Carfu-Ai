@@ -155,21 +155,50 @@ class WakeAcceptancePolicyTest : StringSpec({
     "wake and command microphones cannot overlap" {
         WakeAcceptancePolicy.wakeAndCommandMicsOverlap(true, true).shouldBeTrue()
         WakeAcceptancePolicy.wakeAndCommandMicsOverlap(true, false).shouldBeFalse()
+        WakeAcceptancePolicy.shouldReleasePhysicalRecorderForSession().shouldBeFalse()
         WakeAcceptancePolicy.commandSttMayStart(
             ttsCompleted = true,
-            wakeRecorderHeld = true,
             alreadyStarted = false,
-        ).shouldBeFalse()
-        WakeAcceptancePolicy.commandSttMayStart(
-            ttsCompleted = true,
-            wakeRecorderHeld = false,
-            alreadyStarted = false,
+            sharedHubRecording = true,
         ).shouldBeTrue()
         WakeAcceptancePolicy.commandSttMayStart(
             ttsCompleted = true,
-            wakeRecorderHeld = false,
-            alreadyStarted = true,
+            alreadyStarted = false,
+            sharedHubRecording = false,
         ).shouldBeFalse()
+        WakeAcceptancePolicy.commandSttMayStart(
+            ttsCompleted = true,
+            alreadyStarted = true,
+            sharedHubRecording = true,
+        ).shouldBeFalse()
+    }
+
+    "score without voice activity cannot accept" {
+        val policy = primedPolicy(mutableListOf(1_000L))
+        repeat(WakeAcceptancePolicy.CONSECUTIVE_HITS_REQUIRED) {
+            policy.evaluate(
+                scoreAboveThreshold = true,
+                phase = CommandSessionPhase.IDLE_WAKE,
+                voiceActivity = false,
+            ) shouldBe WakeAcceptancePolicy.Verdict.REJECT_NO_VAD
+        }
+        policy.consecutiveHits shouldBe 0
+    }
+
+    "automatic false-wake cooldown lasts 10 seconds" {
+        val clock = mutableListOf(1_000L)
+        val policy = primedPolicy(clock)
+        policy.markAutomaticFalseWakeCooldown()
+        clock[0] += WakeAcceptancePolicy.AUTOMATIC_FALSE_WAKE_COOLDOWN_MS - 1
+        policy.onCooldownElapsed()
+        policy.evaluate(true, CommandSessionPhase.IDLE_WAKE) shouldBe
+            WakeAcceptancePolicy.Verdict.DISCARD_COOLDOWN
+        clock[0] += 1
+        policy.onCooldownElapsed()
+        policy.onRecorderStarted()
+        clock[0] += WakeAcceptancePolicy.RECORDER_WARMUP_MS
+        policy.onDetectorAndPcmReset()
+        acceptWake(policy) shouldBe WakeAcceptancePolicy.Verdict.ACCEPT
     }
 })
 

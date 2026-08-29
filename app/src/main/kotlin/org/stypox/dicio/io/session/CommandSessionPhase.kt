@@ -2,7 +2,8 @@ package org.stypox.dicio.io.session
 
 /**
  * Single-owner microphone / command-session states for the automotive wake→STT flow.
- * Only one phase is active at a time; wake capture and command capture never overlap.
+ * Only one phase is active at a time; the single PCM stream is routed to either
+ * OpenWakeWord or the Vosk recognizer, never both, and never via a second AudioRecord.
  */
 enum class CommandSessionPhase {
     IDLE_WAKE,

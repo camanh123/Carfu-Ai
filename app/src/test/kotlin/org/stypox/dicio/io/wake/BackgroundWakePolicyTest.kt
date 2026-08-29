@@ -235,7 +235,7 @@ private class ExclusiveDirectCapture(
 ) : Direct16kHzCapture {
     private var running = false
     override fun isAvailable(): Boolean = available
-    override fun start(listener: RecognitionListener): Boolean {
+    override fun start(consumer: FallbackPcmConsumer): Boolean {
         if (!available) return false
         running = true
         return true

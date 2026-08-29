@@ -24,6 +24,7 @@ import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.input.external_popup.ExternalPopupInputDevice
 import org.stypox.dicio.io.input.vosk.VoskInputDevice
+import org.stypox.dicio.io.session.CarfuActivationSource
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.settings.datastore.InputDevice
@@ -156,7 +157,7 @@ class SttInputDeviceWrapperImpl(
     }
 
     private fun wrapEventListener(eventListener: (InputEvent) -> Unit): (InputEvent) -> Unit = {
-        if (it is InputEvent.None) {
+        if (it is InputEvent.None && CarfuActivationSource.isManual()) {
             scope.launch {
                 playSound(R.raw.listening_no_input_sound)
             }
@@ -175,6 +176,7 @@ class SttInputDeviceWrapperImpl(
     }
 
     override fun onClick(eventListener: (InputEvent) -> Unit) {
+        CarfuActivationSource.markManualMic()
         sttInputDevice?.onClick(wrapEventListener(eventListener))
     }
 

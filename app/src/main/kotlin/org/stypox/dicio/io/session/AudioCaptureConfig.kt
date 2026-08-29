@@ -8,8 +8,8 @@ import android.media.MediaRecorder
  * Detects a usable [AudioRecord] configuration on UIS7862 / generic Android.
  * Vosk small models (including `vosk-model-small-vn-0.4`) expect 16 kHz PCM.
  *
- * Path A prefers native 16 kHz (existing Vosk SpeechService). Path B probes fallback rates in
- * this order and opens a real [AudioRecord] at the first rate that initializes:
+ * Path A prefers the shared 16 kHz PCM hub (one VOICE_RECOGNITION AudioRecord).
+ * Path B probes fallback rates only when that hub is not already recording:
  * 48000, 44100, 32000, 8000.
  */
 data class AudioCaptureConfig(

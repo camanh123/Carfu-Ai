@@ -50,7 +50,7 @@ class CommandSession @Inject constructor(
         }
         publish()
         log("COMMAND_SESSION_START id=${machine.sessionId}")
-        log("WAKE_ENGINE_RELEASED")
+        log("WAKE_PCM_ROUTE=discard recorder_held=true")
         return true
     }
 

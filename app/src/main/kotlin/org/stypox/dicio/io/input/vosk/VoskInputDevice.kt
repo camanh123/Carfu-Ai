@@ -52,12 +52,13 @@ import org.stypox.dicio.io.input.vosk.VoskState.Unzipping
 import org.stypox.dicio.io.session.AndroidFallbackPcmCapture
 import org.stypox.dicio.io.session.AudioCaptureConfig
 import org.stypox.dicio.io.session.CarfuLog
+import org.stypox.dicio.io.session.CarfuPcmHub
 import org.stypox.dicio.io.session.CommandCaptureCoordinator
 import org.stypox.dicio.io.session.CommandCaptureStartResult
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CoroutineTimeoutScheduler
 import org.stypox.dicio.io.session.RecognizerWaveformAdapter
-import org.stypox.dicio.io.session.SpeechServiceDirectCapture
+import org.stypox.dicio.io.session.SharedPcmDirectCapture
 import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.ui.util.Progress
 import org.stypox.dicio.util.FileToDownload
@@ -69,7 +70,6 @@ import org.vosk.LibVosk
 import org.vosk.LogLevel
 import org.vosk.Model
 import org.vosk.Recognizer
-import org.vosk.android.SpeechService
 import java.io.File
 import java.io.IOException
 import java.util.Locale
@@ -392,7 +392,7 @@ class VoskInputDevice(
 
         operationsJob = scope.launch {
             val recognizer: Recognizer
-            var speechService: SpeechService? = null
+            val speechService: org.vosk.android.SpeechService? = null
             try {
                 LibVosk.setLogLevel(if (BuildConfig.DEBUG) LogLevel.DEBUG else LogLevel.WARNINGS)
                 val model = Model(modelDirectory.absolutePath)
@@ -402,34 +402,17 @@ class VoskInputDevice(
                     "Vosk load modelDir=${modelDirectory.absolutePath} url=$lastModelUrl " +
                         "recognizerRate=$SAMPLE_RATE captureRate=${capture.captureRateHz} " +
                         "minBuffer=${capture.minBufferBytes} resample=${capture.needsResample} " +
-                        "ivector=${modelExistFileCheck.exists()}"
+                        "ivector=${modelExistFileCheck.exists()} speechService=never " +
+                        "sharedHub=${CarfuPcmHub.isRecording()}",
                 )
                 // Free-form Vietnamese transcription: do not pass a grammar to Vosk.
                 recognizer = Recognizer(model, SAMPLE_RATE)
                 recognizer.setMaxAlternatives(ALTERNATIVE_COUNT)
-                val native16k = AudioCaptureConfig.isNative16kHzSupported()
-                if (native16k) {
-                    try {
-                        speechService = SpeechService(recognizer, SAMPLE_RATE)
-                        Log.i(
-                            CommandSession.TAG,
-                            "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
-                                "modelUrl=$lastModelUrl path=DIRECT_READY",
-                        )
-                    } catch (e: Exception) {
-                        Log.w(
-                            CommandSession.TAG,
-                            "native 16kHz SpeechService init failed, fallback capture enabled",
-                            e,
-                        )
-                    }
-                } else {
-                    Log.i(
-                        CommandSession.TAG,
-                        "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
-                            "modelUrl=$lastModelUrl path=FALLBACK_READY native16k=false",
-                    )
-                }
+                Log.i(
+                    CommandSession.TAG,
+                    "Vosk recognizer grammar=none sampleRate=$SAMPLE_RATE " +
+                        "modelUrl=$lastModelUrl path=SHARED_HUB_READY",
+                )
             } catch (e: IOException) {
                 Log.e(TAG, "Can't load Vosk model", e)
                 _state.value = ErrorLoading(e)
@@ -492,42 +475,25 @@ class VoskInputDevice(
     }
 
     /**
-     * Starts command capture. Path A uses the existing 16 kHz [SpeechService] when it can
-     * initialize and start. Path B opens a fallback [android.media.AudioRecord], resamples PCM
-     * to 16 kHz via [org.stypox.dicio.io.session.StreamingPcmResampler], and feeds
-     * [Recognizer.acceptWaveForm] through [CommandCaptureCoordinator].
+     * Starts command capture from the shared 16 kHz PCM hub (Path A). SpeechService is never
+     * constructed, so a second AudioRecord cannot be opened on the CARFU path. Path B opens a
+     * fallback AudioRecord only when the hub is not already recording.
      */
     private fun startListening(
-        speechService: SpeechService?,
+        speechService: org.vosk.android.SpeechService?,
         recognizer: Recognizer,
         eventListener: ((InputEvent) -> Unit),
     ) {
         activeCapture?.stop()
         activeCapture = null
-
-        var service = speechService
-        if (service == null && AudioCaptureConfig.isNative16kHzSupported()) {
-            try {
-                service = SpeechService(recognizer, SAMPLE_RATE)
-                CarfuLog.i(
-                    CommandSession.TAG,
-                    "SPEECH_SERVICE_RETRY success after wake release " +
-                        "recognizerRate=$SAMPLE_RATE model=${modelDirectory.absolutePath}",
-                )
-            } catch (e: Exception) {
-                CarfuLog.w(
-                    CommandSession.TAG,
-                    "SPEECH_SERVICE_RETRY failed ${e.javaClass.simpleName}",
-                )
-            }
+        try {
+            recognizer.reset()
+        } catch (_: Throwable) {
         }
 
         val listener = VoskListener(this, eventListener, silencesBeforeStop.value)
         val coordinator = CommandCaptureCoordinator(
-            direct = SpeechServiceDirectCapture(
-                service,
-                CommandSession.COMMAND_LISTEN_TIMEOUT_MS,
-            ),
+            direct = SharedPcmDirectCapture(),
             fallback = AndroidFallbackPcmCapture(),
             recognizer = RecognizerWaveformAdapter(recognizer),
             timeoutMs = CommandSession.COMMAND_LISTEN_TIMEOUT_MS.toLong(),
@@ -539,11 +505,12 @@ class VoskInputDevice(
             is CommandCaptureStartResult.Direct -> {
                 CarfuLog.i(
                     CommandSession.TAG,
-                    "COMMAND_AUDIO_STARTED path=A captureRate=$SAMPLE_RATE " +
-                        "recognizerRate=$SAMPLE_RATE model=${modelDirectory.absolutePath} " +
+                    "COMMAND_AUDIO_STARTED path=A sharedHub=true speechService=false " +
+                        "captureRate=$SAMPLE_RATE recognizerRate=$SAMPLE_RATE " +
+                        "model=${modelDirectory.absolutePath} " +
                         "ivector=${modelExistFileCheck.exists()}",
                 )
-                _state.value = Listening(service, recognizer, eventListener)
+                _state.value = Listening(null, recognizer, eventListener)
             }
             is CommandCaptureStartResult.Fallback -> {
                 CarfuLog.i(
@@ -560,14 +527,14 @@ class VoskInputDevice(
                     CommandSession.TAG,
                     "COMMAND_CAPTURE_ERROR ${result.cause.message}",
                 )
-                _state.value = Loaded(service, recognizer)
+                _state.value = Loaded(null, recognizer)
                 eventListener(InputEvent.Error(result.cause))
             }
         }
     }
 
     /**
-     * Stops command capture (SpeechService and/or fallback AudioRecord + worker) and returns to
+     * Stops command capture (shared hub tap and/or fallback AudioRecord + worker) and returns to
      * [Loaded]. This is `internal` because it is used by [VoskListener].
      */
     internal fun stopListening(

@@ -9,51 +9,35 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal class SpeechServiceDirectCapture(
-    private var speechService: SpeechService?,
-    private val timeoutMs: Int,
-) : Direct16kHzCapture {
+/**
+ * Path A: attach to the WakeService-owned 16 kHz hub. Never constructs SpeechService
+ * and never opens a second AudioRecord.
+ */
+internal class SharedPcmDirectCapture : Direct16kHzCapture {
     private val running = AtomicBoolean(false)
 
-    override fun isAvailable(): Boolean = speechService != null
+    override fun isAvailable(): Boolean = CarfuPcmHub.isRecording()
 
-    override fun start(listener: RecognitionListener): Boolean {
-        val service = speechService ?: return false
-        return try {
-            try {
-                service.startListening(listener, timeoutMs)
-            } catch (_: Throwable) {
-                service.startListening(listener)
-            }
-            running.set(true)
-            true
-        } catch (_: Throwable) {
+    override fun start(consumer: FallbackPcmConsumer): Boolean {
+        if (!isAvailable()) return false
+        if (!CarfuPcmHub.attachCommandConsumer(consumer)) {
             running.set(false)
-            false
+            return false
         }
+        running.set(true)
+        return true
     }
 
     override fun stop() {
-        try {
-            speechService?.stop()
-        } catch (_: Throwable) {
-        }
+        CarfuPcmHub.detachCommandConsumer()
         running.set(false)
     }
 
     override fun shutdown() {
         stop()
-        try {
-            speechService?.shutdown()
-        } catch (_: Throwable) {
-        }
-        speechService = null
-        running.set(false)
     }
 
     override fun isRunning(): Boolean = running.get()
@@ -71,6 +55,13 @@ internal class RecognizerWaveformAdapter(
     override fun partialJson(): String = recognizer.partialResult
 
     override fun finalJson(): String = recognizer.finalResult
+
+    override fun reset() {
+        try {
+            recognizer.reset()
+        } catch (_: Throwable) {
+        }
+    }
 }
 
 internal class CoroutineTimeoutScheduler(

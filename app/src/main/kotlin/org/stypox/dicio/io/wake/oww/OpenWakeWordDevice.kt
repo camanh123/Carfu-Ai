@@ -109,6 +109,7 @@ class OpenWakeWordDevice(
                     embFile.file,
                     if (userWakeFileExists) userWakeFile else wakeFile,
                 )
+                CarfuLog.i("CarfuWake", "OWW_TENSOR ${OwwModel.tensorContractDescription()}")
                 _state.value = WakeState.Loaded
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to load model", t)
@@ -118,7 +119,7 @@ class OpenWakeWordDevice(
         }
 
         for (i in 0..<OwwModel.MEL_INPUT_COUNT) {
-            audio[i] = audio16bitPcm[i].toFloat() / 32768.0f
+            audio[i] = audio16bitPcm[i].toFloat() / OwwModel.PCM_SCALE
         }
 
         val threshold = if (userWakeFileExists) {
@@ -131,6 +132,7 @@ class OpenWakeWordDevice(
             CarfuLog.i(
                 "CarfuWake",
                 "score=${"%.3f".format(score)} threshold=$threshold " +
+                    "positiveIndex=${OwwModel.POSITIVE_OUTPUT_INDEX} " +
                     "range=[${WakeAcceptancePolicy.SCORE_RANGE_MIN}," +
                     "${WakeAcceptancePolicy.SCORE_RANGE_MAX}]",
             )

@@ -44,13 +44,15 @@ private class FakeDirectCapture(
     var startCount = 0
     var stopCount = 0
     var shutdownCount = 0
+    var consumer: FallbackPcmConsumer? = null
     private var running = false
 
     override fun isAvailable(): Boolean = available
 
-    override fun start(listener: RecognitionListener): Boolean {
+    override fun start(consumer: FallbackPcmConsumer): Boolean {
         startCount += 1
         if (!available || !startSucceeds) return false
+        this.consumer = consumer
         running = true
         return true
     }
@@ -58,15 +60,21 @@ private class FakeDirectCapture(
     override fun stop() {
         stopCount += 1
         running = false
+        consumer = null
     }
 
     override fun shutdown() {
         shutdownCount += 1
         running = false
         available = false
+        consumer = null
     }
 
     override fun isRunning(): Boolean = running
+
+    fun emit(samples: ShortArray) {
+        consumer?.onPcm(samples, samples.size)
+    }
 }
 
 private class FakeFallbackSession(
@@ -179,7 +187,11 @@ private fun listeningSession(): CommandSessionMachine {
 }
 
 class CommandCaptureProductionPathTest : StringSpec({
-    "native 16 kHz selects the existing direct SpeechService path" {
+    beforeTest {
+        CarfuPcmHub.resetForTests()
+    }
+
+    "native 16 kHz selects the shared PCM hub path without SpeechService" {
         val direct = FakeDirectCapture(available = true, startSucceeds = true)
         val fallback = FakeFallbackPcmCapture(probe = { 4096 })
         val recognizer = FakeRecognizerAdapter()
@@ -455,5 +467,64 @@ class CommandCaptureProductionPathTest : StringSpec({
         listener.results.single() shouldBe """{"text":"mở youtube"}"""
         CarfuCommandRouter.match("mở youtube")!!.intent shouldBe CarfuIntent.OPEN_YOUTUBE
         VietnameseTranscript.isTooWeakToSubmit("mở youtube").shouldBeFalse()
+    }
+
+    "shared hub PCM is fed to Vosk without opening a second AudioRecord" {
+        val direct = FakeDirectCapture(available = true, startSucceeds = true)
+        val fallback = FakeFallbackPcmCapture(probe = { 4096 })
+        val recognizer = FakeRecognizerAdapter()
+        val listener = FakeRecognitionListener()
+        val coordinator = CommandCaptureCoordinator(direct, fallback, recognizer)
+        coordinator.start(listener) shouldBe CommandCaptureStartResult.Direct
+        fallback.openCount shouldBe 0
+        direct.emit(ShortArray(1152) { 12 })
+        coordinator.recognizerAccepts shouldBeGreaterThan 0
+        recognizer.accepted.single().size shouldBe 1152
+        coordinator.resampleInvocations shouldBe 0
+        coordinator.bothPathsRunning().shouldBeFalse()
+        listener.partials.size shouldBe 1
+    }
+
+    "hub already recording refuses a second AudioRecord on Path B" {
+        CarfuPcmHub.markRecording(true)
+        val fallback = FakeFallbackPcmCapture(probe = { 4096 })
+        val coordinator = CommandCaptureCoordinator(
+            FakeDirectCapture(available = false),
+            fallback,
+            FakeRecognizerAdapter(),
+        )
+        val result = coordinator.start(FakeRecognitionListener())
+        result.shouldBeInstanceOf<CommandCaptureStartResult.Failed>()
+        (result as CommandCaptureStartResult.Failed).cause.message shouldBe
+            "command-capture: hub recording; refusing second AudioRecord"
+        fallback.openCount shouldBe 0
+        coordinator.isFallbackRunning().shouldBeFalse()
+        coordinator.isDirectRunning().shouldBeFalse()
+        CarfuPcmHub.resetForTests()
+    }
+
+    "shared hub path timeout returns CommandSession to IDLE_WAKE" {
+        val machine = listeningSession()
+        val wake = FakeWakeResume()
+        val timeout = ManualTimeoutScheduler()
+        val direct = FakeDirectCapture(available = true, startSucceeds = true)
+        val listener = object : FakeRecognitionListener() {
+            override fun onTimeout() {
+                super.onTimeout()
+                endCommandSession(machine, wake)
+            }
+        }
+        val coordinator = CommandCaptureCoordinator(
+            direct,
+            FakeFallbackPcmCapture(probe = { 4096 }),
+            FakeRecognizerAdapter(),
+            timeoutScheduler = timeout,
+        )
+        coordinator.start(listener) shouldBe CommandCaptureStartResult.Direct
+        timeout.fire()
+        listener.timeouts shouldBe 1
+        direct.isRunning().shouldBeFalse()
+        machine.phase shouldBe CommandSessionPhase.IDLE_WAKE
+        wake.resumed.shouldBeTrue()
     }
 })

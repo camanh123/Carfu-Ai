@@ -11,7 +11,8 @@ fun interface CaptureRateProbe {
 
 interface Direct16kHzCapture {
     fun isAvailable(): Boolean
-    fun start(listener: RecognitionListener): Boolean
+    /** Start tapping the shared 16 kHz hub. Must not open a second AudioRecord. */
+    fun start(consumer: FallbackPcmConsumer): Boolean
     fun stop()
     fun shutdown()
     fun isRunning(): Boolean
@@ -39,6 +40,7 @@ interface VoskRecognizerAdapter {
     fun resultJson(): String
     fun partialJson(): String
     fun finalJson(): String
+    fun reset() {}
 }
 
 fun interface CaptureTimeoutScheduler {
@@ -65,9 +67,10 @@ sealed class CommandCaptureStartResult {
 }
 
 /**
- * Injectable production capture seam. Path A starts the existing 16 kHz Vosk [SpeechService].
- * Path B opens a fallback [AudioRecord], resamples continuously to 16 kHz, and feeds
- * [VoskRecognizerAdapter.acceptWaveForm]. Direct and fallback never run at the same time.
+ * Injectable production capture seam. Path A taps the shared 16 kHz [CarfuPcmHub] and
+ * feeds [VoskRecognizerAdapter.acceptWaveForm] without constructing Vosk SpeechService.
+ * Path B opens a fallback AudioRecord only when the hub is not already recording.
+ * Direct and fallback never run at the same time; the hub forbids a second recorder.
  */
 class CommandCaptureCoordinator(
     private val direct: Direct16kHzCapture,
@@ -107,10 +110,24 @@ class CommandCaptureCoordinator(
         resampleInvocations = 0
         recognizerAccepts = 0
         firstPcmLogged = false
+        recognizer.reset()
+
+        val hubPcmConsumer = object : FallbackPcmConsumer {
+            override fun onPcm(samples: ShortArray, length: Int) {
+                feedDirectPcm(samples, length)
+            }
+
+            override fun onReadError(error: Exception) {
+                if (!running.get()) return
+                val sink = listener
+                stop()
+                sink.onError(error)
+            }
+        }
 
         if (direct.isAvailable()) {
             val started = try {
-                direct.start(listener)
+                direct.start(hubPcmConsumer)
             } catch (_: Throwable) {
                 false
             }
@@ -119,20 +136,39 @@ class CommandCaptureCoordinator(
                 directRunning.set(true)
                 fallbackRunning.set(false)
                 firstPcmLogged = false
+                timeoutHandle = timeoutScheduler.schedule(timeoutMs) {
+                    if (running.get() && path == CommandCapturePath.DIRECT) {
+                        val sink = this.listener
+                        stop()
+                        sink?.onTimeout()
+                    }
+                }
                 CarfuLog.i(
                     CommandSession.TAG,
-                    "COMMAND_CAPTURE path=A rate=${AudioCaptureConfig.MODEL_RATE_HZ} resample=false",
+                    "COMMAND_CAPTURE path=A sharedHub=true speechService=false " +
+                        "rate=${AudioCaptureConfig.MODEL_RATE_HZ} resample=false",
                 )
                 return CommandCaptureStartResult.Direct
             }
             direct.shutdown()
             directRunning.set(false)
-            CarfuLog.w(CommandSession.TAG, "native 16kHz SpeechService start failed, using fallback capture")
+            CarfuLog.w(
+                CommandSession.TAG,
+                "shared 16kHz hub attach failed, fallback only if hub is not recording",
+            )
         }
 
         if (direct.isRunning()) {
             direct.shutdown()
             directRunning.set(false)
+        }
+
+        if (CarfuPcmHub.isRecording()) {
+            running.set(false)
+            path = CommandCapturePath.NONE
+            val error = IOException("command-capture: hub recording; refusing second AudioRecord")
+            CarfuLog.e(CommandSession.TAG, "COMMAND_CAPTURE_ERROR ${error.message}")
+            return CommandCaptureStartResult.Failed(error)
         }
 
         val session = fallback.open(AudioCaptureConfig.FALLBACK_RATES)
@@ -199,6 +235,28 @@ class CommandCaptureCoordinator(
         resampler = null
         outBuf = null
         listener = null
+    }
+
+    private fun feedDirectPcm(samples: ShortArray, length: Int) {
+        if (!running.get() || !directRunning.get()) return
+        if (fallbackRunning.get()) {
+            CarfuLog.e(CommandSession.TAG, "COMMAND_CAPTURE_ERROR direct and fallback both running")
+            stop()
+            return
+        }
+        if (!firstPcmLogged && length > 0) {
+            firstPcmLogged = true
+            CarfuLog.i(CommandSession.TAG, "FIRST_PCM received=true via=shared_hub length=$length")
+        }
+        if (length <= 0) return
+        val isUtteranceEnd = recognizer.acceptWaveForm(samples, length)
+        recognizerAccepts += 1
+        val sink = listener ?: return
+        if (isUtteranceEnd) {
+            sink.onResult(recognizer.resultJson())
+        } else {
+            sink.onPartialResult(recognizer.partialJson())
+        }
     }
 
     private fun feedFallbackPcm(samples: ShortArray, length: Int) {
