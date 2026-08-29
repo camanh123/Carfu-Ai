@@ -3,6 +3,7 @@ package org.stypox.dicio.settings
 import android.app.Application
 import android.content.Intent
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -18,6 +19,7 @@ import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.SettingsVoice
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,6 +40,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import org.stypox.dicio.R
+import org.stypox.dicio.io.assist.CarfuAssistSettings
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.probe.CarfuProbeActivity
 import org.stypox.dicio.io.wake.BackgroundWakePolicy
@@ -135,6 +138,24 @@ private fun MainSettingsScreen(
 
         /* INPUT AND OUTPUT METHODS */
         item { SettingsCategoryTitle(stringResource(R.string.pref_io)) }
+        item {
+            SettingsItem(
+                title = stringResource(R.string.settings_mode_button_setup),
+                icon = Icons.Default.SettingsVoice,
+                description = stringResource(R.string.settings_mode_button_setup_summary),
+                modifier = Modifier
+                    .clickable {
+                        if (!CarfuAssistSettings.openAssistantSettings(context)) {
+                            Toast.makeText(
+                                context,
+                                R.string.settings_mode_button_setup_unavailable,
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                    .testTag("mode_button_setup_item")
+            )
+        }
         item {
             inputDevice().Render(
                 when (val inputDevice = settings.inputDevice) {

@@ -854,6 +854,16 @@ class WakeService : Service() {
             resumeHandler.postDelayed(autoResumeRunnable, WAKE_MIC_PAUSE_TIMEOUT_MILLIS)
         }
 
+        /**
+         * MODE / Assist: bypass wake scoring, close the detector, keep the shared 16 kHz hub.
+         */
+        fun pauseForHardwareButton() {
+            CarfuDiag.wake("HARDWARE_BUTTON_PAUSE sharedHub=true")
+            pauseForInteraction()
+            acceptancePolicy.closeGate()
+            acceptancePolicy.onDetectorAndPcmReset()
+        }
+
         fun resumeAfterInteraction(automaticFalseWake: Boolean = false) {
             resumeHandler.removeCallbacks(autoResumeRunnable)
             if (automaticFalseWake) {

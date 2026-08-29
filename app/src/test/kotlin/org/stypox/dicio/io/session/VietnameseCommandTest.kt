@@ -66,4 +66,11 @@ class CarfuCommandRouterTest : StringSpec({
         CarfuCommandRouter.match("Tôi nghe đây").shouldBeNull()
         CarfuCommandRouter.match("").shouldBeNull()
     }
+
+    "explicit Vietnamese search still routes; unrecognized speech is not search" {
+        CarfuCommandRouter.match("tìm kiếm youtube")!!.intent shouldBe CarfuIntent.SEARCH
+        CarfuCommandRouter.match("tim kiem google")!!.intent shouldBe CarfuIntent.SEARCH
+        CarfuCommandRouter.match("mắng đen").shouldBeNull()
+        CarfuCommandRouter.match("một câu không phải lệnh").shouldBeNull()
+    }
 })

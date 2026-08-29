@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Official Android 10 default-assistant metadata. supportsAssist is required
+     for CARFU AI to appear under Settings → Assist & voice input. -->
+<voice-interaction-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:sessionService="org.stypox.dicio.io.assist.CarfuVoiceInteractionSessionService"
+    android:recognitionService="org.stypox.dicio.io.input.stt_service.SttService"
+    android:settingsActivity="org.stypox.dicio.MainActivity"
+    android:supportsAssist="true"
+    android:supportsLaunchVoiceAssistFromKeyguard="true"
+    android:supportsLocalInteraction="false" />

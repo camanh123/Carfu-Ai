@@ -125,6 +125,9 @@
     <string name="carfu_mic_listening">Mic đang nghe</string>
     <string name="carfu_diagnostics">Diagnostics</string>
     <string name="carfu_diagnostics_summary">Open the CARFU probe log (long-press the assistant orb)</string>
+    <string name="settings_mode_button_setup">Thiết lập nút MODE</string>
+    <string name="settings_mode_button_setup_summary">Open Android Assist &amp; voice input to set CARFU AI as the default assistant for the steering MODE button. The app will not change this setting by itself.</string>
+    <string name="settings_mode_button_setup_unavailable">Could not open Android assistant settings on this device.</string>
     <string name="pref_skill_not_available">This skill is not yet available for your language. Contributions are welcome!</string>
     <string name="pref_skill_missing_permissions">Requires these permissions: %1$s</string>
     <string name="pref_skill_grant_permissions">Grant</string>

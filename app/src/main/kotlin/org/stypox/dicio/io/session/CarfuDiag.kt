@@ -12,6 +12,7 @@ object CarfuDiag {
     const val TAG_WAKE = "CarfuWake"
     const val TAG_COMMAND = "CarfuCommand"
     const val TAG_QUICK = "QuickAction"
+    const val TAG_ASSIST = "CarfuAssist"
     const val MAX_PER_TAG = 80
 
     private val lock = Any()
@@ -19,6 +20,7 @@ object CarfuDiag {
     private val wake = ArrayDeque<String>()
     private val command = ArrayDeque<String>()
     private val quick = ArrayDeque<String>()
+    private val assist = ArrayDeque<String>()
 
     fun wake(message: String) {
         append(TAG_WAKE, wake, message)
@@ -35,11 +37,17 @@ object CarfuDiag {
         logcat(TAG_QUICK, message)
     }
 
+    fun assist(message: String) {
+        append(TAG_ASSIST, assist, message)
+        logcat(TAG_ASSIST, message)
+    }
+
     fun appendForTag(tag: String, message: String) {
         when (tag) {
             TAG_WAKE -> wake(message)
             TAG_COMMAND -> command(message)
             TAG_QUICK -> quick(message)
+            TAG_ASSIST -> assist(message)
         }
     }
 
@@ -51,6 +59,8 @@ object CarfuDiag {
             if (command.isEmpty()) appendLine("(empty)") else command.forEach { appendLine(it) }
             appendLine("=== $TAG_QUICK ===")
             if (quick.isEmpty()) appendLine("(empty)") else quick.forEach { appendLine(it) }
+            appendLine("=== $TAG_ASSIST ===")
+            if (assist.isEmpty()) appendLine("(empty)") else assist.forEach { appendLine(it) }
         }
     }
 
@@ -59,6 +69,7 @@ object CarfuDiag {
             TAG_WAKE -> wake.toList()
             TAG_COMMAND -> command.toList()
             TAG_QUICK -> quick.toList()
+            TAG_ASSIST -> assist.toList()
             else -> emptyList()
         }
     }
@@ -68,6 +79,7 @@ object CarfuDiag {
             wake.clear()
             command.clear()
             quick.clear()
+            assist.clear()
         }
     }
 
@@ -76,6 +88,7 @@ object CarfuDiag {
             TAG_WAKE -> append(TAG_WAKE, wake, message)
             TAG_COMMAND -> append(TAG_COMMAND, command, message)
             TAG_QUICK -> append(TAG_QUICK, quick, message)
+            TAG_ASSIST -> append(TAG_ASSIST, assist, message)
         }
     }
 

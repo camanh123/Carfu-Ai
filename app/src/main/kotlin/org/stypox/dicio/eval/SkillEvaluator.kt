@@ -19,6 +19,8 @@ import org.dicio.skill.standard.util.MatchHelper
 import org.stypox.dicio.R
 import org.stypox.dicio.di.SkillContextInternal
 import org.stypox.dicio.di.SttInputDeviceWrapper
+import org.stypox.dicio.di.WakeDeviceWrapper
+import org.stypox.dicio.io.assist.CarfuAssistIntents
 import org.stypox.dicio.io.graphical.ErrorSkillOutput
 import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
 import org.stypox.dicio.io.input.InputEvent
@@ -55,6 +57,12 @@ interface SkillEvaluator {
      * and, once TTS has finished plus a short echo-guard, starts the STT microphone.
      */
     fun onWakeWordDetected()
+
+    /**
+     * Steering MODE / system Assist. Same CommandSession as wake, origin HARDWARE_BUTTON:
+     * bypass wake-word, close the wake detector, say “Tôi nghe đây” once, then listen.
+     */
+    fun onHardwareButtonDetected()
 }
 
 class SkillEvaluatorImpl(
@@ -62,6 +70,7 @@ class SkillEvaluatorImpl(
     private val skillHandler: SkillHandler,
     private val sttInputDevice: SttInputDeviceWrapper,
     private val commandSession: CommandSession,
+    private val wakeDevice: WakeDeviceWrapper,
     userSettings: DataStore<UserSettings>,
 ) : SkillEvaluator {
 
@@ -92,21 +101,57 @@ class SkillEvaluatorImpl(
     }
 
     override fun onWakeWordDetected() {
+        beginExternalSession(
+            origin = CarfuActivationSource.Kind.AUTOMATIC_WAKE,
+            reason = "wake_ack",
+            resumeWakeIfBeginFails = true,
+        )
+    }
+
+    override fun onHardwareButtonDetected() {
+        beginExternalSession(
+            origin = CarfuActivationSource.Kind.HARDWARE_BUTTON,
+            reason = "hardware_button",
+            resumeWakeIfBeginFails = false,
+        )
+    }
+
+    private fun beginExternalSession(
+        origin: CarfuActivationSource.Kind,
+        reason: String,
+        resumeWakeIfBeginFails: Boolean,
+    ) {
         if (commandSession.phase == CommandSessionPhase.IDLE_WAKE) {
             if (!commandSession.tryBeginWakeSession()) {
-                WakeService.resumeAfterInteraction()
+                if (resumeWakeIfBeginFails) {
+                    WakeService.resumeAfterInteraction()
+                }
                 return
             }
         } else if (commandSession.phase != CommandSessionPhase.WAKE_DETECTED) {
             CarfuLog.i(
                 CommandSession.TAG,
-                "WAKE_CALLBACK_IGNORED phase=${commandSession.phase}",
+                "WAKE_CALLBACK_IGNORED origin=$origin phase=${commandSession.phase}",
             )
             return
         }
         if (!wakeSessionActive.compareAndSet(false, true)) {
-            CarfuLog.i(CommandSession.TAG, "WAKE_CALLBACK_DUPLICATE ignored")
+            CarfuLog.i(CommandSession.TAG, "WAKE_CALLBACK_DUPLICATE origin=$origin ignored")
             return
+        }
+        when (origin) {
+            CarfuActivationSource.Kind.AUTOMATIC_WAKE -> CarfuActivationSource.markAutomaticWake()
+            CarfuActivationSource.Kind.MANUAL_MIC -> CarfuActivationSource.markManualMic()
+            CarfuActivationSource.Kind.HARDWARE_BUTTON -> CarfuActivationSource.markHardwareButton()
+        }
+        if (origin == CarfuActivationSource.Kind.HARDWARE_BUTTON) {
+            WakeService.pauseForHardwareButton()
+            wakeDevice.resetDetectionState()
+            CarfuLog.i(
+                CommandSession.TAG,
+                "HARDWARE_BUTTON_SESSION session=${commandSession.ui.value.sessionId} " +
+                    "origin=HARDWARE_BUTTON sharedHub=true",
+            )
         }
         sttInputDevice.stopListening()
         scope.launch {
@@ -116,7 +161,7 @@ class SkillEvaluatorImpl(
                 commandSession.onTtsStarted()
                 CarfuLog.i(
                     CommandSession.TAG,
-                    "TTS_STARTED session=${commandSession.ui.value.sessionId} text=ack",
+                    "TTS_STARTED session=${commandSession.ui.value.sessionId} text=ack origin=$origin",
                 )
                 skillContext.speechOutputDevice.speak(acknowledgment)
                 skillContext.speechOutputDevice.runWhenFinishedSpeaking {
@@ -124,9 +169,9 @@ class SkillEvaluatorImpl(
                         commandSession.onTtsCompleted()
                         CarfuLog.i(
                             CommandSession.TAG,
-                            "TTS_ON_DONE session=${commandSession.ui.value.sessionId} kind=ack",
+                            "TTS_ON_DONE session=${commandSession.ui.value.sessionId} kind=ack origin=$origin",
                         )
-                        startCommandListening("wake_ack")
+                        startCommandListening(reason)
                     }
                 }
             }
@@ -192,7 +237,7 @@ class SkillEvaluatorImpl(
         } else {
             CarfuLog.i(
                 CommandSession.TAG,
-                "UNCLEAR_SILENT reason=$reason automatic=${!CarfuActivationSource.isManual()}",
+                "UNCLEAR_SILENT reason=$reason origin=${CarfuActivationSource.kind}",
             )
         }
         endWakeSession(reason, automaticFalseWake = falseWake)
@@ -299,12 +344,29 @@ class SkillEvaluatorImpl(
         routedSkillId: String? = null,
     ) {
         val (chosenInput, chosenSkill) = try {
-            utterances.firstNotNullOfOrNull { input: String ->
+            val ranked = utterances.firstNotNullOfOrNull { input: String ->
                 skillContext.standardMatchHelper = MatchHelper(skillContext.parserFormatter, input)
                 skillRanker.getBest(skillContext, input)?.let { skillWithResult ->
                     Pair(input, skillWithResult)
                 }
-            } ?: Pair(utterances[0], skillRanker.getFallbackSkill(skillContext, utterances[0]))
+            }
+            if (ranked == null) {
+                if (CarfuActivationSource.kind == CarfuActivationSource.Kind.HARDWARE_BUTTON) {
+                    handleEmptyOrUnclear("unrecognized_hardware")
+                    return
+                }
+                Pair(utterances[0], skillRanker.getFallbackSkill(skillContext, utterances[0]))
+            } else if (
+                !CarfuAssistIntents.shouldExecuteRankerSkill(
+                    ranked.second.skill.correspondingSkillInfo.id,
+                    CarfuActivationSource.kind,
+                )
+            ) {
+                handleEmptyOrUnclear("skip_search_hardware")
+                return
+            } else {
+                ranked
+            }
         } catch (throwable: Throwable) {
             addErrorInteractionFromPending(throwable)
             endWakeSession("skill_match_error")
@@ -441,6 +503,7 @@ class SkillEvaluatorModule {
         skillHandler: SkillHandler,
         sttInputDevice: SttInputDeviceWrapper,
         commandSession: CommandSession,
+        wakeDevice: WakeDeviceWrapper,
         userSettings: DataStore<UserSettings>,
     ): SkillEvaluator {
         return SkillEvaluatorImpl(
@@ -448,6 +511,7 @@ class SkillEvaluatorModule {
             skillHandler,
             sttInputDevice,
             commandSession,
+            wakeDevice,
             userSettings,
         )
     }

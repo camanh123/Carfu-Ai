@@ -2,8 +2,6 @@ package org.stypox.dicio
 
 import android.Manifest
 import android.content.Intent
-import android.content.Intent.ACTION_ASSIST
-import android.content.Intent.ACTION_VOICE_COMMAND
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -26,6 +24,7 @@ import androidx.datastore.core.DataStore
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
+import org.stypox.dicio.io.assist.CarfuAssistIntents
 import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.settings.datastore.UserSettings
@@ -53,16 +52,16 @@ class MainActivity : BaseActivity() {
     private var nextAssistAllowed = Instant.MIN
 
     /**
-     * Automatically loads the LLM and the STT when the [ACTION_ASSIST] intent is received. Applies
-     * a backoff of [INTENT_BACKOFF_MILLIS], since during testing Android would send the assist
-     * intent to the app twice in a row.
+     * FYT MODE / system Assist. Starts the existing CommandSession with origin
+     * HARDWARE_BUTTON. Does not open a second AudioRecord or browser search.
      */
-    private fun onAssistIntentReceived() {
+    private fun onAssistIntentReceived(intent: Intent?) {
+        CarfuAssistIntents.logIncoming("MainActivity", intent)
         val now = Instant.now()
         if (nextAssistAllowed < now) {
             nextAssistAllowed = now.plusMillis(INTENT_BACKOFF_MILLIS)
-            Log.d(TAG, "Received assist intent")
-            sttInputDevice.tryLoad(skillEvaluator::processInputEvent)
+            Log.d(TAG, "Received assist intent action=${intent?.action}")
+            skillEvaluator.onHardwareButtonDetected()
         } else {
             Log.w(TAG, "Ignoring duplicate assist intent")
         }
@@ -84,10 +83,11 @@ class MainActivity : BaseActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
 
         handleWakeWordTurnOnScreen(intent)
         if (isAssistIntent(intent)) {
-            onAssistIntentReceived()
+            onAssistIntentReceived(intent)
         }
     }
 
@@ -115,7 +115,7 @@ class MainActivity : BaseActivity() {
 
         handleWakeWordTurnOnScreen(intent)
         if (isAssistIntent(intent)) {
-            onAssistIntentReceived()
+            onAssistIntentReceived(intent)
         } else if (intent.action != ACTION_WAKE_WORD) {
             // load the input device, without starting to listen
             sttInputDevice.tryLoad(null)
@@ -183,10 +183,7 @@ class MainActivity : BaseActivity() {
             private set
 
         private fun isAssistIntent(intent: Intent?): Boolean {
-            return when (intent?.action) {
-                ACTION_ASSIST, ACTION_VOICE_COMMAND -> true
-                else -> false
-            }
+            return CarfuAssistIntents.isHardwareAssistAction(intent?.action)
         }
     }
 }

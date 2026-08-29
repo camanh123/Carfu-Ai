@@ -83,6 +83,9 @@
     <string name="carfu_mic_listening">Mic đang nghe</string>
     <string name="carfu_diagnostics">Chẩn đoán</string>
     <string name="carfu_diagnostics_summary">Mở nhật ký probe CARFU (nhấn giữ quả cầu trợ lý)</string>
+    <string name="settings_mode_button_setup">Thiết lập nút MODE</string>
+    <string name="settings_mode_button_setup_summary">Mở mục Trợ giúp và nhập liệu thoại của Android để chọn CARFU AI làm trợ lý mặc định cho nút MODE trên vô lăng. Ứng dụng không tự đổi cài đặt này.</string>
+    <string name="settings_mode_button_setup_unavailable">Không mở được cài đặt trợ lý Android trên máy này.</string>
     <string name="pref_skill_not_available">Kỹ năng này chưa có cho tiếng Việt.</string>
     <string name="pref_skills_title">Kỹ năng</string>
     <string name="skill_name_weather">Thời tiết</string>
