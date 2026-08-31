@@ -13,9 +13,13 @@ object UserSettingsSerializer : Serializer<UserSettings> {
         .setLanguage(Language.LANGUAGE_VI)
         .setTheme(Theme.THEME_BLACK)
         .setSttPlaySound(SttPlaySound.STT_PLAY_SOUND_NONE)
-        // CARFU head-unit default: listen for “CARFU ơi” in a microphone
-        // foreground service even when the Activity is not visible.
-        .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
+        // Acceptance build: background wake OFF; MODE + Android STT is the
+        // stable path. Existing installs are migrated the first time this
+        // field is UNSET.
+        .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_DISABLED)
+        .setCommandRecognitionEngine(
+            CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
+        )
         .build()
 
     override suspend fun readFrom(input: InputStream): UserSettings {

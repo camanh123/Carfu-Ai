@@ -44,6 +44,7 @@ import org.stypox.dicio.io.assist.CarfuAssistSettings
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.probe.CarfuProbeActivity
 import org.stypox.dicio.io.wake.BackgroundWakePolicy
+import org.stypox.dicio.settings.datastore.CommandRecognitionEngine
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.Language
 import org.stypox.dicio.settings.datastore.SpeechOutputDevice
@@ -154,6 +155,17 @@ private fun MainSettingsScreen(
                         }
                     }
                     .testTag("mode_button_setup_item")
+            )
+        }
+        item {
+            commandRecognitionEngine().Render(
+                when (val engine = settings.commandRecognitionEngine) {
+                    CommandRecognitionEngine.UNRECOGNIZED,
+                    CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_UNSET ->
+                        CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE
+                    else -> engine
+                },
+                viewModel::setCommandRecognitionEngine,
             )
         }
         item {

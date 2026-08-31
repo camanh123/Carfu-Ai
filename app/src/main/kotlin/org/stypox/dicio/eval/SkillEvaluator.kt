@@ -1,5 +1,7 @@
 package org.stypox.dicio.eval
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import dagger.Module
 import dagger.Provides
@@ -23,18 +25,20 @@ import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.io.assist.CarfuAssistIntents
 import org.stypox.dicio.io.graphical.ErrorSkillOutput
 import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
+import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.InputEvent
+import org.stypox.dicio.io.input.SttState
 import androidx.datastore.core.DataStore
 import org.stypox.dicio.io.session.AudioCaptureConfig
 import org.stypox.dicio.io.session.CarfuActivationSource
 import org.stypox.dicio.io.session.CarfuCommandRouter
+import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CarfuPcmHub
 import org.stypox.dicio.io.session.CarfuSessionGate
 import org.stypox.dicio.io.session.CommandPcmStats
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
-import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.session.RoutedCommand
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.wake.WakeService
@@ -90,6 +94,7 @@ class SkillEvaluatorImpl(
     private val skillExecutor = CarfuVietnameseSkillExecutor(
         AndroidCarfuSkillPlatform(skillContext.android, userSettings),
     )
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private val skillRanker: SkillRanker
         get() = skillHandler.skillRanker.value
@@ -149,6 +154,7 @@ class SkillEvaluatorImpl(
                 hadTranscript = false,
                 origin = origin ?: CarfuSessionGate.Origin.WAKE_WORD,
             )
+            WakeService.onlineCommandFinished()
         }
         WakeService.holdIdleWithoutWake()
     }
@@ -158,8 +164,11 @@ class SkillEvaluatorImpl(
         reason: String,
         resumeWakeIfBeginFails: Boolean,
     ) {
-        sttInputDevice.ensureModelPipeline()
-        val modelReady = sttInputDevice.isRecognizerReady()
+        val androidOnline = sttInputDevice.usesAndroidOnlineEngine()
+        if (!androidOnline) {
+            sttInputDevice.ensureModelPipeline()
+        }
+        val modelReady = if (androidOnline) true else sttInputDevice.isRecognizerReady()
         val gateOrigin = CarfuSessionGate.fromActivation(origin)
         val result = CarfuSessionGate.requestStart(
             origin = gateOrigin,
@@ -190,10 +199,26 @@ class SkillEvaluatorImpl(
             return
         }
         sessionHadTranscript.set(false)
+        CarfuLatencyLog.bindSession(result.sessionId)
+        CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_ACCEPTED)
         when (origin) {
             CarfuActivationSource.Kind.AUTOMATIC_WAKE -> CarfuActivationSource.markAutomaticWake()
             CarfuActivationSource.Kind.MANUAL_MIC -> CarfuActivationSource.markManualMic()
             CarfuActivationSource.Kind.HARDWARE_BUTTON -> CarfuActivationSource.markHardwareButton()
+        }
+        sttInputDevice.stopListening()
+        val sid = result.sessionId
+        if (androidOnline) {
+            WakeService.releaseHubForOnlineCommand()
+            wakeDevice.resetDetectionState()
+            CarfuLatencyLog.mark(CarfuLatencyLog.Mark.HUB_RELEASED)
+            CarfuLog.i(
+                CommandSession.TAG,
+                "HARDWARE_BUTTON_SESSION session=$sid origin=$gateOrigin " +
+                    "engine=ANDROID_ONLINE hubReleased=true",
+            )
+            speakAckThenListen(sid, origin, reason, androidOnline = true)
+            return
         }
         if (origin == CarfuActivationSource.Kind.HARDWARE_BUTTON) {
             WakeService.pauseForHardwareButton()
@@ -201,14 +226,12 @@ class SkillEvaluatorImpl(
             CarfuLog.i(
                 CommandSession.TAG,
                 "HARDWARE_BUTTON_SESSION session=${result.sessionId} " +
-                    "origin=HARDWARE_BUTTON sharedHub=true",
+                    "origin=HARDWARE_BUTTON sharedHub=true engine=VOSK_LEGACY",
             )
         } else {
             WakeService.pauseForInteraction()
             wakeDevice.resetDetectionState()
         }
-        sttInputDevice.stopListening()
-        val sid = result.sessionId
         scope.launch {
             if (!sttInputDevice.isRecognizerReady()) {
                 if (origin == CarfuActivationSource.Kind.HARDWARE_BUTTON ||
@@ -234,34 +257,66 @@ class SkillEvaluatorImpl(
                 endWakeSession("stt_not_ready")
                 return@launch
             }
-            val acknowledgment = skillContext.android.getString(R.string.wake_word_acknowledgment)
             withContext(Dispatchers.Main) {
-                if (!CarfuSessionGate.isCurrent(sid)) return@withContext
+                speakAckThenListen(sid, origin, reason, androidOnline = false)
+            }
+        }
+    }
+
+    private fun speakAckThenListen(
+        sid: Long,
+        origin: CarfuActivationSource.Kind,
+        reason: String,
+        androidOnline: Boolean,
+    ) {
+        runOnMain {
+            if (!CarfuSessionGate.isCurrent(sid) || !wakeSessionActive.get()) return@runOnMain
+            if (androidOnline && !sttInputDevice.isRecognizerReady()) {
+                CarfuLog.e(CommandSession.TAG, "ANDROID_SR_UNAVAILABLE no_silent_vosk_fallback")
                 skillContext.speechOutputDevice.stopSpeaking()
-                commandSession.onTtsStarted()
-                CarfuLog.i(
-                    CommandSession.TAG,
-                    "TTS_STARTED session=$sid text=ack origin=$origin",
+                skillContext.speechOutputDevice.speak(
+                    skillContext.android.getString(R.string.carfu_stt_android_unavailable),
                 )
-                skillContext.speechOutputDevice.speak(acknowledgment)
                 skillContext.speechOutputDevice.runWhenFinishedSpeaking {
-                    scope.launch {
-                        if (!CarfuSessionGate.isCurrent(sid)) {
-                            CarfuLog.i(
-                                CommandSession.TAG,
-                                "TTS_ON_DONE_IGNORED session=$sid kind=ack origin=$origin",
-                            )
-                            return@launch
-                        }
-                        commandSession.onTtsCompleted()
+                    endWakeSession("android_stt_unavailable")
+                }
+                return@runOnMain
+            }
+            val acknowledgment = skillContext.android.getString(R.string.wake_word_acknowledgment)
+            skillContext.speechOutputDevice.stopSpeaking()
+            commandSession.onTtsStarted()
+            CarfuLatencyLog.mark(CarfuLatencyLog.Mark.TTS_SPEAK_REQUESTED)
+            CarfuLog.i(
+                CommandSession.TAG,
+                "TTS_STARTED session=$sid text=ack origin=$origin",
+            )
+            skillContext.speechOutputDevice.speak(acknowledgment)
+            skillContext.speechOutputDevice.runWhenFinishedSpeaking {
+                scope.launch {
+                    if (!CarfuSessionGate.isCurrent(sid)) {
                         CarfuLog.i(
                             CommandSession.TAG,
-                            "TTS_ON_DONE session=$sid kind=ack origin=$origin",
+                            "TTS_ON_DONE_IGNORED session=$sid kind=ack origin=$origin",
                         )
-                        startCommandListening(reason, sid)
+                        return@launch
                     }
+                    commandSession.onTtsCompleted()
+                    CarfuLatencyLog.mark(CarfuLatencyLog.Mark.TTS_ON_DONE)
+                    CarfuLog.i(
+                        CommandSession.TAG,
+                        "TTS_ON_DONE session=$sid kind=ack origin=$origin",
+                    )
+                    startCommandListening(reason, sid, androidOnline)
                 }
             }
+        }
+    }
+
+    private fun runOnMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainHandler.post(block)
         }
     }
 
@@ -284,8 +339,12 @@ class SkillEvaluatorImpl(
         return sttInputDevice.isRecognizerReady()
     }
 
-    private suspend fun startCommandListening(reason: String, sessionId: Long) {
-        delay(CommandSession.POST_TTS_GUARD_MS)
+    private suspend fun startCommandListening(
+        reason: String,
+        sessionId: Long,
+        androidOnline: Boolean = sttInputDevice.usesAndroidOnlineEngine(),
+    ) {
+        delay(CommandRecognitionPolicy.echoGuardMs(androidOnline))
         if (!CarfuSessionGate.isCurrent(sessionId) ||
             !wakeSessionActive.get() ||
             !commandSession.canStartCommandRecognition()
@@ -293,6 +352,42 @@ class SkillEvaluatorImpl(
             if (wakeSessionActive.get()) {
                 endWakeSession("stale_session_$reason")
             }
+            return
+        }
+        if (androidOnline) {
+            if (CarfuPcmHub.isRecording()) {
+                WakeService.releaseHubForOnlineCommand()
+            }
+            if (!CommandRecognitionPolicy.canStartAndroidRecognizer(CarfuPcmHub.isRecording())) {
+                CarfuLog.e(CommandSession.TAG, "ANDROID_SR_BLOCKED hub_recording=true")
+                endWakeSession("hub_not_released")
+                return
+            }
+            val started = withContext(Dispatchers.Main) {
+                sttInputDevice.stopListening()
+                sttInputDevice.tryLoad(::processInputEvent)
+            }
+            if (!started) {
+                CarfuLog.e(CommandSession.TAG, "android_stt_start_failed reason=$reason")
+                endWakeSession("android_stt_not_started")
+                return
+            }
+            commandSession.onCommandAudioStarted(
+                sampleRate = 16000,
+                bufferSize = 0,
+                audioSource = android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                modelPath = CommandRecognitionPolicy.ANDROID_MODEL_PATH,
+                needsResample = false,
+            )
+            CarfuLog.i(
+                CommandSession.TAG,
+                "COMMAND_LISTENING_ARMED origin=${commandSession.activationOrigin} " +
+                    "engine=ANDROID_ONLINE hubRecording=${CarfuPcmHub.isRecording()} " +
+                    "overlap=${CommandRecognitionPolicy.microphoneOwnersOverlap(
+                        CarfuPcmHub.isRecording(),
+                        true,
+                    )}",
+            )
             return
         }
         if (!sttInputDevice.isRecognizerReady()) {
@@ -373,6 +468,7 @@ class SkillEvaluatorImpl(
             skillContext.speechOutputDevice.runWhenFinishedSpeaking {
                 commandSession.endSession(reason)
                 CarfuSessionGate.onSessionFinished(sid, hadTranscript, origin)
+                WakeService.onlineCommandFinished()
                 if (CarfuSessionGate.backgroundWakeEnabled) {
                     WakeService.resumeAfterInteraction(automaticFalseWake)
                 } else {
@@ -409,6 +505,7 @@ class SkillEvaluatorImpl(
             val hadTranscript = sessionHadTranscript.getAndSet(false)
             commandSession.endSession(reason)
             CarfuSessionGate.onSessionFinished(sid, hadTranscript, origin)
+            WakeService.onlineCommandFinished()
             WakeService.holdIdleWithoutWake()
         }
     }
@@ -425,6 +522,7 @@ class SkillEvaluatorImpl(
         }
         addInteractionFromPending(CarfuSpeechOutput(result.speechVi))
         commandSession.onReply(result.speechVi)
+        CarfuLatencyLog.mark(CarfuLatencyLog.Mark.ACTION_COMPLETE)
         withContext(Dispatchers.Main) {
             if (result.speechVi.isNotBlank()) {
                 commandSession.onTtsStarted()
@@ -449,6 +547,7 @@ class SkillEvaluatorImpl(
             }
             is InputEvent.Final -> {
                 val original = event.utterances[0].first
+                CarfuLatencyLog.mark(CarfuLatencyLog.Mark.FINAL_OR_ERROR)
                 if (VietnameseTranscript.isTooWeakToSubmit(original)) {
                     handleEmptyOrUnclear("reject_noise")
                     return
@@ -457,6 +556,7 @@ class SkillEvaluatorImpl(
                 commandSession.onFinalText(original)
                 sessionHadTranscript.set(true)
                 val routed = CarfuCommandRouter.match(original)
+                CarfuLatencyLog.mark(CarfuLatencyLog.Mark.ROUTER_START)
                 if (routed != null) {
                     commandSession.onIntentMatch(routed.skillId)
                     _state.value = _state.value.copy(

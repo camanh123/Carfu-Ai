@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.SpeakerPhone
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import org.stypox.dicio.R
+import org.stypox.dicio.settings.datastore.CommandRecognitionEngine
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.Language
 import org.stypox.dicio.settings.datastore.SpeechOutputDevice
@@ -100,6 +101,27 @@ fun dynamicColors() = BooleanSetting(
     icon = Icons.Default.InvertColors,
     descriptionOff = stringResource(R.string.pref_dynamic_colors_summary),
     descriptionOn = stringResource(R.string.pref_dynamic_colors_summary),
+)
+
+@Composable
+fun commandRecognitionEngine() = ListSetting(
+    title = stringResource(R.string.pref_command_recognition_engine),
+    icon = Icons.Default.Mic,
+    description = stringResource(R.string.pref_command_recognition_engine_summary),
+    possibleValues = listOf(
+        ListSetting.Value(
+            value = CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
+            name = stringResource(R.string.pref_command_recognition_engine_android),
+            description = stringResource(R.string.pref_command_recognition_engine_android_summary),
+            icon = Icons.Default.Mic,
+        ),
+        ListSetting.Value(
+            value = CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_VOSK_LEGACY,
+            name = stringResource(R.string.pref_command_recognition_engine_vosk),
+            description = stringResource(R.string.pref_command_recognition_engine_vosk_summary),
+            icon = Icons.Default.Hearing,
+        ),
+    ),
 )
 
 @Composable

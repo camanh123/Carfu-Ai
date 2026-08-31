@@ -6,6 +6,7 @@ import "input_device.proto";
 import "speech_output_device.proto";
 import "wake_device.proto";
 import "stt_play_sound.proto";
+import "command_recognition_engine.proto";
 
 option java_package = "org.stypox.dicio.settings.datastore";
 option java_multiple_files = true;
@@ -21,10 +22,14 @@ message UserSettings {
     WakeDevice wake_device = 8;
     SttPlaySound stt_play_sound = 9;
     int32 stt_silence_duration = 10;
-    // CARFU default is ON: UNSET and ENABLED both start background wake.
-    // Use DISABLED to opt out. Do not use a proto3 bool here — existing
-    // installs would otherwise silently disable wake on upgrade.
+    // Acceptance build default is OFF: only explicit ENABLED starts
+    // background wake. UNSET is treated as OFF so this APK does not keep
+    // a false-wake session from older installs. MODE still works.
     BackgroundWake background_wake = 11;
+    // Default command STT is Android/Google SpeechRecognizer (vi-VN).
+    // UNSET and UNRECOGNIZED resolve to ANDROID_ONLINE. VOSK_LEGACY is
+    // an explicit offline fallback, not a silent substitute.
+    CommandRecognitionEngine command_recognition_engine = 12;
 }
 
 enum BackgroundWake {

@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.annotation.StringRes
 import org.dicio.skill.context.SpeechOutputDevice
 import org.stypox.dicio.R
+import org.stypox.dicio.io.session.CarfuLatencyLog
 import java.util.Locale
 
 class AndroidTtsSpeechDevice(private var context: Context, locale: Locale) : SpeechOutputDevice {
@@ -29,7 +30,9 @@ class AndroidTtsSpeechDevice(private var context: Context, locale: Locale) : Spe
                         initializedCorrectly = true
                         setOnUtteranceProgressListener(object :
                             UtteranceProgressListener() {
-                            override fun onStart(utteranceId: String) {}
+                            override fun onStart(utteranceId: String) {
+                                CarfuLatencyLog.mark(CarfuLatencyLog.Mark.TTS_ON_START)
+                            }
                             override fun onDone(utteranceId: String) {
                                 finishIfLastUtterance(utteranceId)
                             }
@@ -58,6 +61,11 @@ class AndroidTtsSpeechDevice(private var context: Context, locale: Locale) : Spe
                 handleInitializationError(R.string.android_tts_error)
             }
         }
+    }
+
+    fun prewarm() {
+        if (!initializedCorrectly) return
+        textToSpeech?.playSilentUtterance(50L, TextToSpeech.QUEUE_FLUSH, "dicio_prewarm")
     }
 
     override fun speak(speechOutput: String) {

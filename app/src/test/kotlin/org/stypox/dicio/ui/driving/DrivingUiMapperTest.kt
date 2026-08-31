@@ -66,5 +66,7 @@ class DrivingUiMapperTest : StringSpec({
         DrivingUiMapper.modelStatus(org.stypox.dicio.io.input.SttState.Loaded) shouldBe null
         DrivingUiMapper.modelStatus(org.stypox.dicio.io.input.SttState.NotDownloaded) shouldBe
             DrivingModelStatus(org.stypox.dicio.R.string.carfu_vosk_missing)
+        DrivingUiMapper.modelStatus(org.stypox.dicio.io.input.SttState.NotAvailable) shouldBe
+            DrivingModelStatus(org.stypox.dicio.R.string.carfu_stt_android_unavailable)
     }
 })

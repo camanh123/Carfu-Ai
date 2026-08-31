@@ -7,9 +7,9 @@ import org.stypox.dicio.settings.datastore.UserSettings
 /**
  * JVM-testable decisions for CARFU background wake.
  *
- * CARFU default: background wake is **on** for [BackgroundWake.BACKGROUND_WAKE_UNSET] and
- * [BackgroundWake.BACKGROUND_WAKE_ENABLED]. This fork is a head-unit always-listening assistant.
- * Do not copy this default to unrelated Dicio builds.
+ * CARFU acceptance default: background wake is **off** unless the user explicitly
+ * sets [BackgroundWake.BACKGROUND_WAKE_ENABLED]. UNSET is OFF so this build does
+ * not keep a false-wake session. Manual MODE still works.
  *
  * MainActivity may start or observe the foreground WakeService, but it must not own the
  * service lifetime or the wake AudioRecord.
@@ -20,14 +20,14 @@ object BackgroundWakePolicy {
     const val STALE_READ_MS = 2_000L
 
     /**
-     * True unless the user explicitly opted out. UNSET stays on so existing installs do not
-     * silently lose background wake after this field is added.
+     * True only when the user explicitly enabled background wake.
+     * UNSET and DISABLED are both off.
      */
     fun isBackgroundWakeEnabled(settings: UserSettings): Boolean =
         isBackgroundWakeEnabled(settings.backgroundWake)
 
     fun isBackgroundWakeEnabled(value: BackgroundWake): Boolean =
-        value != BackgroundWake.BACKGROUND_WAKE_DISABLED
+        value == BackgroundWake.BACKGROUND_WAKE_ENABLED
 
     fun activityOnStopShouldStopWakeService(): Boolean = false
 

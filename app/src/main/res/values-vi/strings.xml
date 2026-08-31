@@ -29,8 +29,15 @@
     <string name="carfu_wake_notification_disable">Tắt nghe nền</string>
     <string name="carfu_wake_notification_open">Mở CARFU AI</string>
     <string name="pref_background_wake">Nghe “CARFU ơi” khi chạy nền</string>
-    <string name="pref_background_wake_summary_on">CARFU tiếp tục nghe khi ứng dụng không mở. Mặc định BẬT trên bản CARFU.</string>
-    <string name="pref_background_wake_summary_off">Không nghe khi chạy nền; không tự chạy lại sau khi khởi động.</string>
+    <string name="pref_background_wake_summary_on">CARFU tiếp tục nghe khi ứng dụng không mở. Mặc định TẮT trên bản chấp nhận này.</string>
+    <string name="pref_background_wake_summary_off">Không nghe khi chạy nền; không tự chạy lại sau khi khởi động. Nhấn MODE để nói.</string>
+    <string name="pref_command_recognition_engine">Nhận dạng câu lệnh</string>
+    <string name="pref_command_recognition_engine_summary">Công cụ dùng sau câu “Tôi nghe đây”</string>
+    <string name="pref_command_recognition_engine_android">Chính xác online — Google/Android</string>
+    <string name="pref_command_recognition_engine_android_summary">Cần Internet. Âm thanh có thể được gửi tới dịch vụ nhận dạng giọng nói Android trên máy này. Mặc định của bản này.</string>
+    <string name="pref_command_recognition_engine_vosk">Offline thử nghiệm — Vosk</string>
+    <string name="pref_command_recognition_engine_vosk_summary">Mô hình tiếng Việt trên máy. Kém chính xác hơn trên micro cabin này. Chỉ dùng khi nhận dạng online không có.</string>
+    <string name="carfu_stt_android_unavailable">Không nhận dạng được giọng nói. Kiểm tra kết nối mạng hoặc chọn Vosk trong cài đặt.</string>
     <string name="wake_word_setup_title">Thiết lập từ đánh thức</string>
     <string name="wake_word_setup_description">CARFU sẽ tự kích hoạt mỗi khi bạn nói \"CARFU ơi\" hoặc \"Xin chào CARFU\". Việc này dùng một dịch vụ luôn lắng nghe ở chế độ nền. Mô hình từ đánh thức CARFU được đóng gói sẵn trong ứng dụng; toàn bộ xử lý giọng nói diễn ra ngay trên máy.</string>
     <string name="skill_name_open">Mở ứng dụng</string>

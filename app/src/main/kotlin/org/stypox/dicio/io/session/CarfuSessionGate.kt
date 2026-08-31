@@ -46,7 +46,7 @@ object CarfuSessionGate {
     var nowMs: () -> Long = { System.currentTimeMillis() }
 
     @Volatile
-    var backgroundWakeEnabled: Boolean = true
+    var backgroundWakeEnabled: Boolean = false
         private set
 
     @Volatile

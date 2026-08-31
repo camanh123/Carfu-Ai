@@ -92,6 +92,7 @@ object DrivingUiMapper {
             is SttState.ErrorDownloading,
             is SttState.ErrorUnzipping,
             is SttState.ErrorLoading -> DrivingModelStatus(R.string.carfu_vosk_error)
+            SttState.NotAvailable -> DrivingModelStatus(R.string.carfu_stt_android_unavailable)
             else -> null
         }
     }

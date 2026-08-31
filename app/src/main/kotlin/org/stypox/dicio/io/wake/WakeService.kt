@@ -122,6 +122,7 @@ class WakeService : Service() {
                 lastReadFailed = false,
             )
             if (decision.openReplacementRecord &&
+                !commandOwnsMic.get() &&
                 !acceptancePolicy.shouldHoldWakeRecorderClosed(commandSession.isBusy)
             ) {
                 repairRequested.set(true)
@@ -424,6 +425,13 @@ class WakeService : Service() {
 
         try {
             while (listening.get()) {
+                if (commandOwnsMic.get()) {
+                    ar = releaseWakeRecorder(ar)
+                    recording = false
+                    CarfuPcmHub.markRecording(false)
+                    interruptibleSleep(80L)
+                    continue
+                }
                 if (wakeDevice.state.value == null) {
                     listening.set(false)
                     break
@@ -455,6 +463,7 @@ class WakeService : Service() {
                     lastReadFailed = false,
                 )
                 val mayReplace = repair &&
+                    !commandOwnsMic.get() &&
                     decision.openReplacementRecord &&
                     acceptancePolicy.mayOpenReplacementRecorder(
                         commandSessionBusy = commandSession.isBusy,
@@ -469,6 +478,10 @@ class WakeService : Service() {
                 }
 
                 if (!recording) {
+                    if (commandOwnsMic.get()) {
+                        interruptibleSleep(80L)
+                        continue
+                    }
                     try {
                         val existing = ar
                         if (existing == null || existing.state != AudioRecord.STATE_INITIALIZED) {
@@ -497,6 +510,7 @@ class WakeService : Service() {
                     }
                     recording = true
                     retryDelayMs = BackgroundWakePolicy.INITIAL_OPEN_RETRY_MS
+                    liveRecorder.set(recorder)
                     acceptancePolicy.onRecorderStarted()
                     wakeDevice.resetDetectionState()
                     acceptancePolicy.onDetectorAndPcmReset()
@@ -665,12 +679,14 @@ class WakeService : Service() {
         } finally {
             CarfuPcmHub.markRecording(false)
             CarfuPcmHub.detachCommandConsumer()
+            liveRecorder.compareAndSet(ar, null)
             releaseWakeRecorder(ar)
         }
     }
 
     private fun releaseWakeRecorder(record: AudioRecord?): AudioRecord? {
         if (record == null) return null
+        liveRecorder.compareAndSet(record, null)
         try {
             record.stop()
         } catch (_: Throwable) {
@@ -695,7 +711,7 @@ class WakeService : Service() {
 
     private fun interruptibleSleep(delayMs: Long) {
         var remaining = delayMs
-        while (remaining > 0 && listening.get()) {
+        while (remaining > 0 && listening.get() && !commandOwnsMic.get()) {
             val slice = minOf(80L, remaining)
             Thread.sleep(slice)
             remaining -= slice
@@ -827,6 +843,50 @@ class WakeService : Service() {
 
         fun isInteractionPaused(): Boolean = interactionPaused.get()
 
+        fun isCommandOwningMic(): Boolean = commandOwnsMic.get()
+
+        fun isHubFullyReleased(): Boolean =
+            liveRecorder.get() == null && !CarfuPcmHub.isRecording()
+
+        /**
+         * Fully release the wake AudioRecord so Android SpeechRecognizer can own
+         * the microphone. The listen loop parks and must not open a replacement
+         * until [onlineCommandFinished].
+         */
+        fun releaseHubForOnlineCommand(): Boolean {
+            commandOwnsMic.set(true)
+            interactionPaused.set(true)
+            resumeHandler.removeCallbacks(autoResumeRunnable)
+            val rec = liveRecorder.getAndSet(null)
+            if (rec != null) {
+                try {
+                    rec.stop()
+                } catch (_: Throwable) {
+                }
+                try {
+                    rec.release()
+                } catch (_: Throwable) {
+                }
+            }
+            CarfuPcmHub.markRecording(false)
+            CarfuPcmHub.detachCommandConsumer()
+            CarfuDiag.wake(
+                "HUB_RELEASED_FOR_ANDROID_SR recording=${CarfuPcmHub.isRecording()} " +
+                    "liveRecorder=${liveRecorder.get() != null}",
+            )
+            return isHubFullyReleased()
+        }
+
+        fun onlineCommandFinished() {
+            commandOwnsMic.set(false)
+            if (!CarfuSessionGate.backgroundWakeEnabled) {
+                holdIdleWithoutWake()
+            }
+            CarfuDiag.wake(
+                "ONLINE_COMMAND_FINISHED wake=${CarfuSessionGate.backgroundWakeEnabled}",
+            )
+        }
+
         // Consider the service running if it processed any audio data within the past half second.
         fun isRunning(): Boolean = lastHeard.get()?.isAfter(Instant.now().minusMillis(500)) == true
 
@@ -843,8 +903,10 @@ class WakeService : Service() {
 
         private val lastHeard = AtomicReference<Instant>()
         private val interactionPaused = AtomicBoolean(false)
+        private val commandOwnsMic = AtomicBoolean(false)
+        private val liveRecorder = AtomicReference<AudioRecord?>(null)
         private val instanceAlive = AtomicBoolean(false)
-        private val lastKnownBackgroundWakeEnabled = AtomicBoolean(true)
+        private val lastKnownBackgroundWakeEnabled = AtomicBoolean(false)
         private val resumeHandler = Handler(Looper.getMainLooper())
         private val autoResumeRunnable = Runnable { resumeAfterInteraction() }
         internal val acceptancePolicy = WakeAcceptancePolicy { SystemClock.elapsedRealtime() }

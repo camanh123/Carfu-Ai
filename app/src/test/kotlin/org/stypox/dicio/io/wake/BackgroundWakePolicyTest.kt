@@ -67,9 +67,9 @@ class BackgroundWakePolicyTest : StringSpec({
         BackgroundWakePolicy.isBootAction("android.intent.action.BOOT_COMPLETED").shouldBeTrue()
     }
 
-    "7 disabled preference prevents boot start, including UNSET default ON" {
+    "7 disabled preference prevents boot start; UNSET is OFF" {
         val unset = UserSettings.getDefaultInstance()
-        BackgroundWakePolicy.isBackgroundWakeEnabled(unset).shouldBeTrue()
+        BackgroundWakePolicy.isBackgroundWakeEnabled(unset).shouldBeFalse()
 
         val disabled = unset.toBuilder()
             .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_DISABLED)
@@ -81,6 +81,10 @@ class BackgroundWakePolicyTest : StringSpec({
             wakeDeviceEnabled = true,
             wakeModelReadyOrPending = true,
         ).shouldBeFalse()
+        val enabled = unset.toBuilder()
+            .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
+            .build()
+        BackgroundWakePolicy.isBackgroundWakeEnabled(enabled).shouldBeTrue()
     }
 
     "8 screen wake repairs a lost capture without duplication" {

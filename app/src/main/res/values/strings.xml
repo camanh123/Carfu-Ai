@@ -257,8 +257,15 @@
     <string name="carfu_wake_notification_disable">Tắt nghe nền</string>
     <string name="carfu_wake_notification_open">Mở CARFU AI</string>
     <string name="pref_background_wake">Nghe “CARFU ơi” khi chạy nền</string>
-    <string name="pref_background_wake_summary_on">CARFU tiếp tục nghe khi ứng dụng không mở. Mặc định BẬT trên bản CARFU.</string>
-    <string name="pref_background_wake_summary_off">Không nghe khi chạy nền; không tự chạy lại sau khi khởi động.</string>
+    <string name="pref_background_wake_summary_on">CARFU continues listening when the app is not open. Default is OFF on this acceptance build.</string>
+    <string name="pref_background_wake_summary_off">Do not listen in the background; do not restart after boot. Press MODE to talk.</string>
+    <string name="pref_command_recognition_engine">Command recognition</string>
+    <string name="pref_command_recognition_engine_summary">Engine used after “Tôi nghe đây”</string>
+    <string name="pref_command_recognition_engine_android">Accurate online — Google/Android</string>
+    <string name="pref_command_recognition_engine_android_summary">Needs Internet. Audio may be sent to the Android speech service configured on this unit. Default for this build.</string>
+    <string name="pref_command_recognition_engine_vosk">Experimental offline — Vosk</string>
+    <string name="pref_command_recognition_engine_vosk_summary">On-device Vietnamese model. Less accurate on this cabin microphone. Use only if online recognition is unavailable.</string>
+    <string name="carfu_stt_android_unavailable">Không nhận dạng được giọng nói. Kiểm tra kết nối mạng hoặc chọn Vosk trong cài đặt.</string>
     <string name="wake_word_setup_title">Setup wake word</string>
     <string name="wake_word_setup_description">CARFU will wake up automatically whenever you say \"CARFU ơi\" or \"Xin chào CARFU\".
         This works by starting a service that always listens in the background.

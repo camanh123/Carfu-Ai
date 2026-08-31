@@ -31,6 +31,12 @@
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
 
     <!-- allowBackup=false because of a critical nasty bug: https://medium.com/p/924c91bafcac -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <application
         android:name=".App"
         android:allowBackup="false"

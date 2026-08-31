@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,10 +22,12 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import androidx.datastore.core.DataStore
+import org.stypox.dicio.di.SpeechOutputDeviceWrapper
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
 import org.stypox.dicio.io.assist.CarfuAssistIntents
+import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuSessionGate
 import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.WakeService
@@ -45,6 +48,8 @@ class MainActivity : BaseActivity() {
     lateinit var wakeDevice: WakeDeviceWrapper
     @Inject
     lateinit var userSettings: DataStore<UserSettings>
+    @Inject
+    lateinit var speechOutputDevice: SpeechOutputDeviceWrapper
 
     private var sttPermissionJob: Job? = null
     private var wakeServiceJob: Job? = null
@@ -60,6 +65,8 @@ class MainActivity : BaseActivity() {
             action = intent?.action,
             component = intent?.component?.flattenToShortString(),
         )
+        CarfuLatencyLog.nowMs = { SystemClock.elapsedRealtime() }
+        CarfuLatencyLog.onModeIntent()
         Log.d(TAG, "Received assist intent action=${intent?.action}")
         skillEvaluator.onHardwareButtonDetected()
     }
@@ -111,10 +118,20 @@ class MainActivity : BaseActivity() {
         isCreated += 1
 
         handleWakeWordTurnOnScreen(intent)
-        // Preload / auto-download Vietnamese Vosk. tryLoad is true only when READY.
+        if (!isAssistIntent(intent)) {
+            speechOutputDevice.prewarm()
+        }
         if (intent.action != ACTION_WAKE_WORD) {
-            sttInputDevice.ensureModelPipeline()
-            sttInputDevice.tryLoad(null)
+            if (sttInputDevice.usesAndroidOnlineEngine()) {
+                Log.i(
+                    TAG,
+                    "STT_ENGINE ANDROID_ONLINE ready=${sttInputDevice.isRecognizerReady()} " +
+                        "vosk=false",
+                )
+            } else {
+                sttInputDevice.ensureModelPipeline()
+                sttInputDevice.tryLoad(null)
+            }
         }
         if (isAssistIntent(intent)) {
             onAssistIntentReceived(intent)
@@ -129,8 +146,10 @@ class MainActivity : BaseActivity() {
                 userSettings.data,
                 PermissionFlow.getInstance().getMultiplePermissionState(*wakeWordPermissions),
             ) { state, settings, perm ->
+                val enabled = BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
+                CarfuSessionGate.setBackgroundWakeEnabled(enabled)
                 BackgroundWakePolicy.shouldStartWakeService(
-                    backgroundWakeEnabled = BackgroundWakePolicy.isBackgroundWakeEnabled(settings),
+                    backgroundWakeEnabled = enabled,
                     recordAudioGranted = perm.allGranted,
                     wakeDeviceEnabled = state != null,
                     wakeModelReadyOrPending = BackgroundWakePolicy.isWakeModelReadyOrPending(state),
