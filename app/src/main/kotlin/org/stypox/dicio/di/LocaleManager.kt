@@ -70,18 +70,33 @@ class LocaleManager @Inject constructor(
     }
 
     private fun getSentencesLocale(language: Language): LocaleUtils.LocaleResolutionResult {
+        val vietnamese = LocaleUtils.LocaleResolutionResult(
+            availableLocale = Locale("vi", "VN"),
+            supportedLocaleString = "vi",
+        )
         return try {
-            LocaleUtils.resolveSupportedLocaleOrThrow(
+            val resolved = LocaleUtils.resolveSupportedLocaleOrThrow(
                 getAvailableLocalesFromLanguage(language),
                 Sentences.languages
             )
+            if (language == Language.LANGUAGE_SYSTEM || language == Language.UNRECOGNIZED) {
+                // CARFU UIS7862 FYT images are often English. Always prefer Vietnamese STT/skills.
+                if (resolved.supportedLocaleString.startsWith("vi")) {
+                    resolved
+                } else {
+                    Log.i(
+                        TAG,
+                        "CARFU: system locale ${resolved.supportedLocaleString} is not " +
+                            "Vietnamese; loading vi (vosk-model-small-vn-0.4)"
+                    )
+                    vietnamese
+                }
+            } else {
+                resolved
+            }
         } catch (e: LocaleUtils.UnsupportedLocaleException) {
-            Log.w(TAG, "Current locale is not supported, defaulting to English", e)
-            // TODO ask the user to manually choose a locale instead of defaulting to english
-            LocaleUtils.LocaleResolutionResult(
-                availableLocale = Locale.ENGLISH,
-                supportedLocaleString = "en",
-            )
+            Log.w(TAG, "Current locale is not supported, defaulting to Vietnamese", e)
+            vietnamese
         }
     }
 

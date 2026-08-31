@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
-    <string name="app_name" translatable="false">Dicio</string>
+    <string name="app_name" translatable="false">CARFU AI</string>
     <string name="drawer_open">Open navigation drawer</string>
     <string name="drawer_close">Close navigation drawer</string>
     <string name="drawer_header_subtitle">May I help you?</string>
@@ -80,7 +80,12 @@
     <string name="pref_input_method_summary">Choose the service to use to talk to Dicio</string>
     <string name="pref_input_method_text">Only text box</string>
     <string name="pref_input_method_vosk">Vosk offline speech recognition</string>
-    <string name="pref_input_method_vosk_summary">Downloads and runs a Vosk SpeechToText model offline inside Dicio</string>
+    <string name="pref_input_method_vosk_summary">Downloads vosk-model-small-vn-0.4 (~50 MB) and runs offline Vietnamese speech recognition inside CARFU. External SpeechToText popups are disabled on the one-microphone path.</string>
+    <string name="carfu_vosk_downloading_tts">Đang tải mô hình giọng nói</string>
+    <string name="carfu_vosk_downloading">Đang tải mô hình giọng nói… %1$d%%</string>
+    <string name="carfu_vosk_unpacking">Đang giải nén mô hình giọng nói…</string>
+    <string name="carfu_vosk_error">Không tải được mô hình giọng nói. Nhấn mic để thử lại.</string>
+    <string name="carfu_vosk_missing">Cần tải mô hình giọng nói tiếng Việt</string>
     <string name="pref_input_method_external_popup">External SpeechToText popup</string>
     <string name="pref_input_method_external_popup_summary">Opens the UI of another app through ACTION\u200B_\u200BRECOGNIZE\u200B_\u200BSPEECH, for example whisperIME, Kõnele, Futo Voice Input</string>
     <string name="pref_speech_output_method">Speech output method</string>
@@ -100,7 +105,34 @@
     <string name="wake_word_phrase">CARFU ơi</string>
     <string name="wake_word_phrase_alt">Xin chào CARFU</string>
     <string name="wake_word_phrase_summary">Default wake word. Say this to activate CARFU, then give a command after the assistant replies.</string>
-    <string name="wake_word_acknowledgment">Tôi nghe đây?</string>
+    <string name="wake_word_acknowledgment">Tôi nghe đây</string>
+    <string name="carfu_state_ready">Sẵn sàng</string>
+    <string name="carfu_state_ack">Tôi nghe đây</string>
+    <string name="carfu_state_listening">Đang nghe…</string>
+    <string name="carfu_state_processing">Đang xử lý…</string>
+    <string name="carfu_state_unclear">Tôi chưa nghe rõ</string>
+    <string name="carfu_action_nav">Dẫn đường</string>
+    <string name="carfu_action_music">Nhạc</string>
+    <string name="carfu_action_call">Gọi điện</string>
+    <string name="carfu_action_apps">Ứng dụng</string>
+    <string name="carfu_action_volume">Âm lượng</string>
+    <string name="carfu_music_not_found">Không tìm thấy ứng dụng nghe nhạc</string>
+    <string name="carfu_volume_failed">Không điều chỉnh được âm lượng</string>
+    <string name="carfu_volume_down">Giảm</string>
+    <string name="carfu_volume_up">Tăng</string>
+    <string name="carfu_volume_mute">Tắt tiếng</string>
+    <string name="carfu_volume_unmute">Bật lại</string>
+    <string name="carfu_probe_copy_log">Sao chép nhật ký</string>
+    <string name="carfu_probe_copied">Đã sao chép nhật ký</string>
+    <string name="carfu_status_offline">Offline</string>
+    <string name="carfu_status_online">Online</string>
+    <string name="carfu_mic_ready">Mic sẵn sàng</string>
+    <string name="carfu_mic_listening">Mic đang nghe</string>
+    <string name="carfu_diagnostics">Diagnostics</string>
+    <string name="carfu_diagnostics_summary">Open the CARFU probe log (long-press the assistant orb)</string>
+    <string name="settings_mode_button_setup">Thiết lập nút MODE</string>
+    <string name="settings_mode_button_setup_summary">Open Android Assist &amp; voice input to set CARFU AI as the default assistant for the steering MODE button. The app will not change this setting by itself.</string>
+    <string name="settings_mode_button_setup_unavailable">Could not open Android assistant settings on this device.</string>
     <string name="pref_skill_not_available">This skill is not yet available for your language. Contributions are welcome!</string>
     <string name="pref_skill_missing_permissions">Requires these permissions: %1$s</string>
     <string name="pref_skill_grant_permissions">Grant</string>
@@ -216,6 +248,24 @@
     <string name="wake_service_triggered_notification">Dicio wake word triggered, tap to open</string>
     <string name="wake_service_start_notification_summary">In Android 11+ Dicio can\'t start the service without a manual interaction from the user.</string>
     <string name="wake_service_triggered_notification_summary">In Android 10+ Dicio can\'t start when a wake word is detected without showing a notification.</string>
+    <string name="carfu_wake_notification_title" translatable="false">CARFU AI</string>
+    <string name="carfu_wake_notification_waiting">Đang chờ “CARFU ơi”</string>
+    <string name="carfu_wake_notification_listening">Đang nghe lệnh</string>
+    <string name="carfu_wake_notification_processing">Đang xử lý</string>
+    <string name="carfu_wake_notification_mic_off">Micro bị tắt</string>
+    <string name="carfu_wake_notification_need_permission">Cần mở ứng dụng để cấp quyền</string>
+    <string name="carfu_wake_notification_disable">Tắt nghe nền</string>
+    <string name="carfu_wake_notification_open">Mở CARFU AI</string>
+    <string name="pref_background_wake">Nghe “CARFU ơi” khi chạy nền</string>
+    <string name="pref_background_wake_summary_on">CARFU continues listening when the app is not open. Default is OFF on this acceptance build.</string>
+    <string name="pref_background_wake_summary_off">Do not listen in the background; do not restart after boot. Press MODE to talk.</string>
+    <string name="pref_command_recognition_engine">Command recognition</string>
+    <string name="pref_command_recognition_engine_summary">Engine used after “Tôi nghe đây”</string>
+    <string name="pref_command_recognition_engine_android">Accurate online — Google/Android</string>
+    <string name="pref_command_recognition_engine_android_summary">Needs Internet. Audio may be sent to the Android speech service configured on this unit. Default for this build.</string>
+    <string name="pref_command_recognition_engine_vosk">Experimental offline — Vosk</string>
+    <string name="pref_command_recognition_engine_vosk_summary">On-device Vietnamese model. Less accurate on this cabin microphone. Use only if online recognition is unavailable.</string>
+    <string name="carfu_stt_android_unavailable">Không nhận dạng được giọng nói. Kiểm tra kết nối mạng hoặc chọn Vosk trong cài đặt.</string>
     <string name="wake_word_setup_title">Setup wake word</string>
     <string name="wake_word_setup_description">CARFU will wake up automatically whenever you say \"CARFU ơi\" or \"Xin chào CARFU\".
         This works by starting a service that always listens in the background.
@@ -289,4 +339,12 @@
     <string name="about_privacy_title">Privacy policy</string>
     <string name="about_privacy_description">Dicio connects to external services only when a skill is expected to do so, or to download machine learning models during setup. All speech processing is performed locally on-device, and most skills can be used offline.</string>
     <string name="about_privacy_link" translatable="false">https://stypox.org/dicio-privacy-policy.html</string>
+    <string name="carfu_skill_status_working">Hoạt động</string>
+    <string name="carfu_skill_status_need_permission">Cần cấp quyền</string>
+    <string name="carfu_skill_status_need_internet">Cần Internet</string>
+    <string name="carfu_skill_status_unsupported">Không hỗ trợ trên thiết bị này</string>
+    <string name="carfu_skill_status_not_implemented">Chưa triển khai</string>
+    <string name="carfu_alarm_channel">Timers and reminders</string>
+    <string name="carfu_timer_fired">Timer finished</string>
+    <string name="carfu_reminder_fired">Reminder</string>
 </resources>

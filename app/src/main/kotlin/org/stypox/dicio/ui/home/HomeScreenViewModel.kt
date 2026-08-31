@@ -9,7 +9,6 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
-import org.dicio.skill.context.SkillContext
 import org.stypox.dicio.di.SkillContextInternal
 import org.stypox.dicio.di.SpeechOutputDeviceWrapper
 import org.stypox.dicio.di.SttInputDeviceWrapper
@@ -17,6 +16,8 @@ import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
 import org.stypox.dicio.eval.SkillHandler
 import org.stypox.dicio.io.input.SttState
+import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.io.speech.SnackbarSpeechDevice
 import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.settings.datastore.WakeDevice
@@ -33,6 +34,7 @@ class HomeScreenViewModel @Inject constructor(
     val speechOutputDevice: SpeechOutputDeviceWrapper,
     val wakeDevice: WakeDeviceWrapper,
     val skillEvaluator: SkillEvaluator,
+    val commandSession: CommandSession,
     // this is always instantiated, but will do nothing if
     // it is not the speech device chosen by the user
     snackbarSpeechDevice: SnackbarSpeechDevice,
@@ -58,11 +60,21 @@ class HomeScreenViewModel @Inject constructor(
             }
         }
 
-        // stop speaking when the STT device starts listening
+        // stop speaking when the STT device starts listening, but never interrupt the
+        // wake-word acknowledgment ("Tôi nghe đây") — that would cancel the onDone queue
+        // and start command capture too early.
         viewModelScope.launch {
             sttInputDevice.uiState
                 .filter { it == SttState.Listening }
-                .collect { speechOutputDevice.stopSpeaking() }
+                .collect {
+                    val phase = commandSession.phase
+                    if (phase == CommandSessionPhase.ACKNOWLEDGING ||
+                        phase == CommandSessionPhase.WAKE_DETECTED
+                    ) {
+                        return@collect
+                    }
+                    speechOutputDevice.stopSpeaking()
+                }
         }
     }
 

@@ -2,6 +2,8 @@ package org.stypox.dicio.probe
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -19,6 +21,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import org.stypox.dicio.R
+import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.util.checkPermissions
 
 /**
@@ -74,6 +77,7 @@ class CarfuProbeActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btn_test_bt_call).setOnClickListener { testBluetoothCall() }
         audioButton.setOnClickListener { toggleAudioProbe() }
         findViewById<Button>(R.id.btn_clear_log).setOnClickListener { clearLog() }
+        findViewById<Button>(R.id.btn_copy_log).setOnClickListener { copyDiagLog() }
 
         restoreLog()
         CarfuProbeLog.addListener(logListener)
@@ -147,6 +151,17 @@ class CarfuProbeActivity : AppCompatActivity() {
         CarfuProbeLog.clear()
         logView.text = ""
         CarfuProbeLog.append("Log cleared")
+    }
+
+    private fun copyDiagLog() {
+        val text = CarfuDiag.copyableLog()
+        CarfuProbeLog.append("=== ${getString(R.string.carfu_probe_copy_log)} ===")
+        text.lineSequence().filter { it.isNotBlank() }.forEach { line ->
+            CarfuProbeLog.append(line)
+        }
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("CARFU log", text))
+        CarfuProbeLog.append(getString(R.string.carfu_probe_copied))
     }
 
     // --- Feature 1: Package Inspector ----------------------------------------------------------

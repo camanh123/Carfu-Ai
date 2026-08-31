@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+option java_package = "org.stypox.dicio.settings.datastore";
+option java_multiple_files = true;
+
+enum CommandRecognitionEngine {
+    COMMAND_RECOGNITION_ENGINE_UNSET = 0;
+    COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE = 1;
+    COMMAND_RECOGNITION_ENGINE_VOSK_LEGACY = 2;
+}

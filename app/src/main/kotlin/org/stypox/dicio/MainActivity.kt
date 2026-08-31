@@ -2,10 +2,9 @@ package org.stypox.dicio
 
 import android.Manifest
 import android.content.Intent
-import android.content.Intent.ACTION_ASSIST
-import android.content.Intent.ACTION_VOICE_COMMAND
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -21,19 +20,21 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import androidx.datastore.core.DataStore
+import org.stypox.dicio.di.SpeechOutputDeviceWrapper
 import org.stypox.dicio.di.SttInputDeviceWrapper
 import org.stypox.dicio.di.WakeDeviceWrapper
 import org.stypox.dicio.eval.SkillEvaluator
+import org.stypox.dicio.io.assist.CarfuAssistIntents
+import org.stypox.dicio.io.session.CarfuLatencyLog
+import org.stypox.dicio.io.session.CarfuSessionGate
+import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.WakeService
-import org.stypox.dicio.io.wake.WakeState.Loaded
-import org.stypox.dicio.io.wake.WakeState.Loading
-import org.stypox.dicio.io.wake.WakeState.NotLoaded
+import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.ui.home.wakeWordPermissions
 import org.stypox.dicio.ui.nav.Navigation
 import org.stypox.dicio.util.BaseActivity
-import java.time.Instant
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -45,26 +46,29 @@ class MainActivity : BaseActivity() {
     lateinit var sttInputDevice: SttInputDeviceWrapper
     @Inject
     lateinit var wakeDevice: WakeDeviceWrapper
+    @Inject
+    lateinit var userSettings: DataStore<UserSettings>
+    @Inject
+    lateinit var speechOutputDevice: SpeechOutputDeviceWrapper
 
     private var sttPermissionJob: Job? = null
     private var wakeServiceJob: Job? = null
 
-    private var nextAssistAllowed = Instant.MIN
-
     /**
-     * Automatically loads the LLM and the STT when the [ACTION_ASSIST] intent is received. Applies
-     * a backoff of [INTENT_BACKOFF_MILLIS], since during testing Android would send the assist
-     * intent to the app twice in a row.
+     * FYT MODE / system Assist. Starts the existing CommandSession with origin
+     * HARDWARE_BUTTON. Duplicate VIS + ASSIST + VOICE_COMMAND fan-out is rejected
+     * by [CarfuSessionGate], not by a 100 ms Activity-only backoff.
      */
-    private fun onAssistIntentReceived() {
-        val now = Instant.now()
-        if (nextAssistAllowed < now) {
-            nextAssistAllowed = now.plusMillis(INTENT_BACKOFF_MILLIS)
-            Log.d(TAG, "Received assist intent")
-            sttInputDevice.tryLoad(skillEvaluator::processInputEvent)
-        } else {
-            Log.w(TAG, "Ignoring duplicate assist intent")
-        }
+    private fun onAssistIntentReceived(intent: Intent?) {
+        CarfuAssistIntents.logIncoming("MainActivity", intent)
+        CarfuSessionGate.noteIncomingIntent(
+            action = intent?.action,
+            component = intent?.component?.flattenToShortString(),
+        )
+        CarfuLatencyLog.nowMs = { SystemClock.elapsedRealtime() }
+        CarfuLatencyLog.onModeIntent()
+        Log.d(TAG, "Received assist intent action=${intent?.action}")
+        skillEvaluator.onHardwareButtonDetected()
     }
 
     private fun handleWakeWordTurnOnScreen(intent: Intent?) {
@@ -83,10 +87,11 @@ class MainActivity : BaseActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
 
         handleWakeWordTurnOnScreen(intent)
         if (isAssistIntent(intent)) {
-            onAssistIntentReceived()
+            onAssistIntentReceived(intent)
         }
     }
 
@@ -96,6 +101,7 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onStop() {
+        // Home / another app in the foreground must not stop WakeService or the wake AudioRecord.
         super.onStop()
         isInForeground -= 1
 
@@ -112,27 +118,43 @@ class MainActivity : BaseActivity() {
         isCreated += 1
 
         handleWakeWordTurnOnScreen(intent)
+        if (!isAssistIntent(intent)) {
+            speechOutputDevice.prewarm()
+        }
+        if (intent.action != ACTION_WAKE_WORD) {
+            if (sttInputDevice.usesAndroidOnlineEngine()) {
+                Log.i(
+                    TAG,
+                    "STT_ENGINE ANDROID_ONLINE ready=${sttInputDevice.isRecognizerReady()} " +
+                        "vosk=false",
+                )
+            } else {
+                sttInputDevice.ensureModelPipeline()
+                sttInputDevice.tryLoad(null)
+            }
+        }
         if (isAssistIntent(intent)) {
-            onAssistIntentReceived()
-        } else if (intent.action != ACTION_WAKE_WORD) {
-            // load the input device, without starting to listen
-            sttInputDevice.tryLoad(null)
+            onAssistIntentReceived(intent)
         }
 
-        WakeService.start(this)
+        // The Activity may start the foreground wake service, but does not own its lifetime
+        // or the wake AudioRecord. onStop/onDestroy must not stop listening.
         wakeServiceJob?.cancel()
         wakeServiceJob = lifecycleScope.launch {
-            wakeDevice.state
-                .map { it == NotLoaded || it == Loading || it == Loaded }
-                .combine(
-                    PermissionFlow.getInstance().getMultiplePermissionState(*wakeWordPermissions)
-                ) { wakeState, permGranted ->
-                    wakeState && permGranted.allGranted
-                }
-                // avoid restarting the service if the state changes but the resulting value
-                // in the flow remains true (which happens when the user stops the WakeService from
-                // the notification, which releases resources and makes the WakeDevice go from
-                // Loaded to NotLoaded)
+            combine(
+                wakeDevice.state,
+                userSettings.data,
+                PermissionFlow.getInstance().getMultiplePermissionState(*wakeWordPermissions),
+            ) { state, settings, perm ->
+                val enabled = BackgroundWakePolicy.isBackgroundWakeEnabled(settings)
+                CarfuSessionGate.setBackgroundWakeEnabled(enabled)
+                BackgroundWakePolicy.shouldStartWakeService(
+                    backgroundWakeEnabled = enabled,
+                    recordAudioGranted = perm.allGranted,
+                    wakeDeviceEnabled = state != null,
+                    wakeModelReadyOrPending = BackgroundWakePolicy.isWakeModelReadyOrPending(state),
+                )
+            }
                 .distinctUntilChanged()
                 .filter { it }
                 .collect { WakeService.start(this@MainActivity) }
@@ -162,15 +184,13 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
-        // the wake word service remains active in the background,
-        // so we need to release resources that it does not need manually
+        // STT can be unloaded when the Activity is gone; wake AudioRecord stays with WakeService.
         sttInputDevice.reinitializeToReleaseResources()
         isCreated -= 1
         super.onDestroy()
     }
 
     companion object {
-        private const val INTENT_BACKOFF_MILLIS = 100L
         private val TAG = MainActivity::class.simpleName
         const val ACTION_WAKE_WORD = "org.stypox.dicio.MainActivity.ACTION_WAKE_WORD"
 
@@ -180,10 +200,7 @@ class MainActivity : BaseActivity() {
             private set
 
         private fun isAssistIntent(intent: Intent?): Boolean {
-            return when (intent?.action) {
-                ACTION_ASSIST, ACTION_VOICE_COMMAND -> true
-                else -> false
-            }
+            return CarfuAssistIntents.isHardwareAssistAction(intent?.action)
         }
     }
 }

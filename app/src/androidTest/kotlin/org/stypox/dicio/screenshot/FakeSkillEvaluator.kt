@@ -21,4 +21,7 @@ class FakeSkillEvaluator : SkillEvaluator {
 
     override fun onWakeWordDetected() {
     }
+
+    override fun onHardwareButtonDetected() {
+    }
 }

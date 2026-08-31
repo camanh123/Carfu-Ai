@@ -161,50 +161,42 @@ class ScreenshotTakerTest {
         // otherwise there is darkened indication around it
         composeRule.onRoot().performTouchInput { click(center) }
 
-        // make sure the app bar shows "Dicio" and not "Dicio-main" or other branch names
-        composeRule.onNodeWithText("Dicio").assertExists()
+        // make sure the app bar shows "CARFU AI" and not a Git branch name
+        composeRule.onNodeWithText("CARFU AI").assertExists()
         composeRule.onNodeWithText("Dicio-main").assertDoesNotExist()
 
 
-        // screenshot 0: home screen with "Here is what I can do" and STT listening
+        // screenshot 0: automotive home
         dataStore.updateData { it.copy { theme = Theme.THEME_DARK } }
         fakeSttInputDeviceWrapper.uiState.emit(SttState.Listening)
         composeRule.takeScreenshot("en-US", "0")
 
-        // screenshot 1: home screen with interactions with weather, timer and lyrics skills
+        // screenshot 1: last command/response from a skill interaction
         dataStore.updateData { it.copy { theme = Theme.THEME_LIGHT } }
         fakeSttInputDeviceWrapper.uiState.emit(SttState.Loaded)
         coilEventListener.resetStartedImages()
         fakeSkillEvaluator.state.value = screenshot1InteractionLog
-        composeRule.onNodeWithTag("interaction_list")
-            .performScrollToIndex(3) // scroll to the first interaction
         runCatching { composeRule.waitUntil { coilEventListener.isIdle(startedAtLeast = 1) } }
         composeRule.takeScreenshot("en-US", "1")
 
-        // screenshot 2: home screen with interactions with calculator, telephone and search skills
+        // screenshot 2
         dataStore.updateData { it.copy { theme = Theme.THEME_BLACK } }
         fakeSttInputDeviceWrapper.uiState.emit(SttState.Loaded)
         coilEventListener.resetStartedImages()
         fakeSkillEvaluator.state.value = screenshot2InteractionLog
-        composeRule.onNodeWithTag("interaction_list")
-            .performScrollToIndex(3) // scroll to the first interaction
         runCatching { composeRule.waitUntil { coilEventListener.isIdle(startedAtLeast = 2) } }
         composeRule.takeScreenshot("en-US", "2")
 
-        // screenshot 3: home screen with interactions with translation, joke and media skills
+        // screenshot 3
         dataStore.updateData { it.copy { theme = Theme.THEME_LIGHT } }
         fakeSttInputDeviceWrapper.uiState.emit(SttState.Loaded)
         fakeSkillEvaluator.state.value = screenshot3InteractionLog
-        composeRule.onNodeWithTag("interaction_list")
-            .performScrollToIndex(3) // scroll to the second interaction
         composeRule.takeScreenshot("en-US", "3")
 
         // screenshot 5: settings screen
         dataStore.updateData { it.copy { theme = Theme.THEME_LIGHT } }
-        composeRule.onNodeWithTag("drawer_handle")
-            .performClick() // open the drawer
-        composeRule.onNodeWithTag("settings_drawer_item")
-            .performClick() // open the settings screen
+        composeRule.onNodeWithTag("settings_button")
+            .performClick()
         composeRule.takeScreenshot("en-US", "5")
 
         // screenshot 4: skill settings screen

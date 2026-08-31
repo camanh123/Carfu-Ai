@@ -10,6 +10,7 @@ import org.dicio.skill.skill.SkillInfo
 import org.dicio.skill.skill.SkillOutput
 import org.dicio.skill.standard.StandardRecognizerData
 import org.dicio.skill.standard.StandardRecognizerSkill
+import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.sentences.Sentences.Open
 import org.stypox.dicio.util.StringUtils
 
@@ -39,10 +40,30 @@ class OpenSkill(correspondingSkillInfo: SkillInfo, data: StandardRecognizerData<
     }
 
     companion object {
+        private val KNOWN_PACKAGES: List<Pair<Set<String>, List<String>>> = listOf(
+            setOf("youtube", "you tube", "yt") to listOf(
+                "com.google.android.youtube",
+                "com.vanced.android.youtube",
+                "app.revanced.android.youtube",
+            ),
+            setOf("ban do", "maps", "google maps", "google map", "map") to listOf(
+                "com.google.android.apps.maps",
+            ),
+            setOf("musicloop", "music loop") to listOf(
+                "com.musicloop.car",
+                "com.musicloop",
+                "com.carfu.musicloop",
+                "com.syu.music",
+            ),
+        )
+
         private fun getMostSimilarApp(
             packageManager: PackageManager,
             appName: String
         ): ApplicationInfo? {
+            val folded = VietnameseTranscript.foldForMatch(appName)
+            resolveKnownPackage(packageManager, folded)?.let { return it }
+
             val resolveInfosIntent = Intent(Intent.ACTION_MAIN, null)
             resolveInfosIntent.addCategory(Intent.CATEGORY_LAUNCHER)
 
@@ -57,10 +78,14 @@ class OpenSkill(correspondingSkillInfo: SkillInfo, data: StandardRecognizerData<
                     val currentApplicationInfo: ApplicationInfo = packageManager.getApplicationInfo(
                         resolveInfo.activityInfo.packageName, PackageManager.GET_META_DATA
                     )
-                    val currentDistance = StringUtils.customStringDistance(
-                        appName,
-                        packageManager.getApplicationLabel(currentApplicationInfo).toString()
-                    )
+                    val label = packageManager.getApplicationLabel(currentApplicationInfo).toString()
+                    val foldedLabel = VietnameseTranscript.foldForMatch(label)
+                    if (folded.isNotEmpty() &&
+                        (foldedLabel == folded || foldedLabel.replace(" ", "") == folded.replace(" ", ""))
+                    ) {
+                        return currentApplicationInfo
+                    }
+                    val currentDistance = StringUtils.customStringDistance(appName, label)
                     if (currentDistance < bestDistance) {
                         bestDistance = currentDistance
                         bestApplicationInfo = currentApplicationInfo
@@ -69,6 +94,24 @@ class OpenSkill(correspondingSkillInfo: SkillInfo, data: StandardRecognizerData<
                 }
             }
             return if (bestDistance > 5) null else bestApplicationInfo
+        }
+
+        private fun resolveKnownPackage(
+            packageManager: PackageManager,
+            foldedName: String,
+        ): ApplicationInfo? {
+            for ((aliases, packages) in KNOWN_PACKAGES) {
+                if (foldedName !in aliases) continue
+                for (pkg in packages) {
+                    try {
+                        if (packageManager.getLaunchIntentForPackage(pkg) != null) {
+                            return packageManager.getApplicationInfo(pkg, 0)
+                        }
+                    } catch (_: PackageManager.NameNotFoundException) {
+                    }
+                }
+            }
+            return null
         }
     }
 }

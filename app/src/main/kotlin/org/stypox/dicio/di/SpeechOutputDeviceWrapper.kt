@@ -65,6 +65,12 @@ class SpeechOutputDeviceWrapper @Inject constructor(
     }
 
 
+    fun prewarm() {
+        scope.launch {
+            (wrappedSpeechDevice as? AndroidTtsSpeechDevice)?.prewarm()
+        }
+    }
+
     override fun speak(speechOutput: String) {
         wrappedSpeechDevice.speak(speechOutput)
     }

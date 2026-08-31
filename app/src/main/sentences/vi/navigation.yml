@@ -1,3 +1,4 @@
 query:
   - (chỉ|dẫn) đường (đến|về|tới) .where.
+  - chỉ đường .where.
   - đi (đến|về) .where.

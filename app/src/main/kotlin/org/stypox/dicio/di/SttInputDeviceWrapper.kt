@@ -19,11 +19,18 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.stypox.dicio.R
+import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.io.input.SttState
-import org.stypox.dicio.io.input.external_popup.ExternalPopupInputDevice
+import org.stypox.dicio.io.input.android.AndroidSpeechInputDevice
 import org.stypox.dicio.io.input.vosk.VoskInputDevice
+import org.stypox.dicio.io.session.CarfuActivationSource
+import org.stypox.dicio.io.session.CarfuLog
+import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.CommandSessionPhase
+import org.stypox.dicio.io.wake.WakeService
+import org.stypox.dicio.settings.datastore.CommandRecognitionEngine
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.InputDevice.INPUT_DEVICE_EXTERNAL_POPUP
 import org.stypox.dicio.settings.datastore.InputDevice.INPUT_DEVICE_NOTHING
@@ -46,6 +53,17 @@ interface SttInputDeviceWrapper {
     fun onClick(eventListener: (InputEvent) -> Unit)
 
     fun reinitializeToReleaseResources()
+
+    /** True only when the Vietnamese recognizer is constructed (Loaded/Listening). */
+    fun isRecognizerReady(): Boolean = false
+
+    /** Start download/unzip/load if needed. Never treats Loading as ready. */
+    fun ensureModelPipeline() {}
+
+    fun usesAndroidOnlineEngine(): Boolean = false
+
+    fun commandEngine(): CommandRecognitionEngine =
+        CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE
 }
 
 class SttInputDeviceWrapperImpl(
@@ -54,10 +72,13 @@ class SttInputDeviceWrapperImpl(
     private val localeManager: LocaleManager,
     private val okHttpClient: OkHttpClient,
     private val activityForResultManager: ActivityForResultManager,
+    private val commandSession: CommandSession,
 ) : SttInputDeviceWrapper {
     private val scope = CoroutineScope(Dispatchers.Default)
 
     private var inputDeviceSetting: InputDevice
+    @Volatile
+    private var commandEngineSetting: CommandRecognitionEngine
     private var sttPlaySoundSetting: SttPlaySound
     private val silencesBeforeStop: StateFlow<Int>
     private var sttInputDevice: SttInputDevice?
@@ -72,45 +93,107 @@ class SttInputDeviceWrapperImpl(
         // Run blocking, because the data store is always available right away since LocaleManager
         // also initializes in a blocking way from the same data store.
         val (firstSettings, nextSettingsFlow) = dataStore.data
-            .map { Pair(it.inputDevice, it.sttPlaySound) }
+            .map {
+                Triple(
+                    it.inputDevice,
+                    it.sttPlaySound,
+                    CommandRecognitionPolicy.resolveEngine(it),
+                )
+            }
             .distinctUntilChangedBlockingFirst()
 
         inputDeviceSetting = firstSettings.first
         sttPlaySoundSetting = firstSettings.second
+        commandEngineSetting = firstSettings.third
         silencesBeforeStop = dataStore.data.map(SttInputDevice::getSttSilenceDurationOrDefault)
             .toStateFlowDistinctBlockingFirst(scope)
-        sttInputDevice = buildInputDevice(inputDeviceSetting)
+        sttInputDevice = buildInputDevice(inputDeviceSetting, commandEngineSetting)
         scope.launch {
             restartUiStateJob()
         }
 
         scope.launch {
-            nextSettingsFlow.collect { (inputDevice, sttPlaySound) ->
+            nextSettingsFlow.collect { (inputDevice, sttPlaySound, engine) ->
                 sttPlaySoundSetting = sttPlaySound
-                if (inputDeviceSetting != inputDevice) {
-                    changeInputDeviceTo(inputDevice)
+                val deviceChanged = inputDeviceSetting != inputDevice ||
+                    commandEngineSetting != engine
+                inputDeviceSetting = inputDevice
+                commandEngineSetting = engine
+                if (deviceChanged) {
+                    changeInputDeviceTo(inputDevice, engine)
                 }
             }
         }
     }
 
-    private suspend fun changeInputDeviceTo(setting: InputDevice) {
+    private suspend fun changeInputDeviceTo(
+        setting: InputDevice,
+        engine: CommandRecognitionEngine,
+    ) {
         val prevSttInputDevice = sttInputDevice
         inputDeviceSetting = setting
-        sttInputDevice = buildInputDevice(setting)
+        commandEngineSetting = engine
+        sttInputDevice = buildInputDevice(setting, engine)
         prevSttInputDevice?.destroy()
         restartUiStateJob()
     }
 
-    private fun buildInputDevice(setting: InputDevice): SttInputDevice? {
-        return when (setting) {
+    private fun buildInputDevice(
+        setting: InputDevice,
+        engine: CommandRecognitionEngine,
+    ): SttInputDevice? {
+        return when (resolveCarfuInputDevice(setting)) {
+            INPUT_DEVICE_NOTHING -> null
             UNRECOGNIZED,
             INPUT_DEVICE_UNSET,
-            INPUT_DEVICE_VOSK -> VoskInputDevice(appContext, okHttpClient, localeManager, silencesBeforeStop)
-            INPUT_DEVICE_EXTERNAL_POPUP ->
-                ExternalPopupInputDevice(appContext, activityForResultManager, localeManager)
-            INPUT_DEVICE_NOTHING -> null
+            INPUT_DEVICE_VOSK,
+            INPUT_DEVICE_EXTERNAL_POPUP -> {
+                if (CommandRecognitionPolicy.shouldConstructVosk(engine)) {
+                    CarfuLog.i(CommandSession.TAG, "STT_ENGINE engine=VOSK_LEGACY")
+                    VoskInputDevice(appContext, okHttpClient, localeManager, silencesBeforeStop)
+                } else {
+                    CarfuLog.i(CommandSession.TAG, "STT_ENGINE engine=ANDROID_ONLINE vosk=false")
+                    AndroidSpeechInputDevice(appContext)
+                }
+            }
         }
+    }
+
+    override fun usesAndroidOnlineEngine(): Boolean =
+        CommandRecognitionPolicy.isAndroidOnline(commandEngineSetting)
+
+    override fun commandEngine(): CommandRecognitionEngine =
+        CommandRecognitionPolicy.resolveEngine(commandEngineSetting)
+
+    override fun isRecognizerReady(): Boolean {
+        val device = sttInputDevice
+        return when (device) {
+            is AndroidSpeechInputDevice -> device.isRecognizerReady()
+            is VoskInputDevice -> device.isRecognizerReady()
+            else -> false
+        }
+    }
+
+    override fun ensureModelPipeline() {
+        if (usesAndroidOnlineEngine()) return
+        val device = sttInputDevice
+        if (device is VoskInputDevice) {
+            device.ensureModelPipeline()
+        }
+    }
+
+    override fun onClick(eventListener: (InputEvent) -> Unit) {
+        if (commandSession.isBusy) {
+            CarfuLog.i(CommandSession.TAG, "UI_CLICK_IGNORED session_busy=true")
+            return
+        }
+        if (!commandSession.isBusy) {
+            CarfuActivationSource.markManualMic()
+        }
+        if (usesAndroidOnlineEngine()) {
+            WakeService.releaseHubForOnlineCommand()
+        }
+        sttInputDevice?.onClick(wrapEventListener(eventListener))
     }
 
     private suspend fun restartUiStateJob() {
@@ -123,7 +206,10 @@ class SttInputDeviceWrapperImpl(
             uiStateJob = scope.launch {
                 newSttInputDevice.uiState.collect {
                     _uiState.emit(it)
-                    if (it == SttState.Listening) {
+                    if (it == SttState.Listening &&
+                        commandSession.phase != CommandSessionPhase.COMMAND_LISTENING &&
+                        commandSession.phase != CommandSessionPhase.ACKNOWLEDGING
+                    ) {
                         playSound(R.raw.listening_sound)
                     }
                 }
@@ -150,7 +236,7 @@ class SttInputDeviceWrapperImpl(
     }
 
     private fun wrapEventListener(eventListener: (InputEvent) -> Unit): (InputEvent) -> Unit = {
-        if (it is InputEvent.None) {
+        if (it is InputEvent.None && CarfuActivationSource.isUserInitiated()) {
             scope.launch {
                 playSound(R.raw.listening_no_input_sound)
             }
@@ -159,6 +245,9 @@ class SttInputDeviceWrapperImpl(
     }
 
     override fun tryLoad(thenStartListeningEventListener: ((InputEvent) -> Unit)?): Boolean {
+        if (!usesAndroidOnlineEngine()) {
+            ensureModelPipeline()
+        }
         return sttInputDevice?.tryLoad(if (thenStartListeningEventListener != null) {
             wrapEventListener(thenStartListeningEventListener)
         } else { null }) ?: false
@@ -168,12 +257,15 @@ class SttInputDeviceWrapperImpl(
         sttInputDevice?.stopListening()
     }
 
-    override fun onClick(eventListener: (InputEvent) -> Unit) {
-        sttInputDevice?.onClick(wrapEventListener(eventListener))
-    }
-
     override fun reinitializeToReleaseResources() {
-        scope.launch { changeInputDeviceTo(inputDeviceSetting) }
+        scope.launch { changeInputDeviceTo(inputDeviceSetting, commandEngineSetting) }
+    }
+}
+
+private fun resolveCarfuInputDevice(setting: InputDevice): InputDevice {
+    return when (setting) {
+        INPUT_DEVICE_EXTERNAL_POPUP -> INPUT_DEVICE_VOSK
+        else -> setting
     }
 }
 
@@ -188,9 +280,11 @@ class SttInputDeviceWrapperModule {
         localeManager: LocaleManager,
         okHttpClient: OkHttpClient,
         activityForResultManager: ActivityForResultManager,
+        commandSession: CommandSession,
     ): SttInputDeviceWrapper {
         return SttInputDeviceWrapperImpl(
-            appContext, dataStore, localeManager, okHttpClient, activityForResultManager
+            appContext, dataStore, localeManager, okHttpClient, activityForResultManager,
+            commandSession,
         )
     }
 }

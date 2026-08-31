@@ -19,11 +19,11 @@ import androidx.compose.material.icons.filled.Minimize
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.SpeakerPhone
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import org.stypox.dicio.R
+import org.stypox.dicio.settings.datastore.CommandRecognitionEngine
 import org.stypox.dicio.settings.datastore.InputDevice
 import org.stypox.dicio.settings.datastore.Language
 import org.stypox.dicio.settings.datastore.SpeechOutputDevice
@@ -104,6 +104,27 @@ fun dynamicColors() = BooleanSetting(
 )
 
 @Composable
+fun commandRecognitionEngine() = ListSetting(
+    title = stringResource(R.string.pref_command_recognition_engine),
+    icon = Icons.Default.Mic,
+    description = stringResource(R.string.pref_command_recognition_engine_summary),
+    possibleValues = listOf(
+        ListSetting.Value(
+            value = CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
+            name = stringResource(R.string.pref_command_recognition_engine_android),
+            description = stringResource(R.string.pref_command_recognition_engine_android_summary),
+            icon = Icons.Default.Mic,
+        ),
+        ListSetting.Value(
+            value = CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_VOSK_LEGACY,
+            name = stringResource(R.string.pref_command_recognition_engine_vosk),
+            description = stringResource(R.string.pref_command_recognition_engine_vosk_summary),
+            icon = Icons.Default.Hearing,
+        ),
+    ),
+)
+
+@Composable
 fun inputDevice() = ListSetting(
     title = stringResource(R.string.pref_input_method),
     icon = Icons.Default.Mic,
@@ -114,12 +135,6 @@ fun inputDevice() = ListSetting(
             name = stringResource(R.string.pref_input_method_vosk),
             description = stringResource(R.string.pref_input_method_vosk_summary),
             icon = Icons.Default.Mic,
-        ),
-        ListSetting.Value(
-            value = InputDevice.INPUT_DEVICE_EXTERNAL_POPUP,
-            name = stringResource(R.string.pref_input_method_external_popup),
-            description = stringResource(R.string.pref_input_method_external_popup_summary),
-            icon = Icons.Default.PictureInPictureAlt,
         ),
         ListSetting.Value(
             value = InputDevice.INPUT_DEVICE_NOTHING,
@@ -144,6 +159,14 @@ fun wakeDevice() = ListSetting(
             name = stringResource(R.string.pref_wake_method_disabled),
         )
     )
+)
+
+@Composable
+fun backgroundWake() = BooleanSetting(
+    title = stringResource(R.string.pref_background_wake),
+    icon = Icons.Default.Hearing,
+    descriptionOff = stringResource(R.string.pref_background_wake_summary_off),
+    descriptionOn = stringResource(R.string.pref_background_wake_summary_on),
 )
 
 @Composable

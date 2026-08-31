@@ -1,11 +1,13 @@
 package org.stypox.dicio.settings.datastore
 
 import android.content.Context
+import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.DataStoreFactory
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.dataStoreFile
 import androidx.datastore.migrations.SharedPreferencesMigration
+import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -28,6 +30,19 @@ class UserSettingsModule {
             },
             migrations = listOf(
                 getSharedPreferencesMigration(context),
+                object : DataMigration<UserSettings> {
+                    override suspend fun shouldMigrate(currentData: UserSettings): Boolean {
+                        return CommandRecognitionPolicy.needsAcceptanceProfileMigration(
+                            currentData,
+                        )
+                    }
+
+                    override suspend fun migrate(currentData: UserSettings): UserSettings {
+                        return CommandRecognitionPolicy.applyAcceptanceProfile(currentData)
+                    }
+
+                    override suspend fun cleanUp() = Unit
+                },
             ),
             produceFile = {
                 context.dataStoreFile("settings.pb")

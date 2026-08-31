@@ -81,9 +81,9 @@ class OwwModel(
                 return 0.0f // not fully initialized yet
             }
 
-            val wakeOutput = FloatArray(1)
+            val wakeOutput = FloatArray(WAKE_OUTPUT_SIZE)
             wakeInterpreter.run(arrayOf(accumulatedEmbOutputs), arrayOf(wakeOutput))
-            return wakeOutput[0]
+            return sanitizeScore(wakeOutput[POSITIVE_OUTPUT_INDEX])
         }
     }
 
@@ -115,8 +115,29 @@ class OwwModel(
         const val EMB_OUTPUT_COUNT = 1
         const val EMB_FEATURE_SIZE = 96 // also the size of features received by the wake model
 
-        // wake model shape is [1,16,96] -> [1,1]
+        // wake model shape is [1,16,96] -> [1,1] (single-class CARFU classifier)
         const val WAKE_INPUT_COUNT = 16 // hardcoded in the model
+        const val WAKE_OUTPUT_SIZE = 1
+        /** Positive-class index of the wake-word output tensor. Single-class models use 0. */
+        const val POSITIVE_OUTPUT_INDEX = 0
+        /** Signed PCM16 → float in ~[-1, 1). OpenWakeWord expects this scale, not 32767. */
+        const val PCM_SCALE = 32768.0f
+
+        fun sanitizeScore(raw: Float): Float {
+            if (!raw.isFinite()) return 0.0f
+            return raw.coerceIn(0.0f, 1.0f)
+        }
+
+        fun tensorContractDescription(): String {
+            return "pcmScale=$PCM_SCALE " +
+                "melIn=[1,$MEL_INPUT_COUNT] " +
+                "melOut=[1,1,$MEL_OUTPUT_COUNT,$MEL_FEATURE_SIZE] " +
+                "embIn=[1,$EMB_INPUT_COUNT,$MEL_FEATURE_SIZE,1] " +
+                "embOut=[1,1,1,$EMB_FEATURE_SIZE] " +
+                "wakeIn=[1,$WAKE_INPUT_COUNT,$EMB_FEATURE_SIZE] " +
+                "wakeOut=[1,$WAKE_OUTPUT_SIZE] " +
+                "positiveIndex=$POSITIVE_OUTPUT_INDEX"
+        }
 
         private fun loadModel(modelPath: File, inputDims: IntArray? = null): Interpreter {
             val interpreter = Interpreter(modelPath)
