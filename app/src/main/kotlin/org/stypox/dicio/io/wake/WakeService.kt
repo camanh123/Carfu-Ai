@@ -510,7 +510,7 @@ class WakeService : Service() {
                     }
                     recording = true
                     retryDelayMs = BackgroundWakePolicy.INITIAL_OPEN_RETRY_MS
-                    liveRecorder.set(recorder)
+                    liveRecorder.set(ar)
                     acceptancePolicy.onRecorderStarted()
                     wakeDevice.resetDetectionState()
                     acceptancePolicy.onDetectorAndPcmReset()
