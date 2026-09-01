@@ -71,6 +71,7 @@
     <string name="carfu_state_listening">Đang nghe…</string>
     <string name="carfu_state_processing">Đang xử lý…</string>
     <string name="carfu_state_unclear">Tôi chưa nghe rõ</string>
+    <string name="carfu_state_unsupported_command">Tôi chưa hiểu lệnh: %1$s</string>
     <string name="carfu_vosk_downloading_tts">Đang tải mô hình giọng nói</string>
     <string name="carfu_vosk_downloading">Đang tải mô hình giọng nói… %1$d%%</string>
     <string name="carfu_vosk_unpacking">Đang giải nén mô hình giọng nói…</string>

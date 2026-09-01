@@ -269,7 +269,9 @@ class AndroidSpeechInputDevice(
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SR_READY)
         }
 
-        override fun onBeginningOfSpeech() = Unit
+        override fun onBeginningOfSpeech() {
+            CarfuLatencyLog.mark(CarfuLatencyLog.Mark.BEGINNING_OF_SPEECH)
+        }
 
         override fun onRmsChanged(rmsdB: Float) = Unit
 
@@ -290,6 +292,10 @@ class AndroidSpeechInputDevice(
 
         override fun onResults(results: Bundle?) {
             val utterances = utterancesFrom(results)
+            CarfuLatencyLog.logSessionEvent(
+                "SR_RESULTS",
+                "candidates=${utterances.size}",
+            )
             onTerminal(CommandRecognitionPolicy.RecognizerTerminal.RESULT) { listener ->
                 if (utterances.isEmpty()) {
                     listener(InputEvent.None)
@@ -302,7 +308,7 @@ class AndroidSpeechInputDevice(
         override fun onPartialResults(partialResults: Bundle?) {
             val text = utterancesFrom(partialResults).firstOrNull()?.first ?: return
             if (text.isBlank()) return
-            CarfuLatencyLog.mark(CarfuLatencyLog.Mark.FIRST_PARTIAL)
+            CarfuLatencyLog.mark(CarfuLatencyLog.Mark.PARTIAL_RESULT)
             listenerRef.get()?.invoke(InputEvent.Partial(text))
         }
 

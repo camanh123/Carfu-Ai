@@ -61,11 +61,32 @@ data class RoutedCommand(
     val rainAsk: Boolean = false,
 )
 
+data class RoutedMatch(
+    val command: RoutedCommand,
+    val transcript: String,
+    val candidateIndex: Int,
+    val confidence: Float,
+)
+
 object CarfuCommandRouter {
+    private val WHITESPACE = Regex("\\s+")
     private val PHONE_NUMBER = Regex("""(?:\+?84|0)\d[\d\s]{7,13}""")
-    private val NAV_PREFIX = Regex("""^(?:chi duong|dan duong)(?: den| toi| ve)?\s+""")
     private val SEARCH_PREFIX = Regex("""^(?:tim kiem|tim)\s+""")
     private val CALL_CONTACT_PREFIX = Regex("""^(?:goi cho|goi)\s+""")
+
+    /** Longest folded prefix first so "chi duong den" wins over "chi duong". */
+    private val NAV_PREFIX_FOLDED: List<String> = listOf(
+        "chi duong den ",
+        "chi duong toi ",
+        "chi duong ve ",
+        "dan duong den ",
+        "dan duong toi ",
+        "dan duong ve ",
+        "mo ban do den ",
+        "di den ",
+        "chi duong ",
+        "dan duong ",
+    )
 
     private val EXACT: List<Pair<Set<String>, RoutedCommand>> = listOf(
         setOf("mo youtube", "mo you tube", "mo yt") to RoutedCommand(
@@ -74,7 +95,14 @@ object CarfuCommandRouter {
         setOf("mo ban do", "mo maps", "mo google maps", "mo google map") to RoutedCommand(
             CarfuIntent.OPEN_MAPS, "mở bản đồ", "open",
         ),
-        setOf("mo musicloop", "mo music loop", "mo nhac loop") to RoutedCommand(
+        setOf(
+            "mo musicloop",
+            "mo music loop",
+            "mo nhac loop",
+            "mo may nghe nhac",
+            "mo may nghe nhac oto",
+            "bat may nghe nhac",
+        ) to RoutedCommand(
             CarfuIntent.OPEN_MUSICLOOP, "mở musicloop", "open",
         ),
         setOf(
@@ -140,16 +168,40 @@ object CarfuCommandRouter {
         ),
     )
 
-    fun match(raw: String): RoutedCommand? {
+    fun match(raw: String): RoutedCommand? = matchInternal(raw)?.command
+
+    /**
+     * Picks the best SpeechRecognizer candidate that maps to a known CARFU command.
+     * Never invents text; only evaluates the recognizer-provided strings.
+     */
+    fun matchBest(candidates: List<Pair<String, Float>>): RoutedMatch? {
+        return candidates.mapIndexedNotNull { index, (text, confidence) ->
+            matchInternal(text)?.let { internal ->
+                RoutedMatch(
+                    command = internal.command,
+                    transcript = internal.transcript,
+                    candidateIndex = index,
+                    confidence = confidence,
+                )
+            }
+        }.maxWithOrNull(
+            compareBy<RoutedMatch> { it.confidence }
+                .thenBy { -it.candidateIndex },
+        )
+    }
+
+    private data class InternalMatch(val command: RoutedCommand, val transcript: String)
+
+    private fun matchInternal(raw: String): InternalMatch? {
         if (VietnameseTranscript.isTooWeakToSubmit(raw)) {
             return null
         }
         val folded = VietnameseTranscript.foldForMatch(raw)
         if (folded.isEmpty()) return null
         for ((phrases, route) in EXACT) {
-            if (folded in phrases) return route
+            if (folded in phrases) return InternalMatch(route, raw.trim())
         }
-        matchParameterized(raw, folded)?.let { return it }
+        matchParameterized(raw, folded)?.let { return InternalMatch(it, raw.trim()) }
         return null
     }
 
@@ -193,17 +245,28 @@ object CarfuCommandRouter {
     }
 
     private fun matchNavigation(raw: String, folded: String): RoutedCommand? {
-        val isNav = folded.startsWith("chi duong") || folded.startsWith("dan duong")
-        if (!isNav) return null
-        val destFolded = NAV_PREFIX.replace(folded, "").trim()
+        val prefix = NAV_PREFIX_FOLDED.firstOrNull { folded.startsWith(it) } ?: return null
+        val destFolded = folded.removePrefix(prefix).trim()
         if (destFolded.isEmpty()) return null
-        val destRaw = raw.trim()
+        val destRaw = extractTrailingWords(raw, destFolded.split(' ').size)
         return RoutedCommand(
             intent = CarfuIntent.NAVIGATE_PLACE,
-            canonicalVi = "chỉ đường đến $destFolded",
+            canonicalVi = "chỉ đường đến $destRaw",
             skillId = "navigation",
             place = destRaw,
         )
+    }
+
+    /**
+     * Preserves diacritics from the original transcript by taking the last N words,
+     * where N is the folded destination word count after the navigation prefix.
+     */
+    internal fun extractTrailingWords(raw: String, wordCount: Int): String {
+        if (wordCount <= 0) return raw.trim()
+        val rawWords = WHITESPACE.split(raw.trim()).filter { it.isNotEmpty() }
+        if (rawWords.isEmpty()) return raw.trim()
+        if (rawWords.size <= wordCount) return rawWords.joinToString(" ")
+        return rawWords.takeLast(wordCount).joinToString(" ")
     }
 
     private fun matchWeather(raw: String, folded: String): RoutedCommand? {
@@ -288,7 +351,7 @@ object CarfuCommandRouter {
     }
 
     private fun matchSearch(raw: String, folded: String): RoutedCommand? {
-        if (folded.startsWith("chi duong") || folded.startsWith("dan duong")) return null
+        if (isNavigationFolded(folded)) return null
         if (!folded.startsWith("tim kiem") && !folded.startsWith("tim ")) return null
         val queryFolded = SEARCH_PREFIX.replace(folded, "").trim()
         if (queryFolded.isEmpty()) return null
@@ -300,4 +363,7 @@ object CarfuCommandRouter {
             searchQuery = query,
         )
     }
+
+    private fun isNavigationFolded(folded: String): Boolean =
+        NAV_PREFIX_FOLDED.any { folded.startsWith(it) }
 }

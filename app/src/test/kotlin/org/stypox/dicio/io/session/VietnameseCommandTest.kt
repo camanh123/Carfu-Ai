@@ -33,6 +33,11 @@ class VietnameseTranscriptTest : StringSpec({
         VietnameseTranscript.isTooWeakToSubmit("Mở YouTube").shouldBeFalse()
         VietnameseTranscript.isTooWeakToSubmit("Phát nhạc").shouldBeFalse()
     }
+
+    "valid non-empty unmatched speech is not treated as too weak" {
+        VietnameseTranscript.isTooWeakToSubmit("một câu không phải lệnh").shouldBeFalse()
+        VietnameseTranscript.isTooWeakToSubmit("chỉ đường đến Hồ Gươm").shouldBeFalse()
+    }
 })
 
 class CarfuCommandRouterTest : StringSpec({
@@ -40,6 +45,7 @@ class CarfuCommandRouterTest : StringSpec({
         CarfuCommandRouter.match("Mở YouTube")!!.intent shouldBe CarfuIntent.OPEN_YOUTUBE
         CarfuCommandRouter.match("Mở bản đồ")!!.intent shouldBe CarfuIntent.OPEN_MAPS
         CarfuCommandRouter.match("Mở MusicLoop")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
+        CarfuCommandRouter.match("Mở máy nghe nhạc")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
         CarfuCommandRouter.match("Chỉ đường đến sân bay")!!.intent shouldBe CarfuIntent.NAVIGATE_AIRPORT
         CarfuCommandRouter.match("Chỉ đường về nhà")!!.intent shouldBe CarfuIntent.NAVIGATE_HOME
         CarfuCommandRouter.match("Bài tiếp theo")!!.intent shouldBe CarfuIntent.MEDIA_NEXT
@@ -59,6 +65,26 @@ class CarfuCommandRouterTest : StringSpec({
         CarfuCommandRouter.match("may gio roi")!!.intent shouldBe CarfuIntent.CURRENT_TIME
     }
 
+    "extracts arbitrary navigation destinations generically" {
+        CarfuCommandRouter.match("chỉ đường đến Mỹ Đình")!!.let {
+            it.intent shouldBe CarfuIntent.NAVIGATE_PLACE
+            it.place shouldBe "Mỹ Đình"
+        }
+        CarfuCommandRouter.match("chỉ đường đến Hồ Gươm")!!.place shouldBe "Hồ Gươm"
+        CarfuCommandRouter.match("chỉ đường đến Bệnh viện Bạch Mai")!!.place shouldBe "Bệnh viện Bạch Mai"
+        CarfuCommandRouter.match("dẫn đường đến sân bay Nội Bài")!!.place shouldBe "sân bay Nội Bài"
+        CarfuCommandRouter.match("đi đến 120 Trần Duy Hưng")!!.place shouldBe "120 Trần Duy Hưng"
+        CarfuCommandRouter.match("mở bản đồ đến Vincom Mega Mall")!!.place shouldBe "Vincom Mega Mall"
+        CarfuCommandRouter.match("chỉ đường đến sân vận động mỹ đình")!!.place shouldBe
+            "sân vận động mỹ đình"
+    }
+
+    "does not hard-code navigation destinations beyond exact airport/home phrases" {
+        CarfuCommandRouter.match("chỉ đường đến Mỹ Đình")!!.place shouldBe "Mỹ Đình"
+        CarfuCommandRouter.match("chỉ đường đến Hồ Tây")!!.place shouldBe "Hồ Tây"
+        CarfuCommandRouter.match("chỉ đường đến cho bến thành")!!.place shouldBe "cho bến thành"
+    }
+
     "does not map corrupted fragments to intents" {
         CarfuCommandRouter.match("thổ").shouldBeNull()
         CarfuCommandRouter.match("hà hồ").shouldBeNull()
@@ -72,5 +98,37 @@ class CarfuCommandRouterTest : StringSpec({
         CarfuCommandRouter.match("tim kiem google")!!.intent shouldBe CarfuIntent.SEARCH
         CarfuCommandRouter.match("mắng đen").shouldBeNull()
         CarfuCommandRouter.match("một câu không phải lệnh").shouldBeNull()
+    }
+
+    "matchBest prefers a secondary candidate that maps to a known command" {
+        val best = CarfuCommandRouter.matchBest(
+            listOf(
+                "mở miu sích lúp" to 0.91f,
+                "mở music loop" to 0.40f,
+            ),
+        )
+        best!!.candidateIndex shouldBe 1
+        best.command.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
+        best.transcript shouldBe "mở music loop"
+    }
+
+    "matchBest keeps the primary candidate when only it matches" {
+        val best = CarfuCommandRouter.matchBest(
+            listOf(
+                "mấy giờ rồi" to 0.88f,
+                "mai gio roi" to 0.55f,
+            ),
+        )
+        best!!.candidateIndex shouldBe 0
+        best.command.intent shouldBe CarfuIntent.CURRENT_TIME
+    }
+})
+
+class CarfuCommandRouterDestinationTest : StringSpec({
+    "extractTrailingWords preserves diacritics from the raw transcript tail" {
+        CarfuCommandRouter.extractTrailingWords("chỉ đường đến sân vận động mỹ đình", 5) shouldBe
+            "sân vận động mỹ đình"
+        CarfuCommandRouter.extractTrailingWords("đi đến 120 Trần Duy Hưng", 4) shouldBe
+            "120 Trần Duy Hưng"
     }
 })

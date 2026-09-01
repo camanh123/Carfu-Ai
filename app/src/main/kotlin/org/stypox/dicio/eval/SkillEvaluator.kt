@@ -461,6 +461,8 @@ class SkillEvaluatorImpl(
 
     private fun endWakeSession(reason: String, automaticFalseWake: Boolean = false) {
         if (wakeSessionActive.compareAndSet(true, false)) {
+            CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_END)
+            CarfuLatencyLog.logSessionEvent("SESSION_END", "reason=$reason")
             val sid = commandSession.ui.value.sessionId
             val origin = CarfuSessionGate.fromActivation(commandSession.activationOrigin)
             val hadTranscript = sessionHadTranscript.getAndSet(false)
@@ -483,6 +485,7 @@ class SkillEvaluatorImpl(
         val origin = commandSession.activationOrigin
         val speak = CarfuActivationSource.shouldSpeakUnclear(origin)
         val falseWake = CarfuActivationSource.shouldApplyFalseWakeCooldown(origin)
+        CarfuLatencyLog.logSessionEvent("NO_SPEECH", "reason=$reason origin=$origin")
         if (speak) {
             withContext(Dispatchers.Main) {
                 skillContext.speechOutputDevice.speak(
@@ -496,6 +499,24 @@ class SkillEvaluatorImpl(
             )
         }
         endWakeSession(reason, automaticFalseWake = falseWake)
+    }
+
+    private suspend fun handleUnsupportedCommand(transcript: String, reason: String) {
+        commandSession.onUnclear()
+        val display = transcript.trim()
+        CarfuLatencyLog.logSessionEvent(
+            "UNSUPPORTED_COMMAND",
+            "reason=$reason normalized=${VietnameseTranscript.foldForMatch(display)}",
+        )
+        withContext(Dispatchers.Main) {
+            skillContext.speechOutputDevice.speak(
+                skillContext.android.getString(
+                    R.string.carfu_state_unsupported_command,
+                    display,
+                ),
+            )
+        }
+        endWakeSession(reason)
     }
 
     private fun finishSessionWithoutWakeResume(reason: String) {
@@ -522,7 +543,7 @@ class SkillEvaluatorImpl(
         }
         addInteractionFromPending(CarfuSpeechOutput(result.speechVi))
         commandSession.onReply(result.speechVi)
-        CarfuLatencyLog.mark(CarfuLatencyLog.Mark.ACTION_COMPLETE)
+        CarfuLatencyLog.mark(CarfuLatencyLog.Mark.COMMAND_EXECUTE)
         withContext(Dispatchers.Main) {
             if (result.speechVi.isNotBlank()) {
                 commandSession.onTtsStarted()
@@ -546,8 +567,16 @@ class SkillEvaluatorImpl(
                 endWakeSession("error")
             }
             is InputEvent.Final -> {
-                val original = event.utterances[0].first
-                CarfuLatencyLog.mark(CarfuLatencyLog.Mark.FINAL_OR_ERROR)
+                val candidateCount = event.utterances.size
+                val routedMatch = CarfuCommandRouter.matchBest(event.utterances)
+                val original = routedMatch?.transcript ?: event.utterances[0].first
+                val selectedIndex = routedMatch?.candidateIndex ?: 0
+                CarfuLatencyLog.mark(CarfuLatencyLog.Mark.FINAL_RESULT)
+                CarfuLatencyLog.logSessionEvent(
+                    "FINAL_RESULT",
+                    "candidates=$candidateCount selected=$selectedIndex " +
+                        "raw_len=${original.length}",
+                )
                 if (VietnameseTranscript.isTooWeakToSubmit(original)) {
                     handleEmptyOrUnclear("reject_noise")
                     return
@@ -555,9 +584,15 @@ class SkillEvaluatorImpl(
                 commandSession.onSpeechBegin()
                 commandSession.onFinalText(original)
                 sessionHadTranscript.set(true)
-                val routed = CarfuCommandRouter.match(original)
+                val routed = routedMatch?.command ?: CarfuCommandRouter.match(original)
                 CarfuLatencyLog.mark(CarfuLatencyLog.Mark.ROUTER_START)
                 if (routed != null) {
+                    CarfuLatencyLog.mark(CarfuLatencyLog.Mark.COMMAND_MATCH)
+                    CarfuLatencyLog.logSessionEvent(
+                        "COMMAND_MATCH",
+                        "intent=${routed.intent} skill=${routed.skillId} " +
+                            "place=${routed.place.orEmpty()}",
+                    )
                     commandSession.onIntentMatch(routed.skillId)
                     _state.value = _state.value.copy(
                         pendingQuestion = PendingQuestion(
@@ -616,8 +651,8 @@ class SkillEvaluatorImpl(
                 }
             }
             if (ranked == null) {
-                if (CarfuActivationSource.kind == CarfuActivationSource.Kind.HARDWARE_BUTTON) {
-                    handleEmptyOrUnclear("unrecognized_hardware")
+                if (CarfuActivationSource.isUserInitiated()) {
+                    handleUnsupportedCommand(displayInput, "unrecognized_user_command")
                     return
                 }
                 Pair(utterances[0], skillRanker.getFallbackSkill(skillContext, utterances[0]))
@@ -627,6 +662,10 @@ class SkillEvaluatorImpl(
                     CarfuActivationSource.kind,
                 )
             ) {
+                if (CarfuActivationSource.isUserInitiated()) {
+                    handleUnsupportedCommand(displayInput, "skip_search_hardware")
+                    return
+                }
                 handleEmptyOrUnclear("skip_search_hardware")
                 return
             } else {
