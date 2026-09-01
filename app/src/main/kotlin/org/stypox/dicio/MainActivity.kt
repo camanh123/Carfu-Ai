@@ -118,12 +118,8 @@ class MainActivity : BaseActivity() {
         isCreated += 1
 
         handleWakeWordTurnOnScreen(intent)
-        speechOutputDevice.prewarm()
-
-        val assistIntent = isAssistIntent(intent)
-        if (assistIntent) {
-            // Start ACK/listening before Compose or wake-service setup can delay the session.
-            onAssistIntentReceived(intent)
+        if (!isAssistIntent(intent)) {
+            speechOutputDevice.prewarm()
         }
         if (intent.action != ACTION_WAKE_WORD) {
             if (sttInputDevice.usesAndroidOnlineEngine()) {
@@ -136,6 +132,9 @@ class MainActivity : BaseActivity() {
                 sttInputDevice.ensureModelPipeline()
                 sttInputDevice.tryLoad(null)
             }
+        }
+        if (isAssistIntent(intent)) {
+            onAssistIntentReceived(intent)
         }
 
         // The Activity may start the foreground wake service, but does not own its lifetime

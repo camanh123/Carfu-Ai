@@ -13,7 +13,16 @@ import org.stypox.dicio.settings.datastore.UserSettings
 object CommandRecognitionPolicy {
     const val ANDROID_ECHO_GUARD_MS = 300L
     const val MODE_TTS_START_BUDGET_MS = 500L
-    const val ANDROID_LISTEN_TIMEOUT_MS = 12_000L
+    /**
+     * Absolute stuck-session ceiling from [android.speech.SpeechRecognizer.startListening].
+     * Not refreshed by speech activity; cancelled as soon as a terminal SR callback fires.
+     */
+    const val ANDROID_STUCK_SESSION_FAILSAFE_MS = 30_000L
+    /** No [android.speech.RecognitionListener.onBeginningOfSpeech] after ready → NO_SPEECH. */
+    const val ANDROID_NO_SPEECH_AFTER_READY_MS = 3_000L
+    /** @deprecated use [ANDROID_STUCK_SESSION_FAILSAFE_MS] */
+    const val ANDROID_LISTEN_FAILSAFE_MS = ANDROID_STUCK_SESSION_FAILSAFE_MS
+    const val ANDROID_LISTEN_TIMEOUT_MS = ANDROID_LISTEN_FAILSAFE_MS
     const val ANDROID_MODEL_PATH = "android-speech-vi-VN"
 
     const val RECOGNIZER_INTENT_ACTION = "android.speech.action.RECOGNIZE_SPEECH"

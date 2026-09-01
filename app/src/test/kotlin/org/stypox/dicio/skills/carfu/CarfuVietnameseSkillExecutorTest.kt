@@ -405,6 +405,43 @@ class CarfuVietnameseSkillExecutorTest : StringSpec({
         platform.activities.shouldHaveSize(0)
     }
 
+    "baseline CARFU open and action commands execute through the routed executor" {
+        val time = FakeCarfuPlatform()
+        production("Mấy giờ rồi", time).let { (routed, result) ->
+            routed.intent shouldBe CarfuIntent.CURRENT_TIME
+            result.actionTaken.shouldBeTrue()
+            result.speechVi.shouldNotBeNull()
+        }
+
+        val smartTube = FakeCarfuPlatform().apply {
+            launchable.add("com.teamsmart.videomanager.tv")
+        }
+        production("Mở SmartTube", smartTube).let { (routed, result) ->
+            routed.intent shouldBe CarfuIntent.OPEN_SMARTTUBE
+            result.actionTaken.shouldBeTrue()
+            smartTube.activities.single().packageName shouldBe "com.teamsmart.videomanager.tv"
+        }
+
+        val zalo = FakeCarfuPlatform().apply { launchable.add(CarfuDialer.ZALO_PACKAGE) }
+        production("Mở Zalo", zalo).let { (routed, result) ->
+            routed.intent shouldBe CarfuIntent.OPEN_ZALO
+            result.actionTaken.shouldBeTrue()
+            zalo.activities.single().packageName shouldBe CarfuDialer.ZALO_PACKAGE
+        }
+
+        val volume = FakeCarfuPlatform()
+        production("Tăng âm lượng", volume).second.actionTaken.shouldBeTrue()
+
+        val nav = FakeCarfuPlatform()
+        production("Chỉ đường đến Mỹ Đình", nav).let { (routed, result) ->
+            routed.intent shouldBe CarfuIntent.NAVIGATE_PLACE
+            routed.place shouldBe "Mỹ Đình"
+            result.actionTaken.shouldBeTrue()
+            nav.activities.single().action shouldBe CarfuDialer.ACTION_VIEW
+            nav.activities.single().data shouldContain "geo:0,0?q="
+        }
+    }
+
     "unknown commands are not routed so no executor action runs" {
         CarfuCommandRouter.match("kể chuyện cười").shouldBeNull()
         CarfuCommandRouter.match("dịch sang tiếng anh").shouldBeNull()

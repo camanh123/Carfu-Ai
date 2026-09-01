@@ -132,3 +132,18 @@ class CarfuCommandRouterDestinationTest : StringSpec({
             "120 Trần Duy Hưng"
     }
 })
+
+class CarfuBaselineCommandRouterTest : StringSpec({
+    "required CARFU baseline commands route through the primary final transcript path" {
+        CarfuCommandRouter.match("Mấy giờ rồi")!!.intent shouldBe CarfuIntent.CURRENT_TIME
+        CarfuCommandRouter.match("Mở SmartTube")!!.intent shouldBe CarfuIntent.OPEN_SMARTTUBE
+        CarfuCommandRouter.match("Mở MusicLoop")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
+        CarfuCommandRouter.match("Mở máy nghe nhạc")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
+        CarfuCommandRouter.match("Mở Zalo")!!.intent shouldBe CarfuIntent.OPEN_ZALO
+        CarfuCommandRouter.match("Tăng âm lượng")!!.intent shouldBe CarfuIntent.VOLUME_UP
+        CarfuCommandRouter.match("Chỉ đường đến Mỹ Đình")!!.let {
+            it.intent shouldBe CarfuIntent.NAVIGATE_PLACE
+            it.place shouldBe "Mỹ Đình"
+        }
+    }
+})

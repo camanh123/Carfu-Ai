@@ -224,6 +224,7 @@ object CarfuSessionGate {
         origin: Origin,
     ) {
         val ts = nowMs()
+        val applyEmptyCooldown: Boolean
         synchronized(lock) {
             if (sessionId != 0L && sessionId == activeSessionId) {
                 activeSessionId = 0L
@@ -232,15 +233,40 @@ object CarfuSessionGate {
             if (sessionId != 0L) {
                 cancelledIds.add(sessionId)
             }
-            if (!hadTranscript) {
+            // Empty cooldown applies only to automatic wake-word false positives.
+            // Manual MODE / UI must never be locked out for ~10s after NO_SPEECH.
+            applyEmptyCooldown = !hadTranscript && origin == Origin.WAKE_WORD
+            if (applyEmptyCooldown) {
                 emptyCooldownUntilMs = ts + EMPTY_RESTART_COOLDOWN_MS
+            }
+            if (origin == Origin.HARDWARE_BUTTON || origin == Origin.UI) {
+                if (!hadTranscript) {
+                    lastHardwareAcceptMs = 0L
+                }
             }
         }
         CarfuLog.i(
             TAG,
             "SESSION_FINISHED sessionId=$sessionId origin=$origin " +
-                "hadTranscript=$hadTranscript emptyCooldown=${!hadTranscript} timestamp=$ts",
+                "hadTranscript=$hadTranscript emptyCooldown=$applyEmptyCooldown timestamp=$ts",
         )
+        logGateReleased(sessionId, applyEmptyCooldown)
+    }
+
+    fun isModeReady(): Boolean {
+        synchronized(lock) {
+            return activeSessionId == 0L && nowMs() >= emptyCooldownUntilMs
+        }
+    }
+
+    fun logGateReleased(sessionId: Long, emptyCooldown: Boolean) {
+        CarfuLatencyLog.logSessionEvent(
+            "GATE_RELEASED",
+            "session=$sessionId emptyCooldown=$emptyCooldown active=$activeSessionId",
+        )
+        if (isModeReady()) {
+            CarfuLatencyLog.logSessionEvent("MODE_READY", "session=$sessionId")
+        }
     }
 
     fun returningToWakeMayRestartListening(): Boolean = backgroundWakeEnabled

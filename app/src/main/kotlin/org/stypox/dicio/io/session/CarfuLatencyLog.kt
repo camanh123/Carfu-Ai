@@ -14,6 +14,7 @@ object CarfuLatencyLog {
         STT_START,
         READY_FOR_SPEECH,
         BEGINNING_OF_SPEECH,
+        END_OF_SPEECH,
         PARTIAL_RESULT,
         FINAL_RESULT,
         ROUTER_START,

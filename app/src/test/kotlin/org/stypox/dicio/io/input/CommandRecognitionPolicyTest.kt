@@ -73,6 +73,13 @@ class CommandRecognitionPolicyTest : StringSpec({
         CommandRecognitionPolicy.ANDROID_ECHO_GUARD_MS shouldBe 300L
     }
 
+    "Android SR uses 3s no-speech-after-ready and absolute stuck-session failsafe" {
+        CommandRecognitionPolicy.ANDROID_NO_SPEECH_AFTER_READY_MS shouldBe 3_000L
+        CommandRecognitionPolicy.ANDROID_STUCK_SESSION_FAILSAFE_MS shouldBe 30_000L
+        CommandRecognitionPolicy.ANDROID_LISTEN_TIMEOUT_MS shouldBe
+            CommandRecognitionPolicy.ANDROID_STUCK_SESSION_FAILSAFE_MS
+    }
+
     "never bind this app's own RecognitionService; prefer Google" {
         val self = "org.stypox.dicio.cursorcommandcaptureautouic7c4"
         CommandRecognitionPolicy.pickExternalRecognitionService(

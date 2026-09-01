@@ -181,10 +181,8 @@ class CarfuSessionGateTest : StringSpec({
         restart.decision shouldBe CarfuSessionGate.Decision.REJECTED_EMPTY_COOLDOWN
     }
 
-    "manual empty session responds at most once and does not restart immediately" {
+    "manual empty session is MODE-ready immediately after gate release" {
         CarfuActivationSource.markHardwareButton()
-        CarfuActivationSource.shouldSpeakUnclear().shouldBeTrue()
-        CarfuActivationSource.shouldSpeakUnclear().shouldBeFalse()
         CarfuSessionGate.requestStart(
             origin = CarfuSessionGate.Origin.HARDWARE_BUTTON,
             phase = CommandSessionPhase.IDLE_WAKE,
@@ -195,21 +193,15 @@ class CarfuSessionGateTest : StringSpec({
             hadTranscript = false,
             origin = CarfuSessionGate.Origin.HARDWARE_BUTTON,
         )
+        CarfuSessionGate.isModeReady().shouldBeTrue()
         val again = CarfuSessionGate.requestStart(
             origin = CarfuSessionGate.Origin.HARDWARE_BUTTON,
             phase = CommandSessionPhase.IDLE_WAKE,
             startSession = startWithId(52L),
         )
-        again.accepted.shouldBeFalse()
-        again.decision shouldBe CarfuSessionGate.Decision.REJECTED_DEBOUNCE
-        clock.advance(CarfuSessionGate.ASSIST_DEBOUNCE_MS)
-        val stillCooling = CarfuSessionGate.requestStart(
-            origin = CarfuSessionGate.Origin.HARDWARE_BUTTON,
-            phase = CommandSessionPhase.IDLE_WAKE,
-            startSession = startWithId(53L),
-        )
-        stillCooling.accepted.shouldBeFalse()
-        stillCooling.decision shouldBe CarfuSessionGate.Decision.REJECTED_EMPTY_COOLDOWN
+        again.accepted.shouldBeTrue()
+        again.sessionId shouldBe 52L
+        again.decision shouldBe CarfuSessionGate.Decision.ACCEPTED
     }
 
     "stale TTS onDone is ignored after cancel" {

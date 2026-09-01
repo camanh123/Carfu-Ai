@@ -14,6 +14,8 @@ enum class CarfuIntent {
     OPEN_YOUTUBE,
     OPEN_MAPS,
     OPEN_MUSICLOOP,
+    OPEN_SMARTTUBE,
+    OPEN_ZALO,
     NAVIGATE_AIRPORT,
     NAVIGATE_HOME,
     NAVIGATE_PLACE,
@@ -104,6 +106,16 @@ object CarfuCommandRouter {
             "bat may nghe nhac",
         ) to RoutedCommand(
             CarfuIntent.OPEN_MUSICLOOP, "mở musicloop", "open",
+        ),
+        setOf(
+            "mo smarttube",
+            "mo smart tube",
+            "mo smarttub",
+        ) to RoutedCommand(
+            CarfuIntent.OPEN_SMARTTUBE, "mở smarttube", "open",
+        ),
+        setOf("mo zalo") to RoutedCommand(
+            CarfuIntent.OPEN_ZALO, "mở zalo", "open",
         ),
         setOf(
             "chi duong den san bay",

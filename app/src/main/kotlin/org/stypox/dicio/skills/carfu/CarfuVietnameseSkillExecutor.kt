@@ -40,6 +40,18 @@ class CarfuVietnameseSkillExecutor(
                 listOf("com.musicloop.car", "com.musicloop", "com.syu.music"),
                 "nhạc",
             )
+            CarfuIntent.OPEN_SMARTTUBE -> openKnown(
+                listOf(
+                    "com.teamsmart.videomanager.tv",
+                    "com.liskovsoft.smarttube.tv",
+                    "com.liskovsoft.smartyoutubetv2",
+                ),
+                "SmartTube",
+            )
+            CarfuIntent.OPEN_ZALO -> openKnown(
+                listOf(CarfuDialer.ZALO_PACKAGE),
+                "Zalo",
+            )
             CarfuIntent.NAVIGATE_AIRPORT -> navigate(routed.place ?: "sân bay")
             CarfuIntent.NAVIGATE_HOME -> navigate(routed.place ?: "nhà")
             CarfuIntent.NAVIGATE_PLACE -> navigate(routed.place ?: "")

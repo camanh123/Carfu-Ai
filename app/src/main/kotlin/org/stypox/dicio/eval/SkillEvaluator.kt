@@ -36,6 +36,7 @@ import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CarfuPcmHub
 import org.stypox.dicio.io.session.CarfuSessionGate
+import org.stypox.dicio.io.session.CommandSessionOutcome
 import org.stypox.dicio.io.session.CommandPcmStats
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
@@ -111,7 +112,22 @@ class SkillEvaluatorImpl(
     override var permissionRequester: suspend (List<Permission>) -> Boolean = { false }
 
     override fun processInputEvent(event: InputEvent) {
+        val sidAtReceive = commandSession.ui.value.sessionId
         scope.launch {
+            if (!CarfuSessionGate.isCurrent(sidAtReceive)) {
+                CarfuLatencyLog.logSessionEvent(
+                    "INPUT_EVENT_IGNORED",
+                    "staleSession=$sidAtReceive event=${event::class.simpleName}",
+                )
+                return@launch
+            }
+            if (!wakeSessionActive.get()) {
+                CarfuLatencyLog.logSessionEvent(
+                    "INPUT_EVENT_IGNORED",
+                    "inactiveSession=$sidAtReceive event=${event::class.simpleName}",
+                )
+                return@launch
+            }
             suspendProcessInputEvent(event)
         }
     }
@@ -199,6 +215,7 @@ class SkillEvaluatorImpl(
             return
         }
         sessionHadTranscript.set(false)
+        CommandSessionOutcome.reset()
         CarfuLatencyLog.bindSession(result.sessionId)
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_ACCEPTED)
         when (origin) {
@@ -462,25 +479,57 @@ class SkillEvaluatorImpl(
     private fun endWakeSession(reason: String, automaticFalseWake: Boolean = false) {
         if (wakeSessionActive.compareAndSet(true, false)) {
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_END)
-            CarfuLatencyLog.logSessionEvent("SESSION_END", "reason=$reason")
             val sid = commandSession.ui.value.sessionId
             val origin = CarfuSessionGate.fromActivation(commandSession.activationOrigin)
             val hadTranscript = sessionHadTranscript.getAndSet(false)
             sttInputDevice.stopListening()
+            CarfuLatencyLog.logSessionEvent(
+                "SESSION_END",
+                "reason=${sessionEndReasonTag(reason)} detail=$reason",
+            )
+            commandSession.endSession(reason)
+            CarfuSessionGate.onSessionFinished(sid, hadTranscript, origin)
             skillContext.speechOutputDevice.runWhenFinishedSpeaking {
-                commandSession.endSession(reason)
-                CarfuSessionGate.onSessionFinished(sid, hadTranscript, origin)
-                WakeService.onlineCommandFinished()
-                if (CarfuSessionGate.backgroundWakeEnabled) {
-                    WakeService.resumeAfterInteraction(automaticFalseWake)
-                } else {
-                    WakeService.holdIdleWithoutWake()
-                }
+                resumeWakeAfterSession(sid, automaticFalseWake)
             }
         }
     }
 
+    private fun resumeWakeAfterSession(sessionId: Long, automaticFalseWake: Boolean) {
+        if (commandSession.ui.value.sessionId != sessionId) {
+            CarfuLog.i(
+                CommandSession.TAG,
+                "WAKE_RESUME_IGNORED staleSession=$sessionId current=${commandSession.ui.value.sessionId}",
+            )
+            return
+        }
+        WakeService.onlineCommandFinished()
+        if (CarfuSessionGate.backgroundWakeEnabled) {
+            WakeService.resumeAfterInteraction(automaticFalseWake)
+        } else {
+            WakeService.holdIdleWithoutWake()
+        }
+    }
+
+    private fun sessionEndReasonTag(reason: String): String = when {
+        reason.contains("unsupported", ignoreCase = true) ||
+            reason == "unrecognized_user_command" ||
+            reason == "skip_search_hardware" -> "UNSUPPORTED"
+        reason == "error" || reason.startsWith("android_stt") -> "SR_ERROR"
+        reason.contains("hard_timeout", ignoreCase = true) -> "HARD_TIMEOUT"
+        reason.contains("timeout", ignoreCase = true) ||
+            reason.contains("silence", ignoreCase = true) ||
+            reason.contains("reject_noise", ignoreCase = true) ||
+            reason.contains("unclear", ignoreCase = true) -> "NO_SPEECH"
+        reason.contains("complete", ignoreCase = true) ||
+            reason.contains("executed", ignoreCase = true) -> "EXECUTED"
+        else -> reason
+    }
+
     private suspend fun handleEmptyOrUnclear(reason: String) {
+        if (!CommandSessionOutcome.claim(CommandSessionOutcome.Kind.NO_SPEECH)) {
+            return
+        }
         commandSession.onUnclear()
         val origin = commandSession.activationOrigin
         val speak = CarfuActivationSource.shouldSpeakUnclear(origin)
@@ -502,6 +551,9 @@ class SkillEvaluatorImpl(
     }
 
     private suspend fun handleUnsupportedCommand(transcript: String, reason: String) {
+        if (!CommandSessionOutcome.claim(CommandSessionOutcome.Kind.UNSUPPORTED)) {
+            return
+        }
         commandSession.onUnclear()
         val display = transcript.trim()
         CarfuLatencyLog.logSessionEvent(
@@ -524,6 +576,10 @@ class SkillEvaluatorImpl(
             val sid = commandSession.ui.value.sessionId
             val origin = CarfuSessionGate.fromActivation(commandSession.activationOrigin)
             val hadTranscript = sessionHadTranscript.getAndSet(false)
+            CarfuLatencyLog.logSessionEvent(
+                "SESSION_END",
+                "reason=${sessionEndReasonTag(reason)} detail=$reason",
+            )
             commandSession.endSession(reason)
             CarfuSessionGate.onSessionFinished(sid, hadTranscript, origin)
             WakeService.onlineCommandFinished()
@@ -563,19 +619,18 @@ class SkillEvaluatorImpl(
     private suspend fun suspendProcessInputEvent(event: InputEvent) {
         when (event) {
             is InputEvent.Error -> {
+                if (!CommandSessionOutcome.claim(CommandSessionOutcome.Kind.SR_ERROR)) {
+                    return
+                }
                 addErrorInteractionFromPending(event.throwable)
                 endWakeSession("error")
             }
             is InputEvent.Final -> {
-                val candidateCount = event.utterances.size
-                val routedMatch = CarfuCommandRouter.matchBest(event.utterances)
-                val original = routedMatch?.transcript ?: event.utterances[0].first
-                val selectedIndex = routedMatch?.candidateIndex ?: 0
+                val original = event.utterances.firstOrNull()?.first.orEmpty()
                 CarfuLatencyLog.mark(CarfuLatencyLog.Mark.FINAL_RESULT)
                 CarfuLatencyLog.logSessionEvent(
                     "FINAL_RESULT",
-                    "candidates=$candidateCount selected=$selectedIndex " +
-                        "raw_len=${original.length}",
+                    "candidates=${event.utterances.size} raw_len=${original.length}",
                 )
                 if (VietnameseTranscript.isTooWeakToSubmit(original)) {
                     handleEmptyOrUnclear("reject_noise")
@@ -584,9 +639,12 @@ class SkillEvaluatorImpl(
                 commandSession.onSpeechBegin()
                 commandSession.onFinalText(original)
                 sessionHadTranscript.set(true)
-                val routed = routedMatch?.command ?: CarfuCommandRouter.match(original)
+                val routed = CarfuCommandRouter.match(original)
                 CarfuLatencyLog.mark(CarfuLatencyLog.Mark.ROUTER_START)
                 if (routed != null) {
+                    if (!CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED)) {
+                        return
+                    }
                     CarfuLatencyLog.mark(CarfuLatencyLog.Mark.COMMAND_MATCH)
                     CarfuLatencyLog.logSessionEvent(
                         "COMMAND_MATCH",
@@ -622,8 +680,18 @@ class SkillEvaluatorImpl(
                 )
             }
             InputEvent.None -> {
+                if (sessionHadTranscript.get() ||
+                    CommandSessionOutcome.peek() != CommandSessionOutcome.Kind.OPEN
+                ) {
+                    CarfuLatencyLog.logSessionEvent(
+                        "NO_SPEECH_IGNORED",
+                        "hadTranscript=${sessionHadTranscript.get()} " +
+                            "terminal=${CommandSessionOutcome.peek()}",
+                    )
+                    return
+                }
                 _state.value = _state.value.copy(pendingQuestion = null)
-                handleEmptyOrUnclear("timeout_or_silence")
+                handleEmptyOrUnclear("hard_timeout_or_silence")
             }
             is InputEvent.Partial -> {
                 commandSession.onPartial(event.utterance)
@@ -682,6 +750,9 @@ class SkillEvaluatorImpl(
             skillContext.standardMatchHelper = null
         }
         val skillInfo = chosenSkill.skill.correspondingSkillInfo
+        if (!CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED)) {
+            return
+        }
         commandSession.onIntentMatch(routedSkillId ?: skillInfo.id)
 
         _state.value = _state.value.copy(
