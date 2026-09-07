@@ -38,6 +38,8 @@ interface CarfuSkillPlatform {
     fun startLaunch(spec: CarfuLaunchSpec): Boolean
     fun isPackageLaunchable(packageName: String): Boolean
     fun launchPackage(packageName: String): Boolean
+    /** Launchable apps for generic OPEN_APP; may be empty if unsupported. */
+    fun listLaunchableApps(): List<org.stypox.dicio.io.session.LaunchableApp> = emptyList()
     fun dispatchMediaKey(keyCode: Int): Boolean
     fun adjustVolume(raise: Boolean): Boolean
     fun currentTimeSpeech(): String

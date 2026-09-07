@@ -23,6 +23,13 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
         "com.google.android.youtube",
         "com.google.android.apps.maps",
         "com.musicloop.car",
+        "com.android.chrome",
+    )
+    var launchableLabels = mutableMapOf(
+        "com.google.android.youtube" to "YouTube",
+        "com.google.android.apps.maps" to "Maps",
+        "com.musicloop.car" to "MusicLoop",
+        "com.android.chrome" to "Chrome",
     )
     var online = true
     var http: (String) -> HttpFetchResult = { HttpFetchResult.Error("unset") }
@@ -47,6 +54,9 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
     override fun lookupContacts(foldedQuery: String): List<CarfuContact> = contacts
 
     override fun resolveLaunch(spec: CarfuLaunchSpec): String? {
+        if (!spec.packageName.isNullOrBlank() && spec.packageName in launchable) {
+            return spec.packageName
+        }
         if (zaloOnly) return CarfuDialer.ZALO_PACKAGE
         if (spec.className == CarfuDialer.FYT_PHONE_ACTIVITY) {
             return if (fytPresent) CarfuDialer.FYT_BT_PACKAGE else null
@@ -58,6 +68,8 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
             CarfuDialer.ACTION_DIAL -> if (dialerPresent) "com.android.dialer" else null
             CarfuDialer.ACTION_VIEW -> when {
                 spec.data?.startsWith("geo:") == true -> "com.google.android.apps.maps"
+                spec.data?.contains("youtube.com") == true &&
+                    "com.google.android.youtube" in launchable -> "com.google.android.youtube"
                 spec.data?.startsWith("http") == true -> "com.android.browser"
                 spec.data?.startsWith("tel:") == true && fytPresent -> CarfuDialer.FYT_BT_PACKAGE
                 spec.data?.startsWith("tel:") == true && dialerPresent -> "com.android.dialer"
@@ -87,6 +99,14 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
         activities += StartedActivity("LAUNCH", packageName, null, null)
         return true
     }
+
+    override fun listLaunchableApps(): List<org.stypox.dicio.io.session.LaunchableApp> =
+        launchable.map { pkg ->
+            org.stypox.dicio.io.session.LaunchableApp(
+                packageName = pkg,
+                label = launchableLabels[pkg] ?: pkg,
+            )
+        }
 
     override fun dispatchMediaKey(keyCode: Int): Boolean = mediaOk
 

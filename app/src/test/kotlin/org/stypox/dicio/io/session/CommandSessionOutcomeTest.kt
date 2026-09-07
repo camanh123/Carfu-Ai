@@ -35,4 +35,16 @@ class CommandSessionOutcomeTest : StringSpec({
         CommandSessionOutcome.claim(CommandSessionOutcome.Kind.NO_SPEECH).shouldBeTrue()
         CommandSessionOutcome.claim(CommandSessionOutcome.Kind.NO_SPEECH).shouldBeFalse()
     }
+
+    "duplicate FINAL after EXECUTED is ignored" {
+        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED).shouldBeTrue()
+        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED).shouldBeFalse()
+        CommandSessionOutcome.peek() shouldBe CommandSessionOutcome.Kind.EXECUTED
+    }
+
+    "transcript then NO_MATCH cannot overwrite EXECUTED" {
+        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED).shouldBeTrue()
+        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.NO_SPEECH).shouldBeFalse()
+        CommandSessionOutcome.peek() shouldBe CommandSessionOutcome.Kind.EXECUTED
+    }
 })

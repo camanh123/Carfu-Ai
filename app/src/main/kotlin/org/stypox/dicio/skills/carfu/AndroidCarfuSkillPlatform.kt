@@ -100,6 +100,27 @@ class AndroidCarfuSkillPlatform(
         return startActivity(launch)
     }
 
+    override fun listLaunchableApps(): List<org.stypox.dicio.io.session.LaunchableApp> {
+        val pm = context.packageManager
+        val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolved = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pm.queryIntentActivities(intent, PackageManager.MATCH_ALL)
+        } else {
+            @Suppress("DEPRECATION")
+            pm.queryIntentActivities(intent, 0)
+        }
+        return resolved.mapNotNull { info ->
+            val pkg = info.activityInfo?.packageName ?: return@mapNotNull null
+            val label = try {
+                info.loadLabel(pm)?.toString()?.trim().orEmpty()
+            } catch (_: Exception) {
+                ""
+            }
+            if (label.isEmpty()) return@mapNotNull null
+            org.stypox.dicio.io.session.LaunchableApp(packageName = pkg, label = label)
+        }.distinctBy { it.packageName }
+    }
+
     override fun dispatchMediaKey(keyCode: Int): Boolean {
         val am = context.getSystemService(AudioManager::class.java) ?: return false
         am.dispatchMediaKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, keyCode))

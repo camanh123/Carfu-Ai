@@ -42,6 +42,8 @@ object CarfuActivationSource {
     fun shouldSpeakUnclear(
         origin: Kind = kind,
     ): Boolean {
+        // V2 product: MODE/UI silence exits silently — never “Tôi chưa nghe rõ”.
+        if (!VoiceSessionManager.shouldSpeakNoSpeechPrompt()) return false
         if (origin != Kind.MANUAL_MIC && origin != Kind.HARDWARE_BUTTON) return false
         return userUnclearConsumed.compareAndSet(false, true)
     }

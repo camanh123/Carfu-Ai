@@ -17,9 +17,12 @@ object CarfuLatencyLog {
         END_OF_SPEECH,
         PARTIAL_RESULT,
         FINAL_RESULT,
+        NORMALIZED,
+        INTENT_MATCHED,
         ROUTER_START,
         COMMAND_MATCH,
         COMMAND_EXECUTE,
+        EXECUTE_START,
         SESSION_END,
         /** @deprecated use [ACK_START] */
         TTS_SPEAK_REQUESTED,
@@ -137,7 +140,7 @@ object CarfuLatencyLog {
         Mark.SR_READY -> Mark.READY_FOR_SPEECH
         Mark.FIRST_PARTIAL -> Mark.PARTIAL_RESULT
         Mark.FINAL_OR_ERROR -> Mark.FINAL_RESULT
-        Mark.ACTION_COMPLETE -> Mark.COMMAND_EXECUTE
+        Mark.ACTION_COMPLETE, Mark.EXECUTE_START -> Mark.COMMAND_EXECUTE
         else -> mark
     }
 
@@ -151,6 +154,10 @@ object CarfuLatencyLog {
         Mark.FINAL_RESULT -> Mark.FINAL_OR_ERROR
         Mark.COMMAND_EXECUTE -> Mark.ACTION_COMPLETE
         else -> null
+    }
+
+    fun logPipelineStage(stage: String, details: String = "") {
+        logSessionEvent(stage, details)
     }
 
     private fun logMark(mark: Mark) {

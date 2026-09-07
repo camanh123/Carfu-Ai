@@ -137,11 +137,13 @@ class CommandSession @Inject constructor(
         )
     }
 
-    fun endSession(reason: String) {
+    fun endSession(reason: String, abandonAudioFocus: Boolean = true) {
         val elapsed = machine.elapsedMs
         machine.onReturningToWake()
-        abandonFocus()
-        log("COMMAND_SESSION_END reason=$reason elapsedMs=$elapsed")
+        if (abandonAudioFocus) {
+            abandonFocus()
+        }
+        log("COMMAND_SESSION_END reason=$reason elapsedMs=$elapsed abandonFocus=$abandonAudioFocus")
         machine.onIdle()
         _ui.value = _ui.value.copy(
             phase = CommandSessionPhase.IDLE_WAKE,
@@ -153,6 +155,10 @@ class CommandSession @Inject constructor(
         } else {
             log("WAKE_IDLE_NO_RESUME background_wake=false")
         }
+    }
+
+    fun releaseAudioFocus() {
+        abandonFocus()
     }
 
     fun canStartCommandRecognition(): Boolean = machine.canStartCommandRecognition()

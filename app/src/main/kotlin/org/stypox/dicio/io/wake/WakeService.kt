@@ -54,6 +54,7 @@ import org.stypox.dicio.io.session.CarfuSessionGate
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.io.session.PcmHealthMonitor
+import org.stypox.dicio.io.session.VoiceTriggerManager
 import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.UserSettings
 import java.time.Instant
@@ -185,6 +186,10 @@ class WakeService : Service() {
 
         if (!listening.get()) {
             CarfuSessionGate.logServiceRestart(intent?.action, commandSession.phase)
+            VoiceTriggerManager.request(
+                origin = VoiceTriggerManager.Origin.SERVICE_RESTART,
+                reason = "start_sticky_or_restart",
+            )
         }
 
         scope.launch {
@@ -661,20 +666,18 @@ class WakeService : Service() {
                     acceptancePolicy.onDetectorAndPcmReset()
                     continue
                 }
-                skillEvaluator.onWakeWordDetected()
-                if (!commandSession.isBusy) {
-                    CarfuDiag.wake("WAKE_REJECTED reason=session_gate")
-                    acceptancePolicy.onDetectorAndPcmReset()
-                    continue
-                }
-                acceptancePolicy.closeGate()
-                wakeDevice.resetDetectionState()
-                acceptancePolicy.onDetectorAndPcmReset()
+                // V2-CORE-1: OpenWakeWord ACCEPT is passive — no ACK, no SpeechRecognizer,
+                // no command session. Structurally removes the ~12s auto-ACK background loop.
                 CarfuDiag.wake(
-                    "WAKE_ACCEPTED session=${commandSession.ui.value.sessionId} " +
-                        "recorder_released=false sharedHub=true",
+                    "WAKE_ACCEPT_PASSIVE v2_core1 score_hit=true no_command_session",
                 )
-                onWakeWordDetected()
+                VoiceTriggerManager.request(
+                    origin = VoiceTriggerManager.Origin.WAKE_WORD,
+                    reason = "oww_accept_passive",
+                )
+                acceptancePolicy.onDetectorAndPcmReset()
+                wakeDevice.resetDetectionState()
+                continue
             }
         } finally {
             CarfuPcmHub.markRecording(false)

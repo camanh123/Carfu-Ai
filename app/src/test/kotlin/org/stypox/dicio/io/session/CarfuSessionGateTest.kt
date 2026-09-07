@@ -226,6 +226,30 @@ class CarfuSessionGateTest : StringSpec({
         CarfuSessionGate.activeSessionId shouldBe 0L
     }
 
+    "hardware MODE is ready after session end and reusable after assist debounce" {
+        CarfuActivationSource.markHardwareButton()
+        CarfuSessionGate.requestStart(
+            origin = CarfuSessionGate.Origin.HARDWARE_BUTTON,
+            phase = CommandSessionPhase.IDLE_WAKE,
+            startSession = startWithId(81L),
+        )
+        CarfuSessionGate.onSessionFinished(
+            sessionId = 81L,
+            hadTranscript = true,
+            origin = CarfuSessionGate.Origin.HARDWARE_BUTTON,
+        )
+        CarfuSessionGate.isModeReady().shouldBeTrue()
+        CarfuSessionGate.activeSessionId shouldBe 0L
+        clock.advance(CarfuSessionGate.ASSIST_DEBOUNCE_MS)
+        val again = CarfuSessionGate.requestStart(
+            origin = CarfuSessionGate.Origin.HARDWARE_BUTTON,
+            phase = CommandSessionPhase.IDLE_WAKE,
+            startSession = startWithId(82L),
+        )
+        again.accepted.shouldBeTrue()
+        again.sessionId shouldBe 82L
+    }
+
     "UI origin is allowed while background wake is OFF" {
         CarfuSessionGate.setBackgroundWakeEnabled(false)
         val ui = CarfuSessionGate.requestStart(

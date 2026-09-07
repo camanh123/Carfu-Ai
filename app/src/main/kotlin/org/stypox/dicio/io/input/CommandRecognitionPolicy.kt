@@ -9,20 +9,38 @@ import org.stypox.dicio.settings.datastore.UserSettings
  *
  * Android/Google [android.speech.SpeechRecognizer] is the primary Vietnamese engine.
  * Vosk is an explicit legacy/offline fallback, never a silent substitute.
+ *
+ * Listener spine is 81aa-shaped: one startListening, one hard listen ceiling,
+ * Google final/error as terminal authority. Smart Recognition lives above STT.
  */
 object CommandRecognitionPolicy {
+    /** Short post-ACK guard before startListening (not a multi-state handoff machine). */
     const val ANDROID_ECHO_GUARD_MS = 300L
     const val MODE_TTS_START_BUDGET_MS = 500L
     /**
-     * Absolute stuck-session ceiling from [android.speech.SpeechRecognizer.startListening].
-     * Not refreshed by speech activity; cancelled as soon as a terminal SR callback fires.
+     * Single hard listen ceiling from [android.speech.SpeechRecognizer.startListening].
+     * Failsafe only — not an intended response delay. No app-side 3s no-speech killer.
      */
-    const val ANDROID_STUCK_SESSION_FAILSAFE_MS = 30_000L
-    /** No [android.speech.RecognitionListener.onBeginningOfSpeech] after ready → NO_SPEECH. */
-    const val ANDROID_NO_SPEECH_AFTER_READY_MS = 3_000L
-    /** @deprecated use [ANDROID_STUCK_SESSION_FAILSAFE_MS] */
-    const val ANDROID_LISTEN_FAILSAFE_MS = ANDROID_STUCK_SESSION_FAILSAFE_MS
-    const val ANDROID_LISTEN_TIMEOUT_MS = ANDROID_LISTEN_FAILSAFE_MS
+    const val ANDROID_LISTEN_TIMEOUT_MS = 12_000L
+    /** Alias kept for older call sites / logs. */
+    const val ANDROID_STUCK_SESSION_FAILSAFE_MS = ANDROID_LISTEN_TIMEOUT_MS
+    const val ANDROID_LISTEN_FAILSAFE_MS = ANDROID_LISTEN_TIMEOUT_MS
+
+    /**
+     * Historical Smart-STT constants retained for downstream policy modules / tests.
+     * They must NOT drive SpeechRecognizer lifecycle ownership.
+     */
+    const val ANDROID_NO_SPEECH_AFTER_READY_MS = 0L
+    const val ANDROID_SILENCE_ENDPOINT_MS = 1_000L
+    const val ANDROID_PARTIAL_STABILITY_MS = 150L
+    const val ANDROID_COMPLETE_SILENCE_MS = 0L
+    const val ANDROID_POSSIBLY_COMPLETE_SILENCE_MS = 0L
+    const val ANDROID_MINIMUM_SPEECH_MS = 0L
+    const val ANDROID_MIC_HANDOFF_MS = 0L
+
+    /** Exactly one startListening per MODE arm — re-arm is disabled. */
+    const val MAX_SR_REARMS = 0
+
     const val ANDROID_MODEL_PATH = "android-speech-vi-VN"
 
     const val RECOGNIZER_INTENT_ACTION = "android.speech.action.RECOGNIZE_SPEECH"
@@ -106,6 +124,10 @@ object CommandRecognitionPolicy {
     ): Boolean = hubRecording && speechRecognizerActive
 
     fun shouldDestroyRecognizerOn(event: RecognizerTerminal): Boolean = true
+
+    /** Listener ownership: never re-arm SpeechRecognizer after NO_MATCH / timeout. */
+    @Suppress("UNUSED_PARAMETER")
+    fun shouldRearmSpeechRecognizer(rearmCount: Int): Boolean = false
 
     fun modeTtsStartWithinBudget(intentReceivedMs: Long, ttsOnStartMs: Long): Boolean {
         if (intentReceivedMs <= 0L || ttsOnStartMs < intentReceivedMs) return false

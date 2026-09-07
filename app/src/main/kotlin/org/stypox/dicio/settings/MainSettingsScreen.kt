@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.SettingsVoice
 import androidx.compose.material.icons.filled.UploadFile
@@ -30,15 +31,22 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import org.stypox.dicio.R
 import org.stypox.dicio.io.assist.CarfuAssistSettings
 import org.stypox.dicio.io.input.SttInputDevice
@@ -54,6 +62,7 @@ import org.stypox.dicio.settings.datastore.UserSettingsModule.Companion.newDataS
 import org.stypox.dicio.settings.datastore.WakeDevice
 import org.stypox.dicio.settings.ui.SettingsCategoryTitle
 import org.stypox.dicio.settings.ui.SettingsItem
+import org.stypox.dicio.ui.ambient.AmbientOverlayPermission
 import org.stypox.dicio.ui.theme.AppTheme
 
 
@@ -91,6 +100,20 @@ private fun MainSettingsScreen(
 ) {
     val settings by viewModel.settingsState.collectAsState()
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var overlayGranted by remember {
+        mutableStateOf(AmbientOverlayPermission.isGranted(context))
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                // Re-check after returning from Android Settings — never assume grant.
+                overlayGranted = AmbientOverlayPermission.isGranted(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) {
         if (it != null) {
             viewModel.addOwwUserWakeFile(it)
@@ -155,6 +178,48 @@ private fun MainSettingsScreen(
                         }
                     }
                     .testTag("mode_button_setup_item")
+            )
+        }
+        item {
+            SettingsItem(
+                title = stringResource(R.string.settings_overlay_permission),
+                icon = Icons.Default.Layers,
+                description = stringResource(
+                    if (overlayGranted) {
+                        R.string.settings_overlay_permission_summary_on
+                    } else {
+                        R.string.settings_overlay_permission_summary_off
+                    }
+                ),
+                content = {
+                    Text(
+                        text = stringResource(
+                            if (overlayGranted) {
+                                R.string.settings_overlay_permission_state_on
+                            } else {
+                                R.string.settings_overlay_permission_state_off
+                            }
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = if (overlayGranted) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                },
+                modifier = Modifier
+                    .clickable {
+                        // User tap only — never auto-launch on boot / resume.
+                        if (!AmbientOverlayPermission.openManageOverlayPermission(context)) {
+                            Toast.makeText(
+                                context,
+                                R.string.settings_overlay_permission_unavailable,
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
+                    }
+                    .testTag("overlay_permission_item")
             )
         }
         item {

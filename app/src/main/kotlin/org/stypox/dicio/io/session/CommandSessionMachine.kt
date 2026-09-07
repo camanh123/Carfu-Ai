@@ -104,10 +104,11 @@ class CommandSessionMachine(
     }
 
     /**
-     * True only after the current utterance's TTS onDone, while still in the post-ack window
-     * (or while reopening the mic after a spoken reply).
+     * V2 MODE: no spoken ACK — command recognition may start immediately after session begin
+     * ([WAKE_DETECTED]). Post-reply re-open still requires TTS completion.
      */
     fun canStartCommandRecognition(): Boolean {
+        if (phase == WAKE_DETECTED) return true
         return ttsCompleted && (
             phase == ACKNOWLEDGING ||
                 phase == RESPONDING ||

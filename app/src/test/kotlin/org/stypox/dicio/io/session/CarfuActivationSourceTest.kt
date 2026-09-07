@@ -8,31 +8,30 @@ import io.kotest.matchers.shouldBe
 class CarfuActivationSourceTest : StringSpec({
     beforeTest {
         CarfuActivationSource.resetForTests()
+        VoiceSessionManager.resetForTests()
     }
 
     "automatic false or empty wake stays silent and uses the 10s cooldown" {
         CarfuActivationSource.markAutomaticWake()
         CarfuActivationSource.isManual().shouldBeFalse()
         CarfuActivationSource.shouldSpeakUnclear().shouldBeFalse()
-        CarfuActivationSource.shouldSpeakUnclear().shouldBeFalse()
         CarfuActivationSource.shouldApplyFalseWakeCooldown().shouldBeTrue()
     }
 
-    "manual microphone may speak unclear once" {
+    "V2: manual microphone no-speech exits silently" {
         CarfuActivationSource.markManualMic()
         CarfuActivationSource.isManual().shouldBeTrue()
         CarfuActivationSource.isUserInitiated().shouldBeTrue()
-        CarfuActivationSource.shouldSpeakUnclear().shouldBeTrue()
         CarfuActivationSource.shouldSpeakUnclear().shouldBeFalse()
         CarfuActivationSource.shouldApplyFalseWakeCooldown().shouldBeFalse()
+        VoiceSessionManager.shouldSpeakNoSpeechPrompt().shouldBeFalse()
     }
 
-    "hardware MODE button speaks unclear once and skips the 10s false-wake cooldown" {
+    "V2: hardware MODE no-speech exits silently and skips false-wake cooldown" {
         CarfuActivationSource.markHardwareButton()
         CarfuActivationSource.isManual().shouldBeFalse()
         CarfuActivationSource.isUserInitiated().shouldBeTrue()
         CarfuActivationSource.kind shouldBe CarfuActivationSource.Kind.HARDWARE_BUTTON
-        CarfuActivationSource.shouldSpeakUnclear().shouldBeTrue()
         CarfuActivationSource.shouldSpeakUnclear().shouldBeFalse()
         CarfuActivationSource.shouldApplyFalseWakeCooldown().shouldBeFalse()
     }
@@ -48,6 +47,6 @@ class CarfuActivationSourceTest : StringSpec({
         ).shouldBeTrue()
         CarfuActivationSource.shouldSpeakUnclear(
             CarfuActivationSource.Kind.MANUAL_MIC,
-        ).shouldBeTrue()
+        ).shouldBeFalse()
     }
 })

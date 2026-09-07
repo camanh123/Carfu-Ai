@@ -68,6 +68,8 @@ data class RoutedMatch(
     val transcript: String,
     val candidateIndex: Int,
     val confidence: Float,
+    val matchScore: Float = 1.0f,
+    val domain: CommandTranscriptNormalizer.Domain = CommandTranscriptNormalizer.Domain.UNKNOWN,
 )
 
 object CarfuCommandRouter {
@@ -185,22 +187,41 @@ object CarfuCommandRouter {
     /**
      * Picks the best SpeechRecognizer candidate that maps to a known CARFU command.
      * Never invents text; only evaluates the recognizer-provided strings.
+     * Domain consistency and grammar score gate the winner — not confidence alone.
      */
     fun matchBest(candidates: List<Pair<String, Float>>): RoutedMatch? {
         return candidates.mapIndexedNotNull { index, (text, confidence) ->
-            matchInternal(text)?.let { internal ->
+            matchScored(text)?.let { scored ->
                 RoutedMatch(
-                    command = internal.command,
-                    transcript = internal.transcript,
+                    command = scored.command,
+                    transcript = scored.transcript,
                     candidateIndex = index,
                     confidence = confidence,
+                    matchScore = scored.score,
+                    domain = scored.domain,
                 )
             }
         }.maxWithOrNull(
-            compareBy<RoutedMatch> { it.confidence }
+            compareBy<RoutedMatch> { it.matchScore }
+                .thenBy { it.command.place?.length ?: 0 }
+                .thenBy { it.confidence }
                 .thenBy { -it.candidateIndex },
         )
     }
+
+    fun matchScored(raw: String): ScoredMatch? = matchInternal(raw)?.let { internal ->
+        val folded = VietnameseTranscript.foldForMatch(raw)
+        val domain = CommandTranscriptNormalizer.detectDomain(folded)
+        val score = scoreMatch(folded, domain, internal.command.intent)
+        ScoredMatch(internal.command, internal.transcript, score, domain)
+    }
+
+    data class ScoredMatch(
+        val command: RoutedCommand,
+        val transcript: String,
+        val score: Float,
+        val domain: CommandTranscriptNormalizer.Domain,
+    )
 
     private data class InternalMatch(val command: RoutedCommand, val transcript: String)
 
@@ -210,11 +231,72 @@ object CarfuCommandRouter {
         }
         val folded = VietnameseTranscript.foldForMatch(raw)
         if (folded.isEmpty()) return null
+        CarfuLatencyLog.mark(CarfuLatencyLog.Mark.NORMALIZED)
         for ((phrases, route) in EXACT) {
             if (folded in phrases) return InternalMatch(route, raw.trim())
         }
+        matchDomainAware(raw, folded)?.let { return InternalMatch(it, raw.trim()) }
         matchParameterized(raw, folded)?.let { return InternalMatch(it, raw.trim()) }
         return null
+    }
+
+    private fun matchDomainAware(raw: String, folded: String): RoutedCommand? {
+        return when (CommandTranscriptNormalizer.detectDomain(folded)) {
+            CommandTranscriptNormalizer.Domain.OPEN_APP -> matchOpenApp(raw, folded)
+            CommandTranscriptNormalizer.Domain.VOLUME_UP -> RoutedCommand(
+                CarfuIntent.VOLUME_UP, "tăng âm lượng", "volume",
+            )
+            CommandTranscriptNormalizer.Domain.VOLUME_DOWN -> RoutedCommand(
+                CarfuIntent.VOLUME_DOWN, "giảm âm lượng", "volume",
+            )
+            CommandTranscriptNormalizer.Domain.TIME -> RoutedCommand(
+                CarfuIntent.CURRENT_TIME, "mấy giờ rồi", "current_time",
+            )
+            else -> null
+        }
+    }
+
+    private fun matchOpenApp(raw: String, folded: String): RoutedCommand? {
+        val target = CommandTranscriptNormalizer.matchAppInOpenDomain(folded)
+            ?: CommandTranscriptNormalizer.bestAppTarget(folded)
+            ?: return null
+        return RoutedCommand(
+            intent = target.intent,
+            canonicalVi = target.canonicalVi,
+            skillId = "open",
+        )
+    }
+
+    private fun scoreMatch(
+        folded: String,
+        domain: CommandTranscriptNormalizer.Domain,
+        intent: CarfuIntent,
+    ): Float {
+        val domainOk = when (domain) {
+            CommandTranscriptNormalizer.Domain.OPEN_APP ->
+                intent == CarfuIntent.OPEN_SMARTTUBE ||
+                    intent == CarfuIntent.OPEN_MUSICLOOP ||
+                    intent == CarfuIntent.OPEN_ZALO ||
+                    intent == CarfuIntent.OPEN_YOUTUBE ||
+                    intent == CarfuIntent.OPEN_MAPS
+            CommandTranscriptNormalizer.Domain.NAVIGATE ->
+                intent == CarfuIntent.NAVIGATE_PLACE ||
+                    intent == CarfuIntent.NAVIGATE_HOME ||
+                    intent == CarfuIntent.NAVIGATE_AIRPORT
+            CommandTranscriptNormalizer.Domain.VOLUME_UP -> intent == CarfuIntent.VOLUME_UP
+            CommandTranscriptNormalizer.Domain.VOLUME_DOWN -> intent == CarfuIntent.VOLUME_DOWN
+            CommandTranscriptNormalizer.Domain.TIME -> intent == CarfuIntent.CURRENT_TIME
+            CommandTranscriptNormalizer.Domain.CALL ->
+                intent == CarfuIntent.CALL_CONTACT || intent == CarfuIntent.CALL_NUMBER
+            CommandTranscriptNormalizer.Domain.MEDIA ->
+                intent == CarfuIntent.MEDIA_NEXT ||
+                    intent == CarfuIntent.MEDIA_PREVIOUS ||
+                    intent == CarfuIntent.MEDIA_PAUSE ||
+                    intent == CarfuIntent.MEDIA_PLAY
+            CommandTranscriptNormalizer.Domain.UNKNOWN -> true
+        }
+        if (!domainOk) return 0.1f
+        return if (CommandTranscriptNormalizer.isHighConfidenceMatch(folded)) 1.0f else 0.85f
     }
 
     private fun matchParameterized(raw: String, folded: String): RoutedCommand? {
@@ -260,13 +342,33 @@ object CarfuCommandRouter {
         val prefix = NAV_PREFIX_FOLDED.firstOrNull { folded.startsWith(it) } ?: return null
         val destFolded = folded.removePrefix(prefix).trim()
         if (destFolded.isEmpty()) return null
-        val destRaw = extractTrailingWords(raw, destFolded.split(' ').size)
+        // Incomplete nav like "chỉ đường đến" leaves particle "den"/"toi"/"ve" as the
+        // "destination" → TTS "Đang dẫn đường đến đến" and Maps q=đến. Reject those.
+        if (isNavigationParticleOnly(destFolded)) return null
+        // Prefer normalizer destination when available (longest prefix, incomplete → null).
+        val normalizedDest = CommandTranscriptNormalizer.navigationDestination(folded)
+        if (normalizedDest != null && isNavigationParticleOnly(normalizedDest)) return null
+        val placeFolded = when {
+            !normalizedDest.isNullOrBlank() -> normalizedDest
+            else -> destFolded
+        }
+        if (isNavigationParticleOnly(placeFolded)) return null
+        val destRaw = extractTrailingWords(raw, placeFolded.split(' ').filter { it.isNotEmpty() }.size)
+        if (destRaw.isBlank() || isNavigationParticleOnly(VietnameseTranscript.foldForMatch(destRaw))) {
+            return null
+        }
         return RoutedCommand(
             intent = CarfuIntent.NAVIGATE_PLACE,
             canonicalVi = "chỉ đường đến $destRaw",
             skillId = "navigation",
             place = destRaw,
         )
+    }
+
+    /** Folded leftovers that are nav grammar particles, not real places. */
+    internal fun isNavigationParticleOnly(foldedDest: String): Boolean {
+        val d = foldedDest.trim()
+        return d == "den" || d == "toi" || d == "ve"
     }
 
     /**

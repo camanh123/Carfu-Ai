@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
+import android.provider.Settings
 import android.text.format.DateFormat
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.RepeatMode
@@ -68,6 +69,7 @@ import org.stypox.dicio.R
 import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.io.session.CommandUiState
+import org.stypox.dicio.ui.ambient.AmbientVoiceOverlayFromSession
 import java.util.Date
 
 private val Charcoal = Color(0xFF0B0D0C)
@@ -295,6 +297,22 @@ fun DrivingScreen(
                 onInteract = { volumeIdleToken += 1 },
                 onDismiss = { volumePanelVisible = false },
                 onBanner = { banner = it },
+            )
+        }
+
+        // In-app Ambient Voice when overlay permission is not granted.
+        // With SYSTEM_ALERT_WINDOW, WindowManager HUD is used instead (cross-app).
+        val useInAppAmbient = remember(context) {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                !Settings.canDrawOverlays(context)
+        }
+        if (useInAppAmbient) {
+            AmbientVoiceOverlayFromSession(
+                phase = commandUi.phase,
+                rawPartialTranscript = commandUi.partial,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth(),
             )
         }
     }

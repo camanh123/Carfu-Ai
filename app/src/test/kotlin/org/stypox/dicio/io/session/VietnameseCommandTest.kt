@@ -4,6 +4,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
+import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 
 class VietnameseTranscriptTest : StringSpec({
@@ -137,13 +138,39 @@ class CarfuBaselineCommandRouterTest : StringSpec({
     "required CARFU baseline commands route through the primary final transcript path" {
         CarfuCommandRouter.match("Mấy giờ rồi")!!.intent shouldBe CarfuIntent.CURRENT_TIME
         CarfuCommandRouter.match("Mở SmartTube")!!.intent shouldBe CarfuIntent.OPEN_SMARTTUBE
+        CarfuCommandRouter.match("Mở SmartTube Beta")!!.intent shouldBe CarfuIntent.OPEN_SMARTTUBE
         CarfuCommandRouter.match("Mở MusicLoop")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
         CarfuCommandRouter.match("Mở máy nghe nhạc")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
+        CarfuCommandRouter.match("Mở máy phát nhạc")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
         CarfuCommandRouter.match("Mở Zalo")!!.intent shouldBe CarfuIntent.OPEN_ZALO
         CarfuCommandRouter.match("Tăng âm lượng")!!.intent shouldBe CarfuIntent.VOLUME_UP
+        CarfuCommandRouter.match("Giảm âm lượng")!!.intent shouldBe CarfuIntent.VOLUME_DOWN
         CarfuCommandRouter.match("Chỉ đường đến Mỹ Đình")!!.let {
             it.intent shouldBe CarfuIntent.NAVIGATE_PLACE
             it.place shouldBe "Mỹ Đình"
         }
+    }
+
+    "incomplete navigation particle alone does not route to NAVIGATE_PLACE" {
+        CarfuCommandRouter.match("Chỉ đường đến") shouldBe null
+        CarfuCommandRouter.match("chỉ đường tới") shouldBe null
+        CarfuCommandRouter.match("dẫn đường về") shouldBe null
+        CarfuCommandRouter.isNavigationParticleOnly("den").shouldBeTrue()
+    }
+
+    "matchBest does not prefer incomplete particle destination over full place" {
+        val best = CarfuCommandRouter.matchBest(
+            listOf(
+                "Chỉ đường đến" to 0.95f,
+                "Chỉ đường đến Mỹ Đình" to 0.80f,
+            ),
+        )
+        best.shouldNotBeNull()
+        best!!.command.intent shouldBe CarfuIntent.NAVIGATE_PLACE
+        best.command.place shouldBe "Mỹ Đình"
+    }
+
+    "music look phonetic STT still opens MusicLoop via alias fuzzy match" {
+        CarfuCommandRouter.match("mở music look")!!.intent shouldBe CarfuIntent.OPEN_MUSICLOOP
     }
 })

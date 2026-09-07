@@ -29,9 +29,11 @@ import org.stypox.dicio.eval.SkillEvaluator
 import org.stypox.dicio.io.assist.CarfuAssistIntents
 import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuSessionGate
+import org.stypox.dicio.io.session.VoiceTriggerManager
 import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.settings.datastore.UserSettings
+import org.stypox.dicio.ui.ambient.AmbientVoiceOverlayController
 import org.stypox.dicio.ui.home.wakeWordPermissions
 import org.stypox.dicio.ui.nav.Navigation
 import org.stypox.dicio.util.BaseActivity
@@ -50,21 +52,32 @@ class MainActivity : BaseActivity() {
     lateinit var userSettings: DataStore<UserSettings>
     @Inject
     lateinit var speechOutputDevice: SpeechOutputDeviceWrapper
+    @Inject
+    lateinit var ambientVoiceOverlayController: AmbientVoiceOverlayController
 
     private var sttPermissionJob: Job? = null
     private var wakeServiceJob: Job? = null
 
     /**
-     * FYT MODE / system Assist. Starts the existing CommandSession with origin
-     * HARDWARE_BUTTON. Duplicate VIS + ASSIST + VOICE_COMMAND fan-out is rejected
-     * by [CarfuSessionGate], not by a 100 ms Activity-only backoff.
+     * FYT MODE / system Assist. Converges at [SkillEvaluator.onHardwareButtonDetected] →
+     * [VoiceTriggerManager] HARDWARE_MODE. Duplicate VIS + ASSIST fan-out is rejected
+     * by the V2 trigger + [CarfuSessionGate] debounce — not by Activity-only backoff.
      */
-    private fun onAssistIntentReceived(intent: Intent?) {
+    private fun onAssistIntentReceived(intent: Intent?, stale: Boolean = false) {
         CarfuAssistIntents.logIncoming("MainActivity", intent)
         CarfuSessionGate.noteIncomingIntent(
             action = intent?.action,
             component = intent?.component?.flattenToShortString(),
         )
+        if (stale) {
+            VoiceTriggerManager.request(
+                origin = VoiceTriggerManager.Origin.STALE_ASSIST,
+                staleAssist = true,
+                reason = "activity_recreate_or_old_intent",
+            )
+            Log.d(TAG, "Ignored stale assist intent action=${intent?.action}")
+            return
+        }
         CarfuLatencyLog.nowMs = { SystemClock.elapsedRealtime() }
         CarfuLatencyLog.onModeIntent()
         Log.d(TAG, "Received assist intent action=${intent?.action}")
@@ -117,6 +130,12 @@ class MainActivity : BaseActivity() {
         super.onCreate(savedInstanceState)
         isCreated += 1
 
+        // Observe CommandSession for Ambient HUD after Activity exists (not Application.onCreate).
+        try {
+            ambientVoiceOverlayController.ensureStarted()
+        } catch (_: Throwable) {
+        }
+
         handleWakeWordTurnOnScreen(intent)
         if (!isAssistIntent(intent)) {
             speechOutputDevice.prewarm()
@@ -134,7 +153,8 @@ class MainActivity : BaseActivity() {
             }
         }
         if (isAssistIntent(intent)) {
-            onAssistIntentReceived(intent)
+            // Recreation redelivers the old Assist Intent — not a new MODE press.
+            onAssistIntentReceived(intent, stale = savedInstanceState != null)
         }
 
         // The Activity may start the foreground wake service, but does not own its lifetime

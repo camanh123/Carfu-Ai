@@ -42,7 +42,12 @@ object DrivingUiMapper {
                 labelResHint = DrivingLabel.READY,
                 showPartial = false,
             )
-            CommandSessionPhase.WAKE_DETECTED,
+            CommandSessionPhase.WAKE_DETECTED -> DrivingPresentation(
+                // V2: no MODE ACK — show listening UI as soon as the session begins.
+                visual = DrivingVisualState.LISTENING,
+                labelResHint = DrivingLabel.LISTENING,
+                showPartial = true,
+            )
             CommandSessionPhase.ACKNOWLEDGING -> DrivingPresentation(
                 visual = DrivingVisualState.ACKNOWLEDGING,
                 labelResHint = DrivingLabel.ACK,

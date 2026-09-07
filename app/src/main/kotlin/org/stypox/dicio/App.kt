@@ -19,6 +19,8 @@ class App : Application() {
         ) {
             initNotificationChannels()
         }
+        // Ambient Voice overlay observer starts from MainActivity / VIS when needed.
+        // Do not attach Compose/WindowManager from Application.onCreate (Android 10 crash risk).
     }
 
     private fun initNotificationChannels() {

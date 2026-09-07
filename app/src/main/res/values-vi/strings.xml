@@ -71,6 +71,7 @@
     <string name="carfu_state_listening">Đang nghe…</string>
     <string name="carfu_state_processing">Đang xử lý…</string>
     <string name="carfu_state_unclear">Tôi chưa nghe rõ</string>
+    <string name="carfu_need_internet_service">Vui lòng kết nối Internet để sử dụng dịch vụ.</string>
     <string name="carfu_state_unsupported_command">Tôi chưa hiểu lệnh: %1$s</string>
     <string name="carfu_vosk_downloading_tts">Đang tải mô hình giọng nói</string>
     <string name="carfu_vosk_downloading">Đang tải mô hình giọng nói… %1$d%%</string>
@@ -99,6 +100,12 @@
     <string name="settings_mode_button_setup">Thiết lập nút MODE</string>
     <string name="settings_mode_button_setup_summary">Mở mục Trợ giúp và nhập liệu thoại của Android để chọn CARFU AI làm trợ lý mặc định cho nút MODE trên vô lăng. Ứng dụng không tự đổi cài đặt này.</string>
     <string name="settings_mode_button_setup_unavailable">Không mở được cài đặt trợ lý Android trên máy này.</string>
+    <string name="settings_overlay_permission">Hiển thị trợ lý trên ứng dụng khác</string>
+    <string name="settings_overlay_permission_summary_on">Đã bật — Ambient Voice có thể hiện trên Maps/YouTube khi bấm MODE.</string>
+    <string name="settings_overlay_permission_summary_off">Chưa bật — chạm để mở cài đặt Android và cho phép hiển thị trên ứng dụng khác.</string>
+    <string name="settings_overlay_permission_unavailable">Không mở được cài đặt hiển thị trên ứng dụng khác trên máy này.</string>
+    <string name="settings_overlay_permission_state_on">Đã bật</string>
+    <string name="settings_overlay_permission_state_off">Chưa bật</string>
     <string name="pref_skill_not_available">Kỹ năng này chưa có cho tiếng Việt.</string>
     <string name="pref_skills_title">Kỹ năng</string>
     <string name="skill_name_weather">Thời tiết</string>

@@ -22,18 +22,25 @@ class CommandSessionMachineTest : StringSpec({
         m.phase shouldBe CommandSessionPhase.WAKE_DETECTED
     }
 
-    "command recognition is not allowed until TTS onDone" {
+    "V2: command recognition allowed at WAKE_DETECTED without MODE ACK TTS" {
         val m = CommandSessionMachine()
         m.onWakeDetected()
-        m.canStartCommandRecognition().shouldBeFalse()
-        m.onTtsStarted()
-        m.phase shouldBe CommandSessionPhase.ACKNOWLEDGING
-        m.canStartCommandRecognition().shouldBeFalse()
-        m.onTtsCompleted()
         m.canStartCommandRecognition().shouldBeTrue()
         m.onCommandAudioStarted()
         m.phase shouldBe CommandSessionPhase.COMMAND_LISTENING
         m.canStartCommandRecognition().shouldBeFalse()
+    }
+
+    "post-reply reopen still requires TTS onDone" {
+        val m = CommandSessionMachine()
+        m.onWakeDetected()
+        m.onCommandAudioStarted()
+        m.onProcessing()
+        m.onTtsStarted()
+        m.phase shouldBe CommandSessionPhase.RESPONDING
+        m.canStartCommandRecognition().shouldBeFalse()
+        m.onTtsCompleted()
+        m.canStartCommandRecognition().shouldBeTrue()
     }
 
     "full success path returns to idle so wake can resume" {
@@ -79,13 +86,10 @@ class CommandSessionMachineTest : StringSpec({
         m.phase shouldBe CommandSessionPhase.COMMAND_LISTENING
     }
 
-    "10 command STT starts once after TTS onDone" {
+    "10 command STT starts once after session begin without ACK" {
         val m = CommandSessionMachine()
         var starts = 0
         m.onWakeDetected()
-        m.onTtsStarted()
-        if (m.canStartCommandRecognition()) starts += 1
-        m.onTtsCompleted()
         if (m.canStartCommandRecognition()) starts += 1
         m.onCommandAudioStarted()
         if (m.canStartCommandRecognition()) starts += 1

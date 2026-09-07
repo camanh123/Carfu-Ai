@@ -20,6 +20,15 @@ class DrivingUiMapperTest : StringSpec({
         p.labelResHint shouldBe DrivingLabel.ACK
     }
 
+    "WAKE_DETECTED maps to listening UI (no MODE ACK)" {
+        val p = DrivingUiMapper.presentation(
+            CommandUiState(phase = CommandSessionPhase.WAKE_DETECTED)
+        )
+        p.visual shouldBe DrivingVisualState.LISTENING
+        p.labelResHint shouldBe DrivingLabel.LISTENING
+        p.showPartial shouldBe true
+    }
+
     "command listening maps to listening" {
         val p = DrivingUiMapper.presentation(
             CommandUiState(phase = CommandSessionPhase.COMMAND_LISTENING)

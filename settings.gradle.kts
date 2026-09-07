@@ -125,8 +125,15 @@ for (repo in includeGitRepos) {
             val sameRemote = git.remoteList().call()
                 .any { rem -> rem.urIs.any { uri -> uri.toString() == repo.uri } }
             if (sameRemote) {
-                // the commit may have changed, fetch again
-                git.fetch().call()
+                // the commit may have changed, fetch again (tolerate offline / blocked GitHub)
+                try {
+                    git.fetch().call()
+                } catch (e: Exception) {
+                    println(
+                        "Git: fetch for ${repo.name} failed (${e.message}); " +
+                            "using existing local checkout",
+                    )
+                }
             } else {
                 // the remote changed, delete the repository and start from scratch
                 println("Git: remote for ${repo.name} changed, deleting the current folder")

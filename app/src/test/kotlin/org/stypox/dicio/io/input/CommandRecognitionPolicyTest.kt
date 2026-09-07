@@ -65,19 +65,21 @@ class CommandRecognitionPolicyTest : StringSpec({
         }
     }
 
-    "MODE to TTS onStart target is 500 ms" {
+    "MODE to TTS onStart target is 500 ms; echo guard is short" {
         CommandRecognitionPolicy.modeTtsStartWithinBudget(1_000L, 1_400L).shouldBeTrue()
         CommandRecognitionPolicy.modeTtsStartWithinBudget(1_000L, 1_500L).shouldBeTrue()
         CommandRecognitionPolicy.modeTtsStartWithinBudget(1_000L, 1_501L).shouldBeFalse()
         CommandRecognitionPolicy.MODE_TTS_START_BUDGET_MS shouldBe 500L
         CommandRecognitionPolicy.ANDROID_ECHO_GUARD_MS shouldBe 300L
+        CommandRecognitionPolicy.ANDROID_MIC_HANDOFF_MS shouldBe 0L
     }
 
-    "Android SR uses 3s no-speech-after-ready and absolute stuck-session failsafe" {
-        CommandRecognitionPolicy.ANDROID_NO_SPEECH_AFTER_READY_MS shouldBe 3_000L
-        CommandRecognitionPolicy.ANDROID_STUCK_SESSION_FAILSAFE_MS shouldBe 30_000L
-        CommandRecognitionPolicy.ANDROID_LISTEN_TIMEOUT_MS shouldBe
-            CommandRecognitionPolicy.ANDROID_STUCK_SESSION_FAILSAFE_MS
+    "Android SR uses single ~12s hard listen ceiling; no 3s app no-speech killer" {
+        CommandRecognitionPolicy.ANDROID_LISTEN_TIMEOUT_MS shouldBe 12_000L
+        CommandRecognitionPolicy.ANDROID_STUCK_SESSION_FAILSAFE_MS shouldBe 12_000L
+        CommandRecognitionPolicy.ANDROID_NO_SPEECH_AFTER_READY_MS shouldBe 0L
+        CommandRecognitionPolicy.MAX_SR_REARMS shouldBe 0
+        CommandRecognitionPolicy.shouldRearmSpeechRecognizer(0).shouldBeFalse()
     }
 
     "never bind this app's own RecognitionService; prefer Google" {
@@ -131,5 +133,17 @@ class CommandRecognitionPolicyTest : StringSpec({
             CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE
         migrated.backgroundWake shouldBe BackgroundWake.BACKGROUND_WAKE_DISABLED
         CommandRecognitionPolicy.needsAcceptanceProfileMigration(migrated).shouldBeFalse()
+    }
+    "recognizer intent config has no Google silence extras" {
+        val cfg = CommandRecognitionPolicy.recognizerIntentConfig()
+        cfg.maxResults shouldBe CommandRecognitionPolicy.MAX_RESULTS
+        cfg.partialResults shouldBe true
+        cfg.language shouldBe "vi-VN"
+    }
+
+    "silence-endpoint constants are retained for Smart helpers only" {
+        CommandRecognitionPolicy.ANDROID_SILENCE_ENDPOINT_MS shouldBe 1_000L
+        CommandRecognitionPolicy.ANDROID_COMPLETE_SILENCE_MS shouldBe 0L
+        CommandRecognitionPolicy.ANDROID_POSSIBLY_COMPLETE_SILENCE_MS shouldBe 0L
     }
 })

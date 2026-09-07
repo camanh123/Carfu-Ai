@@ -11,7 +11,6 @@ import dev.shreyaspatil.permissionflow.compose.rememberPermissionFlowRequestLaun
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import org.dicio.skill.skill.Permission
-import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.session.CommandUiState
 import org.stypox.dicio.probe.CarfuProbeActivity
 import org.stypox.dicio.ui.driving.DrivingScreen
@@ -70,7 +69,7 @@ fun HomeScreen(
         lastCommand = lastCommand,
         lastReply = lastReply,
         onMicClick = {
-            viewModel.sttInputDevice.onClick(viewModel.skillEvaluator::processInputEvent)
+            viewModel.skillEvaluator.onUiModeDetected()
         },
         onSettingsClick = onSettingsClick,
         onDiagnosticsClick = {
