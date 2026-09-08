@@ -88,13 +88,22 @@ class AmbientVoiceOverlayController @Inject constructor(
     private fun onCommandUi(ui: CommandUiState) {
         val next = AmbientVoicePresentation.fromSession(ui.phase, ui.partial)
         uiState = next
-        if (!canDrawOverlays()) {
-            // In-app Compose path (DrivingScreen) still shows the wave.
+        if (!AmbientVoiceAttachPolicy.shouldAttachCrossAppOverlay(
+                canDrawOverlays = canDrawOverlays(),
+                hudVisible = next.visible,
+            )
+        ) {
+            // Phase 4.1: voice continues without WindowManager Compose attach.
             if (hostView != null) removeOverlay()
             return
         }
         if (next.visible) {
-            ensureOverlayAttached()
+            try {
+                ensureOverlayAttached()
+            } catch (t: Throwable) {
+                CarfuLog.w(TAG, "AMBIENT_OVERLAY_ATTACH_SKIPPED ${t.javaClass.simpleName}")
+                removeOverlay()
+            }
         } else {
             // Keep view briefly so AnimatedVisibility can fade, then detach.
             mainHandler.postDelayed({
@@ -106,59 +115,57 @@ class AmbientVoiceOverlayController @Inject constructor(
     @SuppressLint("SetTextI18n")
     private fun ensureOverlayAttached() {
         if (hostView != null) return
-        val wm = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
-        windowManager = wm
-        val owner = OverlayLifecycleOwner().also { it.onCreate() }
-        overlayOwner = owner
-
-        val host = FrameLayout(appContext)
-        val compose = ComposeView(appContext).apply {
-            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
-            setViewTreeLifecycleOwner(owner)
-            setViewTreeViewModelStoreOwner(owner)
-            setViewTreeSavedStateRegistryOwner(owner)
-            setContent {
-                AmbientVoiceOverlay(state = uiState)
-            }
-        }
-        host.addView(
-            compose,
-            FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.MATCH_PARENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-            ),
-        )
-        hostView = host
-        composeView = compose
-
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        } else {
-            @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
-        }
-        val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            type,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT,
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = 8
-        }
         try {
+            val wm = appContext.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            windowManager = wm
+            val owner = OverlayLifecycleOwner().also { it.onCreate() }
+            overlayOwner = owner
+
+            val host = FrameLayout(appContext)
+            val compose = ComposeView(appContext).apply {
+                setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+                setViewTreeLifecycleOwner(owner)
+                setViewTreeViewModelStoreOwner(owner)
+                setViewTreeSavedStateRegistryOwner(owner)
+                setContent {
+                    AmbientVoiceOverlay(state = uiState)
+                }
+            }
+            host.addView(
+                compose,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+            hostView = host
+            composeView = compose
+
+            val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            } else {
+                @Suppress("DEPRECATION")
+                WindowManager.LayoutParams.TYPE_PHONE
+            }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                type,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT,
+            ).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                y = 8
+            }
             wm.addView(host, params)
             owner.onResume()
             CarfuLog.i(TAG, "AMBIENT_OVERLAY_ATTACHED cross_app=true")
         } catch (t: Throwable) {
             CarfuLog.w(TAG, "AMBIENT_OVERLAY_ATTACH_FAILED ${t.javaClass.simpleName}")
-            hostView = null
-            composeView = null
-            overlayOwner = null
+            removeOverlay()
         }
     }
 
@@ -194,17 +201,30 @@ class AmbientVoiceOverlayController @Inject constructor(
             get() = savedStateController.savedStateRegistry
 
         fun onCreate() {
+            // ComposeView outside Activity requires attach → restore before CREATED.
+            savedStateController.performAttach()
             savedStateController.performRestore(null)
-            lifecycleRegistry.currentState = Lifecycle.State.CREATED
-            lifecycleRegistry.currentState = Lifecycle.State.STARTED
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
         }
 
         fun onResume() {
-            lifecycleRegistry.currentState = Lifecycle.State.RESUMED
+            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         }
 
         fun onDestroy() {
-            lifecycleRegistry.currentState = Lifecycle.State.DESTROYED
+            try {
+                if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.CREATED)) {
+                    if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                        if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+                        }
+                        lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+                    }
+                    lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
+                }
+            } catch (_: Throwable) {
+            }
             store.clear()
         }
     }

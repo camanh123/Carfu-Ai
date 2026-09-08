@@ -51,6 +51,7 @@ import org.stypox.dicio.io.session.SessionCommandDecision
 import org.stypox.dicio.io.session.UnderstandingResult
 import org.stypox.dicio.io.session.VietnameseCommandUnderstanding
 import org.stypox.dicio.io.session.VietnameseTranscript
+import org.stypox.dicio.io.session.VoiceLifecycleLog
 import org.stypox.dicio.io.session.VoiceOnlinePolicy
 import org.stypox.dicio.io.session.VoiceSessionManager
 import org.stypox.dicio.io.session.VoiceTriggerManager
@@ -930,8 +931,17 @@ class SkillEvaluatorImpl(
                 CarfuLatencyLog.mark(CarfuLatencyLog.Mark.FINAL_RESULT)
                 CarfuLatencyLog.logSessionEvent(
                     "FINAL_RESULT",
-                    "candidates=${event.utterances.size} raw_len=${original.length} " +
-                        "u_intent=${decision?.intent} u_complete=${decision?.completeness}",
+                    "candidates=${event.utterances.size} raw=\"$original\" " +
+                        "u_intent=${decision?.intent} u_complete=${decision?.completeness} " +
+                        "u_reason=${decision?.reason.orEmpty()} " +
+                        "canonical=${decision?.command} entities=${decision?.entities}",
+                )
+                VoiceLifecycleLog.phase4(
+                    "DECISION",
+                    sid,
+                    "provisional=false final=${decision != null} " +
+                        "complete=${decision?.completeness} executable=${decision?.executable} " +
+                        "idx=${decision?.candidateIndex} cmd=${decision?.command}",
                 )
                 if (VietnameseTranscript.isTooWeakToSubmit(original)) {
                     handleEmptyOrUnclear("reject_noise")
@@ -1125,8 +1135,10 @@ class SkillEvaluatorImpl(
         }
         if (!CanonicalActionGate.tryClaim(sid)) {
             CarfuLatencyLog.logSessionEvent("CANONICAL_EXEC_SKIPPED", "already_claimed")
+            VoiceLifecycleLog.phase4("GATE", sid, "claim=rejected already_claimed")
             return
         }
+        VoiceLifecycleLog.phase4("GATE", sid, "claim=accepted")
         if (!CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED)) {
             return
         }
@@ -1158,18 +1170,23 @@ class SkillEvaluatorImpl(
         )
         VoiceSessionManager.onUnderstandingResult(
             sid,
-            "canonical intent=${decision.intent} complete=${decision.completeness}",
+            "canonical intent=${decision.intent} complete=${decision.completeness} " +
+                "cmd=$command entities=${decision.entities}",
         )
-        val result = try {
+        val trace = try {
             withContext(Dispatchers.IO) {
                 // Re-check cancel before side effect (race: MODE cancel during IO schedule).
                 if (CanonicalActionGate.isCancelled(sid) ||
                     SessionCommandDecision.isCancelled(sid) ||
                     VoiceSessionManager.shouldIgnoreCallback(sid)
                 ) {
-                    return@withContext SkillExecutionResult("", actionTaken = false)
+                    return@withContext CanonicalCommandExecutor.ExecutionTrace(
+                        speechVi = "",
+                        actionTaken = false,
+                        reason = "cancelled_before_exec",
+                    )
                 }
-                canonicalExecutor.execute(command)
+                canonicalExecutor.executeTraced(command)
             }
         } catch (throwable: Throwable) {
             addErrorInteractionFromPending(throwable)
@@ -1181,14 +1198,27 @@ class SkillEvaluatorImpl(
             VoiceSessionManager.shouldIgnoreCallback(sid)
         ) {
             CarfuLatencyLog.logSessionEvent("CANONICAL_EXEC_ABORTED", "cancelled_after_work")
+            VoiceLifecycleLog.phase4("EXEC_ABORT", sid, "cancelled_after_work")
             endWakeSession("cancelled_after_work")
             return
         }
         CanonicalActionGate.markCompleted(sid)
         VoiceSessionManager.onExecutionDone(sid)
-        val speech = result.speechVi.ifBlank {
+        val speech = trace.speechVi.ifBlank {
             VietnameseCommandUnderstanding.confirmationSpeechVi(command).orEmpty()
         }
+        VoiceLifecycleLog.phase4(
+            "EXEC",
+            sid,
+            "type=$skillId actionTaken=${trace.actionTaken} tts=\"$speech\" " +
+                "geo=${trace.geoUri.orEmpty()} pkg=${trace.packageName.orEmpty()} " +
+                "mediaQ=${trace.mediaQuery.orEmpty()} mediaP=${trace.mediaProvider.orEmpty()} " +
+                "mediaData=${trace.mediaData.orEmpty()} reason=${trace.reason}",
+        )
+        val result = SkillExecutionResult(
+            speechVi = speech,
+            actionTaken = trace.actionTaken,
+        )
         addInteractionFromPending(CarfuSpeechOutput(speech))
         commandSession.onReply(speech)
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.COMMAND_EXECUTE)

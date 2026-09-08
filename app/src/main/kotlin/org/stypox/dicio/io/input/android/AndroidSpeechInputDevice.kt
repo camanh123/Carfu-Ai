@@ -1,5 +1,6 @@
 package org.stypox.dicio.io.input.android
 
+import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -12,6 +13,7 @@ import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -151,6 +153,22 @@ class AndroidSpeechInputDevice(
         component: CommandRecognitionPolicy.RecognitionServiceCandidate,
     ): Boolean {
         if (destroyed.get()) return false
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED missing_record_audio")
+            return false
+        }
+        val recognitionAvailable = try {
+            SpeechRecognizer.isRecognitionAvailable(context)
+        } catch (_: Throwable) {
+            false
+        }
+        if (!recognitionAvailable) {
+            CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED recognition_unavailable")
+            _uiState.value = SttState.NotAvailable
+            return false
+        }
         if (CarfuPcmHub.isRecording()) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED hub_still_recording=true")
             return false

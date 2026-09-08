@@ -3,6 +3,8 @@ package org.stypox.dicio.di
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.os.Handler
+import android.os.Looper
 import androidx.datastore.core.DataStore
 import dagger.Module
 import dagger.Provides
@@ -13,6 +15,7 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -21,6 +24,7 @@ import okhttp3.OkHttpClient
 import org.stypox.dicio.R
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.InputEvent
+import org.stypox.dicio.io.input.ListeningCueSafety
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.input.android.AndroidSpeechInputDevice
@@ -74,7 +78,8 @@ class SttInputDeviceWrapperImpl(
     private val activityForResultManager: ActivityForResultManager,
     private val commandSession: CommandSession,
 ) : SttInputDeviceWrapper {
-    private val scope = CoroutineScope(Dispatchers.Default)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var inputDeviceSetting: InputDevice
     @Volatile
@@ -206,9 +211,10 @@ class SttInputDeviceWrapperImpl(
             uiStateJob = scope.launch {
                 newSttInputDevice.uiState.collect {
                     _uiState.emit(it)
-                    if (it == SttState.Listening &&
-                        commandSession.phase != CommandSessionPhase.COMMAND_LISTENING &&
-                        commandSession.phase != CommandSessionPhase.ACKNOWLEDGING
+                    if (ListeningCueSafety.shouldPlayListeningCue(
+                            becameListening = it == SttState.Listening,
+                            phase = commandSession.phase,
+                        )
                     ) {
                         playSound(R.raw.listening_sound)
                     }
@@ -218,28 +224,52 @@ class SttInputDeviceWrapperImpl(
     }
 
     private fun playSound(resid: Int) {
-        val attributes = AudioAttributes.Builder()
-            .setUsage(
-                when (sttPlaySoundSetting) {
-                    SttPlaySound.UNRECOGNIZED,
-                    SttPlaySound.STT_PLAY_SOUND_UNSET,
-                    SttPlaySound.STT_PLAY_SOUND_NOTIFICATION -> AudioAttributes.USAGE_NOTIFICATION
-                    SttPlaySound.STT_PLAY_SOUND_ALARM -> AudioAttributes.USAGE_ALARM
-                    SttPlaySound.STT_PLAY_SOUND_MEDIA -> AudioAttributes.USAGE_MEDIA
-                    SttPlaySound.STT_PLAY_SOUND_NONE -> return // do not play any sound
+        if (sttPlaySoundSetting == SttPlaySound.STT_PLAY_SOUND_NONE) return
+        val play = Runnable {
+            try {
+                val attributes = AudioAttributes.Builder()
+                    .setUsage(
+                        when (sttPlaySoundSetting) {
+                            SttPlaySound.UNRECOGNIZED,
+                            SttPlaySound.STT_PLAY_SOUND_UNSET,
+                            SttPlaySound.STT_PLAY_SOUND_NOTIFICATION ->
+                                AudioAttributes.USAGE_NOTIFICATION
+                            SttPlaySound.STT_PLAY_SOUND_ALARM -> AudioAttributes.USAGE_ALARM
+                            SttPlaySound.STT_PLAY_SOUND_MEDIA -> AudioAttributes.USAGE_MEDIA
+                            SttPlaySound.STT_PLAY_SOUND_NONE -> return@Runnable
+                        }
+                    )
+                    .build()
+                val mediaPlayer = MediaPlayer.create(appContext, resid, attributes, 0)
+                if (mediaPlayer == null || !ListeningCueSafety.isCreatedPlayerUsable(mediaPlayer)) {
+                    CarfuLog.w(CommandSession.TAG, "LISTENING_CUE_SKIPPED create_returned_null")
+                    return@Runnable
                 }
-            )
-            .build()
-        val mediaPlayer = MediaPlayer.create(appContext, resid, attributes, 0)
-        mediaPlayer.setVolume(0.75f, 0.75f)
-        mediaPlayer.start()
+                mediaPlayer.setOnCompletionListener { player ->
+                    try {
+                        player.release()
+                    } catch (_: Throwable) {
+                    }
+                }
+                mediaPlayer.setVolume(0.75f, 0.75f)
+                mediaPlayer.start()
+            } catch (t: Throwable) {
+                CarfuLog.w(
+                    CommandSession.TAG,
+                    "LISTENING_CUE_FAILED ${t.javaClass.simpleName}",
+                )
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            play.run()
+        } else {
+            mainHandler.post(play)
+        }
     }
 
     private fun wrapEventListener(eventListener: (InputEvent) -> Unit): (InputEvent) -> Unit = {
         if (it is InputEvent.None && CarfuActivationSource.isUserInitiated()) {
-            scope.launch {
-                playSound(R.raw.listening_no_input_sound)
-            }
+            playSound(R.raw.listening_no_input_sound)
         }
         eventListener(it)
     }

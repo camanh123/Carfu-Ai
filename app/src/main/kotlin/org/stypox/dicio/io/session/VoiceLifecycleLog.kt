@@ -72,7 +72,9 @@ object VoiceLifecycleLog {
     }
 
     fun liveTranscript(session: VoiceSessionManager.Session, text: String) {
-        event("LIVE_TRANSCRIPT", session, "len=${text.length}")
+        // Phase 4 device validation: include raw STT text (not audio). Cap length for logcat.
+        val preview = if (text.length <= 120) text else text.take(117) + "..."
+        event("LIVE_TRANSCRIPT", session, "len=${text.length} text=\"$preview\"")
     }
 
     fun understandingStart(session: VoiceSessionManager.Session) {
@@ -81,6 +83,15 @@ object VoiceLifecycleLog {
 
     fun understandingResult(session: VoiceSessionManager.Session, summary: String) {
         event("UNDERSTANDING_RESULT", session, summary)
+    }
+
+    /** Phase 4 chain: final decision / CanonicalCommand / execution payload. */
+    fun phase4(
+        name: String,
+        sessionId: Long,
+        details: String,
+    ) {
+        CarfuLog.i(TAG, "PHASE4_$name sessionId=$sessionId $details")
     }
 
     fun executionStart(session: VoiceSessionManager.Session) {

@@ -38,7 +38,7 @@ class CanonicalCommandExecutor(
 
     fun executeTraced(command: CanonicalCommand): ExecutionTrace {
         val speech = VietnameseCommandUnderstanding.confirmationSpeechVi(command).orEmpty()
-        return when (command) {
+        val trace = when (command) {
             is CanonicalCommand.Navigate -> executeNavigate(command, speech)
             is CanonicalCommand.OpenApp -> executeOpenApp(command, speech)
             is CanonicalCommand.PlayMedia -> executePlayMedia(command, speech)
@@ -54,6 +54,15 @@ class CanonicalCommandExecutor(
                 reason = "call_delegated_legacy",
             )
         }
+        CarfuLog.i(
+            VoiceLifecycleLog.TAG,
+            "PHASE4_EXECUTOR cmd=$command actionTaken=${trace.actionTaken} " +
+                "tts=\"${trace.speechVi}\" geo=${trace.geoUri.orEmpty()} " +
+                "pkg=${trace.packageName.orEmpty()} mediaQ=${trace.mediaQuery.orEmpty()} " +
+                "mediaP=${trace.mediaProvider.orEmpty()} mediaData=${trace.mediaData.orEmpty()} " +
+                "reason=${trace.reason}",
+        )
+        return trace
     }
 
     private fun executeNavigate(
@@ -101,12 +110,24 @@ class CanonicalCommandExecutor(
         speech: String,
     ): ExecutionTrace {
         return when (val resolved = appResolver.resolve(command.appName)) {
-            AppResolveResult.NotFound -> ExecutionTrace(
-                speechVi = "Không tìm thấy ứng dụng ${command.appName}.",
-                actionTaken = false,
-                reason = "app_not_found",
-            )
+            AppResolveResult.NotFound -> {
+                CarfuLog.i(
+                    VoiceLifecycleLog.TAG,
+                    "PHASE4_OPEN_APP requested=${command.appName} result=not_found",
+                )
+                ExecutionTrace(
+                    speechVi = "Không tìm thấy ứng dụng ${command.appName}.",
+                    actionTaken = false,
+                    reason = "app_not_found",
+                )
+            }
             is AppResolveResult.Match -> {
+                CarfuLog.i(
+                    VoiceLifecycleLog.TAG,
+                    "PHASE4_OPEN_APP requested=${command.appName} " +
+                        "resolved=${resolved.displayName} pkg=${resolved.packageName} " +
+                        "via=${resolved.via} score=${resolved.score}",
+                )
                 val ok = platform.launchPackage(resolved.packageName)
                 if (ok) {
                     ExecutionTrace(
