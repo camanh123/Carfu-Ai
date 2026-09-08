@@ -13,7 +13,9 @@ object CarfuDiag {
     const val TAG_COMMAND = "CarfuCommand"
     const val TAG_QUICK = "QuickAction"
     const val TAG_ASSIST = "CarfuAssist"
+    const val TAG_VOICE = "CARFU_VOICE"
     const val MAX_PER_TAG = 80
+    const val MAX_VOICE = 160
 
     private val lock = Any()
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
@@ -21,6 +23,7 @@ object CarfuDiag {
     private val command = ArrayDeque<String>()
     private val quick = ArrayDeque<String>()
     private val assist = ArrayDeque<String>()
+    private val voice = ArrayDeque<String>()
 
     fun wake(message: String) {
         append(TAG_WAKE, wake, message)
@@ -42,12 +45,18 @@ object CarfuDiag {
         logcat(TAG_ASSIST, message)
     }
 
+    fun voice(message: String) {
+        append(TAG_VOICE, voice, message, MAX_VOICE)
+        logcat(TAG_VOICE, message)
+    }
+
     fun appendForTag(tag: String, message: String) {
         when (tag) {
             TAG_WAKE -> wake(message)
             TAG_COMMAND -> command(message)
             TAG_QUICK -> quick(message)
             TAG_ASSIST -> assist(message)
+            TAG_VOICE -> voice(message)
         }
     }
 
@@ -61,6 +70,8 @@ object CarfuDiag {
             if (quick.isEmpty()) appendLine("(empty)") else quick.forEach { appendLine(it) }
             appendLine("=== $TAG_ASSIST ===")
             if (assist.isEmpty()) appendLine("(empty)") else assist.forEach { appendLine(it) }
+            appendLine("=== $TAG_VOICE ===")
+            if (voice.isEmpty()) appendLine("(empty)") else voice.forEach { appendLine(it) }
         }
     }
 
@@ -70,6 +81,7 @@ object CarfuDiag {
             TAG_COMMAND -> command.toList()
             TAG_QUICK -> quick.toList()
             TAG_ASSIST -> assist.toList()
+            TAG_VOICE -> voice.toList()
             else -> emptyList()
         }
     }
@@ -80,6 +92,7 @@ object CarfuDiag {
             command.clear()
             quick.clear()
             assist.clear()
+            voice.clear()
         }
     }
 
@@ -89,14 +102,20 @@ object CarfuDiag {
             TAG_COMMAND -> append(TAG_COMMAND, command, message)
             TAG_QUICK -> append(TAG_QUICK, quick, message)
             TAG_ASSIST -> append(TAG_ASSIST, assist, message)
+            TAG_VOICE -> append(TAG_VOICE, voice, message, MAX_VOICE)
         }
     }
 
-    private fun append(tag: String, deque: ArrayDeque<String>, message: String) {
+    private fun append(
+        tag: String,
+        deque: ArrayDeque<String>,
+        message: String,
+        max: Int = MAX_PER_TAG,
+    ) {
         val line = "[${timeFormat.format(Date())}] $tag $message"
         synchronized(lock) {
             deque.addLast(line)
-            while (deque.size > MAX_PER_TAG) {
+            while (deque.size > max) {
                 deque.removeFirst()
             }
         }

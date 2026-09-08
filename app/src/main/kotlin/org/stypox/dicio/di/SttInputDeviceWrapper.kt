@@ -31,6 +31,7 @@ import org.stypox.dicio.io.input.android.AndroidSpeechInputDevice
 import org.stypox.dicio.io.input.vosk.VoskInputDevice
 import org.stypox.dicio.io.session.CarfuActivationSource
 import org.stypox.dicio.io.session.CarfuLog
+import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
 import org.stypox.dicio.io.wake.WakeService
@@ -52,7 +53,7 @@ interface SttInputDeviceWrapper {
 
     fun tryLoad(thenStartListeningEventListener: ((InputEvent) -> Unit)?): Boolean
 
-    fun stopListening()
+    fun stopListening(reason: String = "unspecified")
 
     fun onClick(eventListener: (InputEvent) -> Unit)
 
@@ -283,11 +284,13 @@ class SttInputDeviceWrapperImpl(
         } else { null }) ?: false
     }
 
-    override fun stopListening() {
+    override fun stopListening(reason: String) {
+        org.stypox.dicio.io.session.CarfuVoiceTrace.stopRequest(reason)
         sttInputDevice?.stopListening()
     }
 
     override fun reinitializeToReleaseResources() {
+        CarfuVoiceTrace.stopRequest("reinitializeToReleaseResources")
         scope.launch { changeInputDeviceTo(inputDeviceSetting, commandEngineSetting) }
     }
 }

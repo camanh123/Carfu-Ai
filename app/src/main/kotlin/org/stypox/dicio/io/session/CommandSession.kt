@@ -77,7 +77,7 @@ class CommandSession @Inject constructor(
         needsResample: Boolean,
     ) {
         machine.onCommandAudioStarted()
-        requestTransientFocus()
+        val focusGranted = requestTransientFocus()
         _ui.value = _ui.value.copy(
             phase = machine.phase,
             captureRateHz = sampleRate,
@@ -87,7 +87,8 @@ class CommandSession @Inject constructor(
         )
         log(
             "COMMAND_AUDIO_STARTED sampleRate=$sampleRate bufferSize=$bufferSize " +
-                "audioSource=$audioSource resample=$needsResample model=$modelPath"
+                "audioSource=$audioSource resample=$needsResample model=$modelPath " +
+                "audioFocusGranted=$focusGranted"
         )
     }
 
@@ -163,9 +164,9 @@ class CommandSession @Inject constructor(
 
     fun canStartCommandRecognition(): Boolean = machine.canStartCommandRecognition()
 
-    private fun requestTransientFocus() {
+    private fun requestTransientFocus(): Boolean {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
                     .setAudioAttributes(
                         AudioAttributes.Builder()
@@ -186,8 +187,16 @@ class CommandSession @Inject constructor(
                     AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK,
                 )
             }
+            val granted = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            CarfuVoiceTrace.audioFocus(result, granted)
+            if (!granted) {
+                log("AUDIO_FOCUS_NOT_GRANTED result=$result elapsed=${machine.elapsedMs}")
+            }
+            return granted
         } catch (t: Throwable) {
+            CarfuVoiceTrace.audioFocusFailure(t.javaClass.simpleName)
             log("error reason=audio_focus ${t.javaClass.simpleName} elapsed=${machine.elapsedMs}")
+            return false
         }
     }
 

@@ -19,13 +19,17 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.InputEvent
+import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CarfuPcmHub
+import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.VoiceSessionManager
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
 /**
@@ -33,9 +37,10 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * Known-good listener spine (81aa-shaped):
  * - exactly one create/startListening cycle per session arm
- * - no SR_REARM / multi-start recovery
+ * - no SR_REARM / multi-start recovery (MAX_SR_REARMS = 0)
  * - BOS/EOS are logged only; they do not own session lifetime
- * - Google final/error (or the single hard listen ceiling) is terminal authority
+ * - SpeechRecognizer callbacks are events; the product silence timeout owns no-speech
+ * - stale listeners (wrong generation) cannot terminate a new session
  *
  * Never starts a recognizer Activity or a browser search. Never binds this
  * app's own [org.stypox.dicio.io.input.stt_service.SttService].
@@ -49,10 +54,15 @@ class AndroidSpeechInputDevice(
     private val listenerRef = AtomicReference<((InputEvent) -> Unit)?>(null)
     private val destroyed = AtomicBoolean(false)
     private val terminalEmitted = AtomicBoolean(false)
+    private val listenerGeneration = AtomicLong(0L)
+    private val armStartedAtMs = AtomicLong(0L)
+    private val sawReady = AtomicBoolean(false)
+    private val sawSpeechOrPartial = AtomicBoolean(false)
 
     private val hardListenTimeoutRunnable = Runnable {
         CarfuLatencyLog.logSessionEvent("SR_TIMEOUT", "kind=HARD_LISTEN_CEILING")
         CarfuLatencyLog.logPipelineStage("SR_TIMEOUT")
+        CarfuVoiceTrace.event("SR_HARD_CEILING")
         onTerminal(CommandRecognitionPolicy.RecognizerTerminal.TIMEOUT) {
             it(InputEvent.None)
         }
@@ -76,16 +86,8 @@ class AndroidSpeechInputDevice(
 
     override fun stopListening() {
         runOnMain {
-            cancelTimeout()
-            val sr = recognizer.getAndSet(null)
-            if (sr != null) {
-                CarfuLatencyLog.logPipelineStage("SR_CANCEL")
-                try {
-                    sr.cancel()
-                } catch (_: Throwable) {
-                }
-                destroyRecognizer(sr)
-            }
+            CarfuVoiceTrace.stopRequest("AndroidSpeechInputDevice.stopListening")
+            retireRecognizer(invalidateListener = true)
             listenerRef.set(null)
             if (_uiState.value == SttState.Listening) {
                 _uiState.value = SttState.Loaded
@@ -100,9 +102,8 @@ class AndroidSpeechInputDevice(
     override suspend fun destroy() {
         destroyed.set(true)
         runOnMainBlocking {
-            cancelTimeout()
-            val sr = recognizer.getAndSet(null)
-            if (sr != null) destroyRecognizer(sr)
+            CarfuVoiceTrace.stopRequest("AndroidSpeechInputDevice.destroy")
+            retireRecognizer(invalidateListener = true)
             listenerRef.set(null)
         }
     }
@@ -126,6 +127,7 @@ class AndroidSpeechInputDevice(
                 CommandSession.TAG,
                 "ANDROID_SR_REFUSED hub_recording=${CarfuPcmHub.isRecording()}",
             )
+            CarfuVoiceTrace.permissionOrAvailability("hub_recording")
             return false
         }
         val component = pickExternalService()
@@ -157,6 +159,7 @@ class AndroidSpeechInputDevice(
             != PackageManager.PERMISSION_GRANTED
         ) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED missing_record_audio")
+            CarfuVoiceTrace.permissionOrAvailability("missing_record_audio")
             return false
         }
         val recognitionAvailable = try {
@@ -166,16 +169,21 @@ class AndroidSpeechInputDevice(
         }
         if (!recognitionAvailable) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED recognition_unavailable")
+            CarfuVoiceTrace.permissionOrAvailability("recognition_unavailable")
             _uiState.value = SttState.NotAvailable
             return false
         }
         if (CarfuPcmHub.isRecording()) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED hub_still_recording=true")
+            CarfuVoiceTrace.permissionOrAvailability("hub_still_recording")
             return false
         }
         stopListeningInternal()
         terminalEmitted.set(false)
+        sawReady.set(false)
+        sawSpeechOrPartial.set(false)
         listenerRef.set(eventListener)
+        val generation = listenerGeneration.incrementAndGet()
         val sr = try {
             SpeechRecognizer.createSpeechRecognizer(
                 context,
@@ -183,26 +191,33 @@ class AndroidSpeechInputDevice(
             )
         } catch (t: Throwable) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_CREATE_FAILED ${t.javaClass.simpleName}")
+            CarfuVoiceTrace.permissionOrAvailability("create_failed_${t.javaClass.simpleName}")
             _uiState.value = SttState.NotAvailable
             listenerRef.set(null)
             return false
         }
         recognizer.set(sr)
         CarfuLatencyLog.logPipelineStage("SR_CREATE")
-        sr.setRecognitionListener(Listener())
+        CarfuVoiceTrace.srCreate(component.packageName, component.className)
+        sr.setRecognitionListener(Listener(generation))
         val intent = recognizerIntent()
         CarfuLatencyLog.nowMs = { SystemClock.elapsedRealtime() }
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SR_START_LISTENING)
         CarfuLatencyLog.logPipelineStage("SR_START_LISTENING")
+        CarfuVoiceTrace.srStartListening()
+        armStartedAtMs.set(SystemClock.elapsedRealtime())
         CarfuLog.i(
             CommandSession.TAG,
             "ANDROID_SR_START package=${component.packageName} " +
-                "class=${component.className} language=vi-VN popup=false browser=false",
+                "class=${component.className} language=vi-VN popup=false browser=false " +
+                "gen=$generation",
         )
         try {
             sr.startListening(intent)
         } catch (t: Throwable) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_START_FAILED ${t.javaClass.simpleName}")
+            CarfuVoiceTrace.permissionOrAvailability("start_failed_${t.javaClass.simpleName}")
+            listenerGeneration.incrementAndGet()
             destroyRecognizer(sr)
             recognizer.set(null)
             listenerRef.set(null)
@@ -255,12 +270,25 @@ class AndroidSpeechInputDevice(
     }
 
     private fun stopListeningInternal() {
+        retireRecognizer(invalidateListener = true, cancelFirst = true)
+    }
+
+    private fun retireRecognizer(
+        invalidateListener: Boolean,
+        cancelFirst: Boolean = true,
+    ) {
         cancelTimeout()
+        if (invalidateListener) {
+            listenerGeneration.incrementAndGet()
+        }
         val sr = recognizer.getAndSet(null)
         if (sr != null) {
-            try {
-                sr.cancel()
-            } catch (_: Throwable) {
+            if (cancelFirst) {
+                CarfuLatencyLog.logPipelineStage("SR_CANCEL")
+                try {
+                    sr.cancel()
+                } catch (_: Throwable) {
+                }
             }
             destroyRecognizer(sr)
         }
@@ -279,15 +307,31 @@ class AndroidSpeechInputDevice(
         mainHandler.removeCallbacks(hardListenTimeoutRunnable)
     }
 
+    private fun armElapsedMs(): Long {
+        val started = armStartedAtMs.get()
+        if (started <= 0L) return 0L
+        return SystemClock.elapsedRealtime() - started
+    }
+
+    /**
+     * Recognizer instance ended, but the product session stays LISTENING until
+     * the 5s silence watch or a later unrecoverable/final event.
+     */
+    private fun absorbRecognizerEnd(reason: String) {
+        CarfuVoiceTrace.srAbsorbed(reason)
+        retireRecognizer(invalidateListener = true, cancelFirst = false)
+        if (_uiState.value != SttState.NotAvailable && _uiState.value != SttState.Loaded) {
+            _uiState.value = SttState.Loaded
+        }
+    }
+
     private fun onTerminal(
         event: CommandRecognitionPolicy.RecognizerTerminal,
         emit: (((InputEvent) -> Unit) -> Unit),
     ) {
         if (!terminalEmitted.compareAndSet(false, true)) return
         if (!CommandRecognitionPolicy.shouldDestroyRecognizerOn(event)) return
-        cancelTimeout()
-        val sr = recognizer.getAndSet(null)
-        if (sr != null) destroyRecognizer(sr)
+        retireRecognizer(invalidateListener = true, cancelFirst = false)
         if (_uiState.value != SttState.NotAvailable) {
             _uiState.value = SttState.Loaded
         }
@@ -298,16 +342,31 @@ class AndroidSpeechInputDevice(
         }
     }
 
-    private inner class Listener : RecognitionListener {
+    private inner class Listener(private val generation: Long) : RecognitionListener {
+        private fun isCurrent(callback: String): Boolean {
+            val current = listenerGeneration.get()
+            if (generation != current) {
+                CarfuVoiceTrace.staleCallback(callback, generation, current)
+                return false
+            }
+            return true
+        }
+
         override fun onReadyForSpeech(params: Bundle?) {
+            if (!isCurrent("onReadyForSpeech")) return
+            sawReady.set(true)
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SR_READY)
             CarfuLatencyLog.logPipelineStage("SR_READY")
+            CarfuVoiceTrace.srReady()
         }
 
         override fun onBeginningOfSpeech() {
+            if (!isCurrent("onBeginningOfSpeech")) return
+            sawSpeechOrPartial.set(true)
             // Acoustic only — does not cancel the hard listen ceiling or re-arm.
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.BEGINNING_OF_SPEECH)
             CarfuLatencyLog.logPipelineStage("SR_BEGIN")
+            CarfuVoiceTrace.srBeginSpeech()
         }
 
         override fun onRmsChanged(rmsdB: Float) = Unit
@@ -315,47 +374,119 @@ class AndroidSpeechInputDevice(
         override fun onBufferReceived(buffer: ByteArray?) = Unit
 
         override fun onEndOfSpeech() {
-            // Logged only — Google final/error remains terminal authority.
+            if (!isCurrent("onEndOfSpeech")) return
+            // Logged only — must not terminate the product session.
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.END_OF_SPEECH)
             CarfuLatencyLog.logPipelineStage("SR_END_OF_SPEECH")
+            CarfuVoiceTrace.srEndSpeech()
+            if (SpeechRecognizerSessionPolicy.endOfSpeechTerminatesProduct()) {
+                onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) {
+                    it(InputEvent.None)
+                }
+            }
         }
 
         override fun onError(error: Int) {
-            CarfuLog.i(CommandSession.TAG, "ANDROID_SR_ERROR code=$error")
-            CarfuLatencyLog.logPipelineStage("SR_ERROR", "code=$error")
-            onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) { listener ->
-                if (CommandRecognitionPolicy.isNoSpeechError(error)) {
-                    listener(InputEvent.None)
-                } else {
-                    listener(InputEvent.Error(AndroidSpeechError(error)))
+            val current = listenerGeneration.get()
+            val name = SpeechRecognizerSessionPolicy.errorName(error)
+            val action = SpeechRecognizerSessionPolicy.onError(
+                code = error,
+                generationMatches = generation == current,
+                sawReady = sawReady.get(),
+                sawSpeechOrPartial = sawSpeechOrPartial.get(),
+                elapsedMs = armElapsedMs(),
+                productTimeoutMs = VoiceSessionManager.NO_SPEECH_TIMEOUT_MS,
+            )
+            CarfuLog.i(CommandSession.TAG, "ANDROID_SR_ERROR code=$error name=$name action=$action")
+            CarfuLatencyLog.logPipelineStage("SR_ERROR", "code=$error name=$name")
+            CarfuVoiceTrace.srError(error, name, action.name, generation, current)
+            when (action) {
+                SpeechRecognizerSessionPolicy.ProductAction.IGNORE_STALE -> return
+                SpeechRecognizerSessionPolicy.ProductAction.KEEP_PRODUCT_SESSION -> {
+                    absorbRecognizerEnd("sr_error_$name")
+                }
+                SpeechRecognizerSessionPolicy.ProductAction.TERMINATE_NO_SPEECH -> {
+                    onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) { listener ->
+                        listener(InputEvent.None)
+                    }
+                }
+                SpeechRecognizerSessionPolicy.ProductAction.TERMINATE_UNRECOVERABLE -> {
+                    onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) { listener ->
+                        listener(InputEvent.Error(AndroidSpeechError(error)))
+                    }
+                }
+                SpeechRecognizerSessionPolicy.ProductAction.PROCESS_FINAL -> {
+                    onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) { listener ->
+                        listener(InputEvent.None)
+                    }
                 }
             }
         }
 
         override fun onResults(results: Bundle?) {
+            val current = listenerGeneration.get()
             val utterances = utterancesFrom(results)
+            val action = SpeechRecognizerSessionPolicy.onResults(
+                utteranceCount = utterances.size,
+                generationMatches = generation == current,
+                sawSpeechOrPartial = sawSpeechOrPartial.get(),
+                elapsedMs = armElapsedMs(),
+                productTimeoutMs = VoiceSessionManager.NO_SPEECH_TIMEOUT_MS,
+            )
             CarfuLatencyLog.logSessionEvent(
                 "SR_RESULTS",
-                "candidates=${utterances.size}",
+                "candidates=${utterances.size} action=$action",
             )
             CarfuLatencyLog.logPipelineStage(
                 "SR_RESULTS",
                 "candidates=${utterances.size}",
             )
-            onTerminal(CommandRecognitionPolicy.RecognizerTerminal.RESULT) { listener ->
-                if (utterances.isEmpty()) {
-                    listener(InputEvent.None)
-                } else {
-                    listener(InputEvent.Final(utterances))
+            when (action) {
+                SpeechRecognizerSessionPolicy.ProductAction.IGNORE_STALE -> {
+                    CarfuVoiceTrace.staleCallback("onResults", generation, current)
+                }
+                SpeechRecognizerSessionPolicy.ProductAction.KEEP_PRODUCT_SESSION -> {
+                    CarfuVoiceTrace.srFinal("", 0)
+                    absorbRecognizerEnd("empty_results_before_speech")
+                }
+                SpeechRecognizerSessionPolicy.ProductAction.PROCESS_FINAL -> {
+                    val text = utterances.firstOrNull()?.first.orEmpty()
+                    CarfuVoiceTrace.srFinal(text, utterances.size)
+                    onTerminal(CommandRecognitionPolicy.RecognizerTerminal.RESULT) { listener ->
+                        listener(InputEvent.Final(utterances))
+                    }
+                }
+                SpeechRecognizerSessionPolicy.ProductAction.TERMINATE_NO_SPEECH -> {
+                    CarfuVoiceTrace.srFinal("", utterances.size)
+                    onTerminal(CommandRecognitionPolicy.RecognizerTerminal.RESULT) { listener ->
+                        listener(InputEvent.None)
+                    }
+                }
+                SpeechRecognizerSessionPolicy.ProductAction.TERMINATE_UNRECOVERABLE -> {
+                    onTerminal(CommandRecognitionPolicy.RecognizerTerminal.RESULT) { listener ->
+                        listener(InputEvent.None)
+                    }
                 }
             }
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
             val text = utterancesFrom(partialResults).firstOrNull()?.first ?: return
-            if (text.isBlank()) return
+            val current = listenerGeneration.get()
+            if (!SpeechRecognizerSessionPolicy.onPartial(
+                    generationMatches = generation == current,
+                    textBlank = text.isBlank(),
+                )
+            ) {
+                if (generation != current) {
+                    CarfuVoiceTrace.staleCallback("onPartialResults", generation, current)
+                }
+                return
+            }
+            sawSpeechOrPartial.set(true)
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.PARTIAL_RESULT)
             CarfuLatencyLog.logPipelineStage("SR_PARTIAL", "len=${text.length}")
+            CarfuVoiceTrace.srPartial(text)
             // Visible transcript / ranking only — never terminates the SR session.
             listenerRef.get()?.invoke(InputEvent.Partial(text))
         }

@@ -46,4 +46,13 @@ class ListeningCueSafetyTest : StringSpec({
         CommandRecognitionPolicy.MAX_SR_REARMS shouldBe 0
         AmbientVoiceAttachPolicy.CROSS_APP_WINDOW_ATTACH_ENABLED.shouldBeFalse()
     }
+
+    "phase4.2: cue is skipped once COMMAND_LISTENING is entered before SR start" {
+        SpeechRecognizerSessionPolicy.markCommandListeningBeforeStartListening().shouldBeTrue()
+        ListeningCueSafety.shouldPlayListeningCue(
+            becameListening = true,
+            phase = CommandSessionPhase.COMMAND_LISTENING,
+        ).shouldBeFalse()
+        ListeningCueSafety.isCreatedPlayerUsable(null).shouldBeFalse()
+    }
 })
