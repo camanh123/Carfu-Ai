@@ -12,7 +12,7 @@ class FakeSttInputDeviceWrapper : SttInputDeviceWrapper {
         return true
     }
 
-    override fun stopListening() {
+    override fun stopListening(reason: String) {
     }
 
     override fun onClick(eventListener: (InputEvent) -> Unit) {

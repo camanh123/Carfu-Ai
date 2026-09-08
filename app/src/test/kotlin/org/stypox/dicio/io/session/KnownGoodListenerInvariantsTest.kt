@@ -5,6 +5,7 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.shouldBe
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
+import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
 
 class KnownGoodListenerInvariantsTest : StringSpec({
     "A: one MODE yields exactly one startListening" {
@@ -24,14 +25,30 @@ class KnownGoodListenerInvariantsTest : StringSpec({
         ).shouldBeFalse()
     }
 
-    "C: NO_MATCH terminates once with no retry" {
+    "C: NO_MATCH does not retry SpeechRecognizer" {
         KnownGoodListenerInvariants.noMatchMayRetry().shouldBeFalse()
         CommandRecognitionPolicy.isNoSpeechError(7).shouldBeTrue()
+        SpeechRecognizerSessionPolicy.onError(
+            code = 7,
+            generationMatches = true,
+            sawReady = false,
+            sawSpeechOrPartial = false,
+            elapsedMs = 50L,
+            productTimeoutMs = VoiceSessionManager.NO_SPEECH_TIMEOUT_MS,
+        ) shouldBe SpeechRecognizerSessionPolicy.ProductAction.KEEP_PRODUCT_SESSION
     }
 
-    "D: SPEECH_TIMEOUT terminates once with no retry" {
+    "D: SPEECH_TIMEOUT does not retry SpeechRecognizer" {
         KnownGoodListenerInvariants.speechTimeoutMayRetry().shouldBeFalse()
         CommandRecognitionPolicy.isNoSpeechError(6).shouldBeTrue()
+        SpeechRecognizerSessionPolicy.onError(
+            code = 6,
+            generationMatches = true,
+            sawReady = false,
+            sawSpeechOrPartial = false,
+            elapsedMs = 50L,
+            productTimeoutMs = VoiceSessionManager.NO_SPEECH_TIMEOUT_MS,
+        ) shouldBe SpeechRecognizerSessionPolicy.ProductAction.KEEP_PRODUCT_SESSION
     }
 
     "E: partials must not execute or terminate the listener early" {

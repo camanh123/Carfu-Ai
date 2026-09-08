@@ -11,7 +11,8 @@ import org.stypox.dicio.settings.datastore.UserSettings
  * Vosk is an explicit legacy/offline fallback, never a silent substitute.
  *
  * Listener spine is 81aa-shaped: one startListening, one hard listen ceiling,
- * Google final/error as terminal authority. Smart Recognition lives above STT.
+ * no SR re-arm loop. SpeechRecognizer callbacks are events into the product
+ * session — they do not own CARFU IDLE. Smart Recognition lives above STT.
  */
 object CommandRecognitionPolicy {
     /** Short post-ACK guard before startListening (not a multi-state handoff machine). */
@@ -123,6 +124,10 @@ object CommandRecognitionPolicy {
         speechRecognizerActive: Boolean,
     ): Boolean = hubRecording && speechRecognizerActive
 
+    /**
+     * Destroy the *recognizer instance* on result/error/timeout. This is not the
+     * same as terminating the CARFU product session — see [SpeechRecognizerSessionPolicy].
+     */
     fun shouldDestroyRecognizerOn(event: RecognizerTerminal): Boolean = true
 
     /** Listener ownership: never re-arm SpeechRecognizer after NO_MATCH / timeout. */

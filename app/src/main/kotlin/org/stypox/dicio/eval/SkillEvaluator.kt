@@ -7,6 +7,7 @@ import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -26,6 +27,7 @@ import org.stypox.dicio.io.assist.CarfuAssistIntents
 import org.stypox.dicio.io.graphical.ErrorSkillOutput
 import org.stypox.dicio.io.graphical.MissingPermissionsSkillOutput
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
+import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.input.SttState
 import androidx.datastore.core.DataStore
@@ -51,6 +53,7 @@ import org.stypox.dicio.io.session.SessionCommandDecision
 import org.stypox.dicio.io.session.UnderstandingResult
 import org.stypox.dicio.io.session.VietnameseCommandUnderstanding
 import org.stypox.dicio.io.session.VietnameseTranscript
+import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.VoiceLifecycleLog
 import org.stypox.dicio.io.session.VoiceOnlinePolicy
 import org.stypox.dicio.io.session.VoiceSessionManager
@@ -122,7 +125,9 @@ class SkillEvaluatorImpl(
         if (sid == 0L) return@Runnable
         if (!VoiceSessionManager.shouldSilentExit(sid)) return@Runnable
         scope.launch {
-            handleSilentNoSpeech("product_silence_${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS}ms")
+            handleSilentNoSpeech(
+                "product_silence_${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS}ms",
+            )
         }
     }
 
@@ -220,7 +225,7 @@ class SkillEvaluatorImpl(
             return
         }
         val sid = CarfuSessionGate.cancel(reason)
-        sttInputDevice.stopListening()
+        sttInputDevice.stopListening("cancelActiveSession:$reason")
         try {
             skillContext.speechOutputDevice.stopSpeaking()
         } catch (_: Throwable) {
@@ -246,7 +251,7 @@ class SkillEvaluatorImpl(
             ?: CarfuSessionGate.fromActivation(commandSession.activationOrigin)
         val sid = CarfuSessionGate.cancel(reason, onlyOrigin = null)
         cancelSilenceWatch()
-        sttInputDevice.stopListening()
+        sttInputDevice.stopListening("cancelUserInitiatedSession:$reason")
         try {
             skillContext.speechOutputDevice.stopSpeaking()
         } catch (_: Throwable) {
@@ -279,6 +284,8 @@ class SkillEvaluatorImpl(
         }
         CarfuLog.i(CommandSession.TAG, "USER_SESSION_CANCELLED reason=$reason origin=$origin")
         CarfuLatencyLog.logSessionEvent("MODE_TOGGLE_CANCEL", "reason=$reason")
+        CarfuVoiceTrace.terminal(reason)
+        CarfuVoiceTrace.sessionEnd(reason)
     }
 
     private fun beginExternalSession(
@@ -354,6 +361,9 @@ class SkillEvaluatorImpl(
         CanonicalActionGate.bind(result.sessionId)
         CommandSessionOutcome.reset()
         CarfuLatencyLog.bindSession(result.sessionId)
+        CarfuVoiceTrace.bind(result.sessionId, trigger.origin)
+        CarfuVoiceTrace.trigger(CarfuVoiceTrace.origin)
+        CarfuVoiceTrace.sessionStart()
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_ACCEPTED)
         when (origin) {
             CarfuActivationSource.Kind.AUTOMATIC_WAKE -> CarfuActivationSource.markAutomaticWake()
@@ -365,7 +375,7 @@ class SkillEvaluatorImpl(
             skillContext.speechOutputDevice.stopSpeaking()
         } catch (_: Throwable) {
         }
-        sttInputDevice.stopListening()
+        sttInputDevice.stopListening("beginExternalSession_prearm")
         val sid = result.sessionId
         if (androidOnline) {
             WakeService.releaseHubForOnlineCommand()
@@ -377,7 +387,12 @@ class SkillEvaluatorImpl(
                     "origin=$gateOrigin engine=ANDROID_ONLINE hubReleased=true no_mode_ack=true",
             )
             scope.launch {
-                startCommandListening(reason, sid, androidOnline = true)
+                try {
+                    startCommandListening(reason, sid, androidOnline = true)
+                } catch (c: CancellationException) {
+                    CarfuVoiceTrace.coroutineCancelled("startCommandListening_online")
+                    throw c
+                }
             }
             return
         }
@@ -400,31 +415,36 @@ class SkillEvaluatorImpl(
             wakeDevice.resetDetectionState()
         }
         scope.launch {
-            if (!sttInputDevice.isRecognizerReady()) {
-                if (origin == CarfuActivationSource.Kind.HARDWARE_BUTTON ||
-                    origin == CarfuActivationSource.Kind.MANUAL_MIC
-                ) {
-                    withContext(Dispatchers.Main) {
-                        skillContext.speechOutputDevice.speak(
-                            skillContext.android.getString(R.string.carfu_vosk_downloading_tts),
-                        )
+            try {
+                if (!sttInputDevice.isRecognizerReady()) {
+                    if (origin == CarfuActivationSource.Kind.HARDWARE_BUTTON ||
+                        origin == CarfuActivationSource.Kind.MANUAL_MIC
+                    ) {
+                        withContext(Dispatchers.Main) {
+                            skillContext.speechOutputDevice.speak(
+                                skillContext.android.getString(R.string.carfu_vosk_downloading_tts),
+                            )
+                        }
+                    }
+                    val ready = awaitRecognizerReady(sid, 180_000L)
+                    if (!ready || !CarfuSessionGate.isCurrent(sid) || !wakeSessionActive.get()) {
+                        endWakeSession("model_unavailable")
+                        return@launch
                     }
                 }
-                val ready = awaitRecognizerReady(sid, 180_000L)
-                if (!ready || !CarfuSessionGate.isCurrent(sid) || !wakeSessionActive.get()) {
-                    endWakeSession("model_unavailable")
+                if (!CarfuSessionGate.isCurrent(sid) || !wakeSessionActive.get()) {
+                    endWakeSession("cancelled_before_listen")
                     return@launch
                 }
+                if (!sttInputDevice.isRecognizerReady()) {
+                    endWakeSession("stt_not_ready")
+                    return@launch
+                }
+                startCommandListening(reason, sid, androidOnline = false)
+            } catch (c: CancellationException) {
+                CarfuVoiceTrace.coroutineCancelled("startCommandListening_vosk")
+                throw c
             }
-            if (!CarfuSessionGate.isCurrent(sid) || !wakeSessionActive.get()) {
-                endWakeSession("cancelled_before_listen")
-                return@launch
-            }
-            if (!sttInputDevice.isRecognizerReady()) {
-                endWakeSession("stt_not_ready")
-                return@launch
-            }
-            startCommandListening(reason, sid, androidOnline = false)
         }
     }
 
@@ -523,7 +543,19 @@ class SkillEvaluatorImpl(
                 return
             }
             val started = withContext(Dispatchers.Main) {
-                sttInputDevice.stopListening()
+                sttInputDevice.stopListening("arm_pre_start")
+                // Phase 4.2: COMMAND_LISTENING + audio focus BEFORE startListening so the
+                // listening cue cannot play against a live recognizer, and so CARFU does not
+                // request a second focus grant after SpeechRecognizer has already started.
+                if (SpeechRecognizerSessionPolicy.markCommandListeningBeforeStartListening()) {
+                    commandSession.onCommandAudioStarted(
+                        sampleRate = 16000,
+                        bufferSize = 0,
+                        audioSource = android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                        modelPath = CommandRecognitionPolicy.ANDROID_MODEL_PATH,
+                        needsResample = false,
+                    )
+                }
                 sttInputDevice.tryLoad(::processInputEvent)
             }
             if (!started) {
@@ -531,13 +563,15 @@ class SkillEvaluatorImpl(
                 endWakeSession("android_stt_not_started")
                 return
             }
-            commandSession.onCommandAudioStarted(
-                sampleRate = 16000,
-                bufferSize = 0,
-                audioSource = android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                modelPath = CommandRecognitionPolicy.ANDROID_MODEL_PATH,
-                needsResample = false,
-            )
+            if (!SpeechRecognizerSessionPolicy.markCommandListeningBeforeStartListening()) {
+                commandSession.onCommandAudioStarted(
+                    sampleRate = 16000,
+                    bufferSize = 0,
+                    audioSource = android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    modelPath = CommandRecognitionPolicy.ANDROID_MODEL_PATH,
+                    needsResample = false,
+                )
+            }
             armSilenceWatch(sessionId)
             CarfuLog.i(
                 CommandSession.TAG,
@@ -571,7 +605,7 @@ class SkillEvaluatorImpl(
                 "hubRecording=${CarfuPcmHub.isRecording()} hubConsumer=${CarfuPcmHub.hasCommandConsumer()}",
         )
         val started = withContext(Dispatchers.Main) {
-            sttInputDevice.stopListening()
+            sttInputDevice.stopListening("vosk_arm_pre_start")
             sttInputDevice.tryLoad(::processInputEvent)
         }
         if (!started || !sttInputDevice.isRecognizerReady()) {
@@ -635,9 +669,11 @@ class SkillEvaluatorImpl(
             val sid = commandSession.ui.value.sessionId
             val origin = CarfuSessionGate.fromActivation(commandSession.activationOrigin)
             val hadTranscript = sessionHadTranscript.getAndSet(false)
-            sttInputDevice.stopListening()
+            sttInputDevice.stopListening("endWakeSession:$reason")
             VoiceSessionManager.onListenTerminal(sid, reason)
             VoiceSessionManager.terminate(sid, reason)
+            CarfuVoiceTrace.terminal(reason)
+            CarfuVoiceTrace.sessionEnd(reason)
             CarfuLatencyLog.logSessionEvent(
                 "SESSION_END",
                 "reason=${sessionEndReasonTag(reason)} detail=$reason",
@@ -950,7 +986,7 @@ class SkillEvaluatorImpl(
                 commandSession.onSpeechBegin()
                 commandSession.onFinalText(original)
                 sessionHadTranscript.set(true)
-                sttInputDevice.stopListening()
+                sttInputDevice.stopListening("final_transcript")
                 processUnderstandingDecision(decision, original, merged)
             }
             InputEvent.None -> {
@@ -1023,7 +1059,7 @@ class SkillEvaluatorImpl(
             "intent=${decision.intent} candidates=${candidates.size} " +
                 "reason=${decision.reason}",
         )
-        sttInputDevice.stopListening()
+        sttInputDevice.stopListening("transcript_rescued")
         processUnderstandingDecision(decision, decision.rawTranscript, candidates)
         return true
     }
