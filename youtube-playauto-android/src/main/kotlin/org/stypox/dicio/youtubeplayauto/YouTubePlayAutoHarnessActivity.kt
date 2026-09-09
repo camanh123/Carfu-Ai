@@ -132,6 +132,8 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         appendLine("Select attempt count: ${result.selectAttemptCount}")
         appendLine("YouTube left open: ${result.youtubeLeftOpen}")
         appendLine("Failure: ${result.failure ?: "none"}")
+        val diag = result.diagnostics ?: YouTubePlayAutoSelectBus.diagnostics()
+        append(diag.format())
         appendLine("PLAYBACK_CONFIRMED: not claimed from this harness")
         appendLine("Voice connected: NO")
     }
@@ -161,6 +163,7 @@ class YouTubePlayAutoHarnessActivity : Activity() {
                                     else -> null
                                 },
                                 youtubeLeftOpen = true,
+                                diagnostics = YouTubePlayAutoSelectBus.diagnostics(),
                             ),
                         ),
                     )

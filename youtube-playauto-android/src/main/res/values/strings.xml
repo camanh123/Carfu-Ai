@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="harness_app_name">CARFU YT PlayAuto 4.8</string>
-    <string name="harness_title">Phase 4.8 YouTube PlayAuto driver harness</string>
+    <string name="harness_app_name">CARFU YT PlayAuto 4.8.1</string>
+    <string name="harness_title">Phase 4.8.1 YouTube search-submit harness</string>
     <string name="harness_subtitle">Standalone test only. Not connected to Voice / NLU / production CARFU. Enable the harness Accessibility service to select+play inside YouTube.</string>
     <string name="harness_playauto">PlayAuto YouTube</string>
     <string name="harness_a11y_settings">A11y settings</string>

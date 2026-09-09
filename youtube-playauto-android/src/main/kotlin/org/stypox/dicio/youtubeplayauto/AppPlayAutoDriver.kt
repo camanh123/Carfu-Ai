@@ -30,4 +30,5 @@ data class YouTubePlayAutoResult(
     val youtubeLeftOpen: Boolean = false,
     val searchDispatchCount: Int = 0,
     val selectAttemptCount: Int = 0,
+    val diagnostics: YouTubePlayAutoDiagnostics? = null,
 )
