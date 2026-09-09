@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="harness_app_name">CARFU YT PlayAuto 4.7</string>
+    <string name="harness_title">Phase 4.7 YouTube PlayAuto harness</string>
+    <string name="harness_subtitle">Standalone test only. Not connected to Voice / NLU / production CARFU.</string>
+    <string name="harness_query_label">Query</string>
+    <string name="harness_video_id_label">Injected video ID (optional, DEEP_LINK only)</string>
+    <string name="harness_mode_dry">Dry run (no launch)</string>
+    <string name="harness_mode_device">Device test (launch YouTube)</string>
+    <string name="harness_detect">Detect YouTube</string>
+    <string name="harness_open_app">Open App</string>
+    <string name="harness_search">Search</string>
+    <string name="harness_deep_link">Deep Link</string>
+    <string name="harness_direct_play">Direct Play</string>
+    <string name="harness_default_query">Đừng Xa Em Đêm Nay</string>
+</resources>
