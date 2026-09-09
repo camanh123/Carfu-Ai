@@ -120,4 +120,28 @@ class VoiceToActionLatencyTest : StringSpec({
         terminal shouldContain "eos_to_final=6000"
         VoiceToActionLatency.hasLockedCommand() shouldBe false
     }
+
+    "fast-path summary records complete_partial_to_action under 1s after stability" {
+        val clock = mutableListOf(0L)
+        CarfuLatencyLog.nowMs = { clock[0] }
+        CarfuVoiceTrace.bind(8L, VoiceTriggerManager.Origin.UI_MODE)
+        VoiceToActionLatency.begin("8")
+        clock[0] = 500L
+        VoiceToActionLatency.mark(VoiceToActionStage.FIRST_SPEECH)
+        clock[0] = 800L
+        VoiceToActionLatency.mark(VoiceToActionStage.PARTIAL_TRANSCRIPT)
+        clock[0] = 1_000L
+        VoiceToActionLatency.mark(VoiceToActionStage.COMPLETE_PARTIAL_HELD)
+        clock[0] = 1_350L
+        VoiceToActionLatency.mark(VoiceToActionStage.STABLE_COMPLETE_COMMIT)
+        VoiceToActionLatency.mark(VoiceToActionStage.STOP_REQUEST)
+        clock[0] = 1_360L
+        VoiceToActionLatency.mark(VoiceToActionStage.COMMAND_LOCKED)
+        clock[0] = 1_370L
+        VoiceToActionLatency.mark(VoiceToActionStage.ACTION_REQUEST)
+        val summary = VoiceToActionLatency.summary()
+        summary shouldContain "complete_partial_to_commit=350"
+        summary shouldContain "complete_partial_to_action=370"
+        VoiceToActionLatency.end("complete")
+    }
 })

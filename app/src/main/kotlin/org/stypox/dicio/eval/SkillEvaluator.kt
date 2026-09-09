@@ -54,6 +54,8 @@ import org.stypox.dicio.io.session.UnderstandingResult
 import org.stypox.dicio.io.session.VietnameseCommandUnderstanding
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.session.CarfuVoiceTrace
+import org.stypox.dicio.io.session.StableCompletePartialPolicy
+import org.stypox.dicio.io.session.StableCompletePartialTracker
 import org.stypox.dicio.io.session.VoiceLifecycleLog
 import org.stypox.dicio.io.session.VoiceToActionLatency
 import org.stypox.dicio.io.session.VoiceToActionStage
@@ -134,6 +136,17 @@ class SkillEvaluatorImpl(
             handleSilentNoSpeech(
                 "product_silence_${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS}ms",
             )
+        }
+    }
+
+    private val stablePartialRunnable = Runnable {
+        val sid = commandSession.ui.value.sessionId
+        if (sid == 0L) return@Runnable
+        val obs = StableCompletePartialTracker.onTimer(sid, CarfuLatencyLog.nowMs())
+        if (obs.decision != StableCompletePartialTracker.Decision.COMMIT) return@Runnable
+        val result = obs.result ?: return@Runnable
+        scope.launch {
+            commitStableCompletePartial(result, obs.reason)
         }
     }
 
@@ -243,6 +256,8 @@ class SkillEvaluatorImpl(
             return
         }
         val sid = CarfuSessionGate.cancel(reason)
+        cancelStablePartialWatch()
+        StableCompletePartialTracker.markCancelled()
         sttInputDevice.stopListening("cancelActiveSession:$reason")
         try {
             skillContext.speechOutputDevice.stopSpeaking()
@@ -269,6 +284,7 @@ class SkillEvaluatorImpl(
             ?: CarfuSessionGate.fromActivation(commandSession.activationOrigin)
         val sid = CarfuSessionGate.cancel(reason, onlyOrigin = null)
         cancelSilenceWatch()
+        cancelStablePartialWatch()
         sttInputDevice.stopListening("cancelUserInitiatedSession:$reason")
         try {
             skillContext.speechOutputDevice.stopSpeaking()
@@ -283,6 +299,7 @@ class SkillEvaluatorImpl(
         if (endSid != 0L) {
             SessionCommandDecision.markCancelled(endSid)
             CanonicalActionGate.markCancelled(endSid)
+            StableCompletePartialTracker.markCancelled()
         }
         wakeSessionActive.set(false)
         if (endSid != 0L) {
@@ -378,6 +395,7 @@ class SkillEvaluatorImpl(
         sessionBestCandidates.set(emptyList())
         SessionCommandDecision.bindSession(result.sessionId)
         CanonicalActionGate.bind(result.sessionId)
+        StableCompletePartialTracker.bind(result.sessionId)
         CommandSessionOutcome.reset()
         CarfuLatencyLog.bindSession(result.sessionId)
         CarfuVoiceTrace.bind(result.sessionId, trigger.origin)
@@ -485,6 +503,19 @@ class SkillEvaluatorImpl(
     private fun cancelSilenceWatch() {
         mainHandler.removeCallbacks(silenceWatchRunnable)
         silenceWatchSessionId = 0L
+    }
+
+    private fun cancelStablePartialWatch() {
+        mainHandler.removeCallbacks(stablePartialRunnable)
+    }
+
+    private fun armStablePartialWatch(delayMs: Long) {
+        cancelStablePartialWatch()
+        if (delayMs <= 0L) {
+            stablePartialRunnable.run()
+            return
+        }
+        mainHandler.postDelayed(stablePartialRunnable, delayMs)
     }
 
     private fun armSilenceWatch(sessionId: Long) {
@@ -696,6 +727,7 @@ class SkillEvaluatorImpl(
     ) {
         if (wakeSessionActive.compareAndSet(true, false)) {
             cancelSilenceWatch()
+            cancelStablePartialWatch()
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_END)
             val sid = commandSession.ui.value.sessionId
             val origin = CarfuSessionGate.fromActivation(commandSession.activationOrigin)
@@ -837,6 +869,7 @@ class SkillEvaluatorImpl(
     private fun finishSessionWithoutWakeResume(reason: String) {
         if (wakeSessionActive.compareAndSet(true, false)) {
             cancelSilenceWatch()
+            cancelStablePartialWatch()
             val sid = commandSession.ui.value.sessionId
             val origin = CarfuSessionGate.fromActivation(commandSession.activationOrigin)
             val hadTranscript = sessionHadTranscript.getAndSet(false)
@@ -1020,7 +1053,13 @@ class SkillEvaluatorImpl(
                 commandSession.onSpeechBegin()
                 commandSession.onFinalText(original)
                 sessionHadTranscript.set(true)
+                cancelStablePartialWatch()
+                StableCompletePartialTracker.markCommitted()
                 sttInputDevice.stopListening("final_transcript")
+                VoiceToActionLatency.mark(
+                    VoiceToActionStage.STOP_REQUEST,
+                    "reason=final_transcript",
+                )
                 processUnderstandingDecision(decision, original, merged)
             }
             InputEvent.None -> {
@@ -1064,7 +1103,7 @@ class SkillEvaluatorImpl(
                     VoiceToActionLatency.mark(
                         VoiceToActionStage.COMPLETE_PARTIAL_HELD,
                         "intent=${provisional.intent} cmd=${provisional.command} " +
-                            "executable=false wait_for_android_final=true " +
+                            "eligible=${StableCompletePartialPolicy.isEligible(provisional)} " +
                             "text=${event.utterance.trim().take(80)}",
                     )
                 }
@@ -1078,6 +1117,7 @@ class SkillEvaluatorImpl(
                     )
                 )
                 logFastPartialHeld(event.utterance)
+                observeStableCompletePartial(sid, provisional)
             }
         }
     }
@@ -1123,13 +1163,83 @@ class SkillEvaluatorImpl(
     }
 
     /**
-     * Kept for future Smart work / tests. Must not call [SttInputDevice.stopListening]
-     * or otherwise terminate the active SpeechRecognizer session.
+     * Kept for tests / documentation. Immediate first-partial execute stays disabled;
+     * stable COMPLETE commit is [observeStableCompletePartial].
      */
     @Suppress("unused")
     private suspend fun tryFastPartialExecution(utterance: String) {
-        // Runtime-disabled: known-good listener requires Google Final before execute.
         logFastPartialHeld(utterance)
+    }
+
+    private fun observeStableCompletePartial(sid: Long, provisional: UnderstandingResult) {
+        if (!StableCompletePartialPolicy.isEnabled()) return
+        if (CommandSessionOutcome.peek() != CommandSessionOutcome.Kind.OPEN) return
+        val obs = StableCompletePartialTracker.onPartial(
+            sid,
+            provisional,
+            CarfuLatencyLog.nowMs(),
+        )
+        when (obs.decision) {
+            StableCompletePartialTracker.Decision.COMMIT -> {
+                cancelStablePartialWatch()
+                scope.launch {
+                    commitStableCompletePartial(obs.result ?: provisional, obs.reason)
+                }
+            }
+            StableCompletePartialTracker.Decision.WAIT -> {
+                armStablePartialWatch(obs.remainingMs)
+            }
+            StableCompletePartialTracker.Decision.IGNORE -> {
+                cancelStablePartialWatch()
+            }
+        }
+    }
+
+    private suspend fun commitStableCompletePartial(
+        result: UnderstandingResult,
+        reason: String,
+    ) {
+        val sid = result.sessionId.takeIf { it != 0L }
+            ?: commandSession.ui.value.sessionId
+        if (SessionCommandDecision.isCancelled(sid) ||
+            CanonicalActionGate.isCancelled(sid) ||
+            VoiceSessionManager.shouldIgnoreCallback(sid)
+        ) {
+            CarfuLatencyLog.logSessionEvent("STABLE_PARTIAL_SKIPPED", "stale_or_cancelled")
+            return
+        }
+        if (CommandSessionOutcome.peek() != CommandSessionOutcome.Kind.OPEN) {
+            CarfuLatencyLog.logSessionEvent(
+                "STABLE_PARTIAL_SKIPPED",
+                "terminal=${CommandSessionOutcome.peek()}",
+            )
+            return
+        }
+        if (!StableCompletePartialPolicy.isEligible(result)) {
+            return
+        }
+        val toLock = result.copy(sessionId = sid, executable = true)
+        val locked = SessionCommandDecision.lockFinal(sid, toLock) ?: return
+        VoiceToActionLatency.mark(
+            VoiceToActionStage.STABLE_COMPLETE_COMMIT,
+            "reason=$reason intent=${locked.intent} cmd=${locked.command}",
+        )
+        CarfuLatencyLog.logSessionEvent(
+            "STABLE_COMPLETE_COMMIT",
+            "reason=$reason intent=${locked.intent} cmd=${locked.command}",
+        )
+        cancelStablePartialWatch()
+        sttInputDevice.stopListening("stable_complete_partial")
+        VoiceToActionLatency.mark(
+            VoiceToActionStage.STOP_REQUEST,
+            "reason=stable_complete_partial",
+        )
+        sessionHadTranscript.set(true)
+        processUnderstandingDecision(
+            locked,
+            locked.rawTranscript,
+            listOf(locked.rawTranscript to locked.recognizerConfidence.coerceAtLeast(1f)),
+        )
     }
 
     private suspend fun processUnderstandingDecision(

@@ -391,6 +391,10 @@ class AndroidSpeechInputDevice(
         override fun onEndOfSpeech() {
             if (!isCurrent("onEndOfSpeech")) return
             // Logged only — must not terminate the product session.
+            // Do NOT call SpeechRecognizer.stopListening() here: EOS means the OEM
+            // endpointer already stopped capture. Remaining delay is remote/final
+            // processing. stopListening after EOS is unproven and OEM-unsafe.
+            // Do NOT cancel()/destroy() here either — that would abort onResults.
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.END_OF_SPEECH)
             CarfuLatencyLog.logPipelineStage("SR_END_OF_SPEECH")
             CarfuVoiceTrace.srEndSpeech()

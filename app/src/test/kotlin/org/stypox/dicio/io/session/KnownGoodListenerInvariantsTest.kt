@@ -51,9 +51,10 @@ class KnownGoodListenerInvariantsTest : StringSpec({
         ) shouldBe SpeechRecognizerSessionPolicy.ProductAction.KEEP_PRODUCT_SESSION
     }
 
-    "E: partials must not execute or terminate the listener early" {
+    "E: partials must not terminate the listener; unstable first-partial execute stays off" {
         KnownGoodListenerInvariants.partialMayTerminateListener().shouldBeFalse()
         KnownGoodListenerInvariants.fastPartialRuntimeExecutionEnabled().shouldBeFalse()
+        KnownGoodListenerInvariants.stableCompletePartialFastPathEnabled().shouldBeTrue()
     }
 
     "F: final n-best still routes through Smart matcher exactly once" {

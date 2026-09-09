@@ -7,11 +7,18 @@ import io.kotest.matchers.string.shouldContain
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 
 class VoiceToActionLatencyPolicyTest : StringSpec({
-    "current execution waits for Android Final, not complete partials" {
-        VoiceToActionLatencyPolicy.waitsForAndroidFinalBeforeExecute() shouldBe true
-        VoiceToActionLatencyPolicy.executesFromCompletePartial() shouldBe false
+    "current execution may commit a stable COMPLETE partial, never the first one" {
+        VoiceToActionLatencyPolicy.waitsForAndroidFinalBeforeExecute() shouldBe false
+        VoiceToActionLatencyPolicy.executesFromCompletePartial() shouldBe true
         VoiceToActionLatencyPolicy.tryFastPartialExecutionEnabled() shouldBe false
+        VoiceToActionLatencyPolicy.stableCompletePartialEnabled() shouldBe true
+        VoiceToActionLatencyPolicy.callsStopListeningAfterEndOfSpeech() shouldBe false
         KnownGoodListenerInvariants.fastPartialRuntimeExecutionEnabled() shouldBe false
+        KnownGoodListenerInvariants.stableCompletePartialFastPathEnabled() shouldBe true
+        KnownGoodListenerInvariants.partialMayTerminateListener() shouldBe false
+        StableCompletePartialPolicy.firstCompletePartialExecutesImmediately() shouldBe false
+        StableCompletePartialPolicy.usesSpeechRecognizerStopListeningApi() shouldBe false
+        StableCompletePartialPolicy.retireRecognizerUsesCancelThenDestroy() shouldBe true
     }
 
     "product 5s timeout is no-speech only and does not apply after speech" {
@@ -57,6 +64,7 @@ class VoiceToActionLatencyPolicyTest : StringSpec({
         SessionCommandDecision.onPartial(1L, u)
         SessionCommandDecision.provisional(1L)!!.executable shouldBe false
         SessionCommandDecision.locked(1L) shouldBe null
-        VoiceToActionLatencyPolicy.executesFromCompletePartial() shouldBe false
+        VoiceToActionLatencyPolicy.tryFastPartialExecutionEnabled() shouldBe false
+        StableCompletePartialPolicy.firstCompletePartialExecutesImmediately() shouldBe false
     }
 })

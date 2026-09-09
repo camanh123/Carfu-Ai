@@ -45,6 +45,9 @@ object KnownGoodListenerInvariants {
 
     fun fastPartialRuntimeExecutionEnabled(): Boolean = false
 
+    fun stableCompletePartialFastPathEnabled(): Boolean =
+        StableCompletePartialPolicy.isEnabled()
+
     fun appSideNoSpeechKillerMs(): Long =
         CommandRecognitionPolicy.ANDROID_NO_SPEECH_AFTER_READY_MS
 
