@@ -146,7 +146,7 @@ class Phase44SemanticEarlyCommitTest : StringSpec({
         CommandTranscriptNormalizer.isPrefixOfSupportedNavigation(open.normalizedTranscript)
             .shouldBeFalse()
         StableCompletePartialPolicy.canExtendToHigherPriorityCanonical(open).shouldBeFalse()
-        // PLAY_MEDIA requires "mở bài … trên …", a different shape.
+        // No provider preposition → still OPEN_APP, not PLAY_MEDIA.
         u("Mở YouTube và tìm bài hát").intent shouldBe VoiceIntent.OPEN_APP
     }
 

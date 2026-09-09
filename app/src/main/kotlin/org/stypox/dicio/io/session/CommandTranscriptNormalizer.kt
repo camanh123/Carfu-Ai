@@ -157,6 +157,9 @@ object CommandTranscriptNormalizer {
         ) {
             return Domain.MEDIA
         }
+        if (VietnameseMediaCommandGrammar.isMediaCommand(folded)) {
+            return Domain.MEDIA
+        }
         if (OPEN_APP_PREFIX.containsMatchIn(folded) || looksLikeBareAppName(folded)) {
             return Domain.OPEN_APP
         }
@@ -183,9 +186,20 @@ object CommandTranscriptNormalizer {
         return bestAppTarget(remainder)
     }
 
+    private val OPEN_FILLERS: List<String> = listOf("giup toi", "giup")
+
     /** Folded remainder after `mở` / `bật` / `mở ứng dụng`, or [folded] if none. */
-    fun openAppRemainder(folded: String): String =
-        OPEN_APP_PREFIX.replace(folded, "").trim().ifBlank { folded }
+    fun openAppRemainder(folded: String): String {
+        var remainder = OPEN_APP_PREFIX.replace(folded, "").trim().ifBlank { folded }
+        for (filler in OPEN_FILLERS) {
+            if (remainder == filler) return ""
+            if (remainder.startsWith("$filler ")) {
+                remainder = remainder.removePrefix("$filler ").trim()
+                break
+            }
+        }
+        return remainder
+    }
 
     /** Exact alias match only — not the 0.78 fuzzy [bestAppTarget] path. */
     fun hasExactAppAlias(foldedRemainder: String): Boolean {

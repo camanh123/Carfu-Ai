@@ -99,7 +99,14 @@ object SemanticEndpointPolicy {
                     SemanticState.INCOMPLETE
                 }
             }
-            CommandTranscriptNormalizer.Domain.MEDIA -> SemanticState.COMPLETE
+            CommandTranscriptNormalizer.Domain.MEDIA -> {
+                val parsed = VietnameseMediaCommandGrammar.parseFolded(folded)
+                when {
+                    parsed == null -> SemanticState.COMPLETE
+                    parsed.complete -> SemanticState.COMPLETE
+                    else -> SemanticState.INCOMPLETE
+                }
+            }
             CommandTranscriptNormalizer.Domain.UNKNOWN -> SemanticState.UNKNOWN
         }
     }

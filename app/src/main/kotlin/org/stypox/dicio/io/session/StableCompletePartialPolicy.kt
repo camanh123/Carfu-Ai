@@ -12,7 +12,8 @@ package org.stypox.dicio.io.session
  * Phase 4.4 commits from **semantic completeness**, not time:
  * - OPEN_APP: exact unique catalog app, not prefix-ambiguous, not a prefix of
  *   a higher-priority supported canonical command (Navigate `"mở bản đồ đến …"`).
- * - PLAY_MEDIA: complete query + known provider (`mở bài … trên …`).
+ * - PLAY_MEDIA: complete query + known provider (compositional Vietnamese media
+ *   grammar; not a hardcoded utterance list).
  *
  * NAVIGATE stays on the conservative 4.3B.1 rule: two consecutive identical
  * COMPLETE fingerprints **and** onEndOfSpeech, plus a multi-token destination.
@@ -135,8 +136,9 @@ object StableCompletePartialPolicy {
      * 2. Prefix of a supported NAVIGATE command (`mo ban do` → `mo ban do den …`).
      *
      * `"Mở YouTube"` is **not** a prefix of a higher-priority supported command:
-     * YouTube Music is not in the OpenApp catalog, and PLAY_MEDIA requires
-     * `"mở bài … trên …"` (a different verb/entity shape).
+     * YouTube Music is not in the OpenApp catalog. PLAY_MEDIA needs a media query
+     * plus an explicit provider preposition (`trên` / `bằng` / …), which `"Mở YouTube"`
+     * does not contain.
      */
     fun isOpenAppPrefixAmbiguous(result: UnderstandingResult): Boolean {
         val folded = result.normalizedTranscript

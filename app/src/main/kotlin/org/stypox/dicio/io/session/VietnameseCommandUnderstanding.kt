@@ -33,9 +33,6 @@ object VietnameseCommandUnderstanding {
 
     private val OPEN_PREFIX = Regex("""^(?:mo|bat|mo app|mo ung dung)\s+""")
 
-    /** "mở bài <query> trên <provider>" — capture original text via trailing alignment. */
-    private val PLAY_MEDIA_FOLDED = Regex("""^mo bai (.+) tren (.+)$""")
-
     private val KNOWN_APP_LABELS: Map<String, String> = mapOf(
         "youtube" to "YouTube",
         "you tube" to "YouTube",
@@ -53,16 +50,6 @@ object VietnameseCommandUnderstanding {
         "google maps" to "Maps",
         "chrome" to "Chrome",
         "google chrome" to "Chrome",
-    )
-
-    private val PROVIDER_LABELS: Map<String, String> = mapOf(
-        "youtube" to "YouTube",
-        "you tube" to "YouTube",
-        "yt" to "YouTube",
-        "smarttube" to "SmartTube",
-        "smart tube" to "SmartTube",
-        "musicloop" to "MusicLoop",
-        "music loop" to "MusicLoop",
     )
 
     fun understand(
@@ -95,6 +82,8 @@ object VietnameseCommandUnderstanding {
                 recognizerConfidence = recognizerConfidence,
             )
         }
+        mediaResult(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
+            ?.let { return it }
         if (VietnameseTranscript.isTooWeakToSubmit(trimmed)) {
             return UnderstandingResult.unknown(
                 sessionId = sessionId,
@@ -106,8 +95,6 @@ object VietnameseCommandUnderstanding {
             )
         }
 
-        understandPlayMedia(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
-            ?.let { return it }
         understandNavigate(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
             ?.let { return it }
         understandOpenApp(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
@@ -249,48 +236,35 @@ object VietnameseCommandUnderstanding {
         )
     }
 
-    private fun understandPlayMedia(
+    private fun mediaResult(
         raw: String,
         folded: String,
         sessionId: Long,
         candidateIndex: Int,
         recognizerConfidence: Float,
     ): UnderstandingResult? {
-        // Incomplete: "mở bài trên YouTube" / "mo bai tren youtube"
-        if (Regex("""^mo bai tren .+$""").matches(folded)) {
-            val provider = resolveProviderLabel(
-                folded.removePrefix("mo bai tren ").trim(),
-            )
+        val analysis = VietnameseMediaCommandGrammar.parse(raw, folded) ?: return null
+        if (!analysis.complete) {
             return UnderstandingResult.incomplete(
                 sessionId = sessionId,
                 raw = raw,
                 normalized = folded,
                 intent = VoiceIntent.PLAY_MEDIA,
-                reason = "media_missing_query",
+                reason = analysis.reason,
                 candidateIndex = candidateIndex,
                 recognizerConfidence = recognizerConfidence,
-                entities = provider?.let { mapOf(CommandEntityKeys.PROVIDER to it) }
-                    ?: emptyMap(),
+                entities = buildMap {
+                    if (analysis.queryRaw.isNotBlank()) {
+                        put(CommandEntityKeys.QUERY, analysis.queryRaw)
+                    } else if (analysis.queryFolded.isNotBlank()) {
+                        put(CommandEntityKeys.QUERY, analysis.queryFolded)
+                    }
+                    analysis.providerLabel?.let { put(CommandEntityKeys.PROVIDER, it) }
+                },
             )
         }
-        if (folded == "mo bai" || folded.startsWith("mo bai ") && !folded.contains(" tren ")) {
-            // Partial media without provider — incomplete, not OPEN_APP.
-            if (folded == "mo bai" || folded.removePrefix("mo bai ").trim().isNotEmpty()) {
-                return UnderstandingResult.incomplete(
-                    sessionId = sessionId,
-                    raw = raw,
-                    normalized = folded,
-                    intent = VoiceIntent.PLAY_MEDIA,
-                    reason = "media_incomplete",
-                    candidateIndex = candidateIndex,
-                    recognizerConfidence = recognizerConfidence,
-                )
-            }
-        }
-        val match = PLAY_MEDIA_FOLDED.matchEntire(folded) ?: return null
-        val queryFolded = match.groupValues[1].trim()
-        val providerFolded = match.groupValues[2].trim()
-        if (queryFolded.isEmpty()) {
+        val queryRaw = analysis.queryRaw.trim()
+        if (queryRaw.isBlank()) {
             return UnderstandingResult.incomplete(
                 sessionId = sessionId,
                 raw = raw,
@@ -301,21 +275,11 @@ object VietnameseCommandUnderstanding {
                 recognizerConfidence = recognizerConfidence,
             )
         }
-        val providerLabel = resolveProviderLabel(providerFolded)
-            ?: titleCaseWords(extractTrailingWords(raw, providerFolded.split(' ').size))
-        val queryRaw = extractMediaQueryRaw(raw, queryFolded, providerFolded)
-        if (queryRaw.isBlank()) {
-            return UnderstandingResult.incomplete(
-                sessionId = sessionId,
-                raw = raw,
-                normalized = folded,
-                intent = VoiceIntent.PLAY_MEDIA,
-                reason = "media_query_extract_failed",
-                candidateIndex = candidateIndex,
-                recognizerConfidence = recognizerConfidence,
-            )
-        }
-        val command = CanonicalCommand.PlayMedia(query = queryRaw, provider = providerLabel)
+        val providerLabel = analysis.providerLabel?.trim().orEmpty()
+        val command = CanonicalCommand.PlayMedia(
+            query = queryRaw,
+            provider = providerLabel.ifBlank { null },
+        )
         return UnderstandingResult(
             sessionId = sessionId,
             rawTranscript = raw,
@@ -323,11 +287,10 @@ object VietnameseCommandUnderstanding {
             intent = VoiceIntent.PLAY_MEDIA,
             entities = buildMap {
                 put(CommandEntityKeys.QUERY, queryRaw)
-                put(CommandEntityKeys.PROVIDER, providerLabel)
+                if (providerLabel.isNotBlank()) put(CommandEntityKeys.PROVIDER, providerLabel)
             },
             confidence = 0.92f,
             completeness = SemanticCompleteness.COMPLETE,
-            // Phase 3 executes providers; Phase 2 marks structurally executable.
             executable = true,
             command = command,
             candidateIndex = candidateIndex,
@@ -361,9 +324,9 @@ object VietnameseCommandUnderstanding {
             return null
         }
         // Do not steal media forms.
-        if (folded.startsWith("mo bai ")) return null
+        if (VietnameseMediaCommandGrammar.isMediaCommand(folded)) return null
 
-        val remainderFolded = OPEN_PREFIX.replace(folded, "").trim().ifBlank { folded }
+        val remainderFolded = CommandTranscriptNormalizer.openAppRemainder(folded)
         if (remainderFolded.isEmpty()) {
             return UnderstandingResult.incomplete(
                 sessionId = sessionId,
@@ -616,37 +579,13 @@ object VietnameseCommandUnderstanding {
         return CommandTranscriptNormalizer.hasExactAppAlias(remainder)
     }
 
-    fun isKnownPlayMediaProvider(provider: String?): Boolean {
-        if (provider.isNullOrBlank()) return false
-        val folded = VietnameseTranscript.foldForMatch(provider)
-        return PROVIDER_LABELS.containsKey(folded) ||
-            PROVIDER_LABELS.values.any { it.equals(provider, ignoreCase = true) }
-    }
+    fun isKnownPlayMediaProvider(provider: String?): Boolean =
+        VietnameseMediaCommandGrammar.isKnownProviderLabel(provider)
 
     private fun resolveKnownApp(foldedRemainder: String): String? {
         KNOWN_APP_LABELS[foldedRemainder]?.let { return it }
         // Conservative fuzzy via catalog only (threshold inside normalizer).
         return null
-    }
-
-    private fun resolveProviderLabel(folded: String): String? =
-        PROVIDER_LABELS[folded.trim()]
-
-    private fun extractMediaQueryRaw(
-        raw: String,
-        queryFolded: String,
-        providerFolded: String,
-    ): String {
-        val rawWords = WHITESPACE.split(raw.trim()).filter { it.isNotEmpty() }
-        val queryWordCount = queryFolded.split(' ').filter { it.isNotEmpty() }.size
-        val providerWordCount = providerFolded.split(' ').filter { it.isNotEmpty() }.size
-        // Expect: mở bài <query...> trên <provider...>
-        if (rawWords.size >= 2 + queryWordCount + 1 + providerWordCount) {
-            val queryStart = 2 // after "Mở bài"
-            val queryEnd = queryStart + queryWordCount
-            return rawWords.subList(queryStart, queryEnd).joinToString(" ")
-        }
-        return titleCaseWords(queryFolded)
     }
 
     internal fun extractTrailingWords(raw: String, wordCount: Int): String {
