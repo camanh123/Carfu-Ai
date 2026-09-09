@@ -50,6 +50,10 @@ class CarfuVoiceInteractionSession(context: Context) : VoiceInteractionSession(c
                 CarfuDiag.assist("AMBIENT_CROSS_APP skipped reason=no_overlay_permission")
                 return false
             }
+            if (!org.stypox.dicio.io.session.RecordAudioPermission.isGranted(context)) {
+                CarfuDiag.assist("AMBIENT_CROSS_APP skipped reason=record_audio_not_granted")
+                return false
+            }
             val ep = EntryPointAccessors.fromApplication(
                 context.applicationContext,
                 AmbientVoiceEntryPoint::class.java,

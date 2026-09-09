@@ -112,6 +112,7 @@
     <string name="carfu_state_processing">Đang xử lý…</string>
     <string name="carfu_state_unclear">Tôi chưa nghe rõ</string>
     <string name="carfu_need_internet_service">Vui lòng kết nối Internet để sử dụng dịch vụ.</string>
+    <string name="carfu_need_microphone_permission">Cần quyền microphone để nghe lệnh.</string>
     <string name="carfu_state_unsupported_command">Tôi chưa hiểu lệnh: %1$s</string>
     <string name="carfu_action_nav">Dẫn đường</string>
     <string name="carfu_action_music">Nhạc</string>

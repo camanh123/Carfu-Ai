@@ -42,6 +42,7 @@ import org.stypox.dicio.io.session.CommandSessionOutcome
 import org.stypox.dicio.io.session.CommandPcmStats
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
+import org.stypox.dicio.io.session.RecordAudioPermission
 import org.stypox.dicio.io.session.CanonicalActionGate
 import org.stypox.dicio.io.session.CanonicalCommand
 import org.stypox.dicio.io.session.CanonicalCommandExecutor
@@ -323,6 +324,18 @@ class SkillEvaluatorImpl(
                 return
             }
         val androidOnline = sttInputDevice.usesAndroidOnlineEngine()
+        val recordAudio = RecordAudioPermission.logForVoiceTrigger(
+            skillContext.android,
+            origin = reason,
+        )
+        if (!recordAudio.mayStartSpeechRecognizer()) {
+            VoiceTriggerManager.abandonOpenTrigger(trigger.triggerId, recordAudio.runtimeLabel())
+            RecordAudioPermission.requestOrForeground(
+                skillContext.android,
+                RecordAudioPermission.pendingFromActivation(origin),
+            )
+            return
+        }
         // Online-first: do not enter a broken listen loop without Internet.
         if (androidOnline &&
             !VoiceOnlinePolicy.mayEnterOnlineVoiceSession(
@@ -577,16 +590,25 @@ class SkillEvaluatorImpl(
                 // Phase 4.2: COMMAND_LISTENING + audio focus BEFORE startListening so the
                 // listening cue cannot play against a live recognizer, and so CARFU does not
                 // request a second focus grant after SpeechRecognizer has already started.
-                if (SpeechRecognizerSessionPolicy.markCommandListeningBeforeStartListening()) {
-                    commandSession.onCommandAudioStarted(
-                        sampleRate = 16000,
-                        bufferSize = 0,
-                        audioSource = android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                        modelPath = CommandRecognitionPolicy.ANDROID_MODEL_PATH,
-                        needsResample = false,
+                val recordAudio = RecordAudioPermission.snapshot(skillContext.android)
+                if (!recordAudio.mayMarkProductListening()) {
+                    CarfuLog.e(
+                        CommandSession.TAG,
+                        "android_stt_start_blocked ${recordAudio.runtimeLabel()}",
                     )
+                    false
+                } else {
+                    if (SpeechRecognizerSessionPolicy.markCommandListeningBeforeStartListening()) {
+                        commandSession.onCommandAudioStarted(
+                            sampleRate = 16000,
+                            bufferSize = 0,
+                            audioSource = android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                            modelPath = CommandRecognitionPolicy.ANDROID_MODEL_PATH,
+                            needsResample = false,
+                        )
+                    }
+                    sttInputDevice.tryLoad(::processInputEvent)
                 }
-                sttInputDevice.tryLoad(::processInputEvent)
             }
             if (!started) {
                 CarfuLog.e(CommandSession.TAG, "android_stt_start_failed reason=$reason")
