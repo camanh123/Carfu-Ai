@@ -1,7 +1,11 @@
 package org.stypox.dicio.youtubeplayauto
 
 import android.app.Activity
+import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.widget.Button
 import android.widget.EditText
 import android.widget.RadioButton
@@ -16,7 +20,7 @@ import org.stypox.dicio.playauto.provider.MediaProvider
 import org.stypox.dicio.playauto.provider.ProviderRegistry
 
 /**
- * Standalone Phase 4.7 device harness. Not the CARFU voice flow.
+ * Standalone YouTube PlayAuto harness. Not the CARFU voice flow.
  * No launch on startup; the tester must press a button.
  */
 class YouTubePlayAutoHarnessActivity : Activity() {
@@ -29,6 +33,10 @@ class YouTubePlayAutoHarnessActivity : Activity() {
 
     private lateinit var runtime: AndroidYouTubeRuntime
     private lateinit var adapter: YouTubeMediaAdapter
+    private lateinit var selector: AndroidYouTubeInAppSelector
+    private lateinit var driver: YouTubePlayAutoDriver
+    private val handler = Handler(Looper.getMainLooper())
+    private var pollSelect: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,6 +50,8 @@ class YouTubePlayAutoHarnessActivity : Activity() {
 
         runtime = AndroidYouTubeRuntime(this)
         adapter = YouTubeMediaAdapter(runtime)
+        selector = AndroidYouTubeInAppSelector(this)
+        driver = YouTubePlayAutoDriver(adapter, selector)
 
         findViewById<Button>(R.id.btn_detect).setOnClickListener { detectOnly() }
         findViewById<Button>(R.id.btn_open_app).setOnClickListener {
@@ -54,8 +64,12 @@ class YouTubePlayAutoHarnessActivity : Activity() {
             runStrategy(PlaybackStrategy.DEEP_LINK)
         }
         findViewById<Button>(R.id.btn_direct_play).setOnClickListener { reportDirectPlay() }
+        findViewById<Button>(R.id.btn_playauto).setOnClickListener { runPlayAuto() }
+        findViewById<Button>(R.id.btn_a11y_settings).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
 
-        logView.text = "Ready. Dry-run is default. Press Detect YouTube. No app is launched until Device test + a strategy button.\n"
+        logView.text = "Ready. Dry-run is default. PlayAuto YouTube uses structured targetApp+query only. Enable the harness Accessibility service, then Device test + PlayAuto YouTube.\n"
     }
 
     private fun launchMode(): YouTubeLaunchMode =
@@ -65,6 +79,11 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         query = queryField.text?.toString().orEmpty(),
         mediaType = MediaType.AUDIO,
         preferredProvider = MediaProvider.YOUTUBE,
+    )
+
+    private fun playAutoRequest(): PlayAutoRequest = PlayAutoRequest(
+        targetApp = "YouTube",
+        query = queryField.text?.toString().orEmpty(),
     )
 
     private fun injectedTarget(): ResolvedYouTubeTarget? {
@@ -81,6 +100,81 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         val snap = adapter.detect()
         val enginePreview = previewEngine(snap)
         render("DETECT", snap, enginePreview, launched = false)
+    }
+
+    private fun runPlayAuto() {
+        adapter.launchMode = launchMode()
+        val snap = adapter.detect()
+        val result = driver.execute(playAutoRequest(), launchMode())
+        render(
+            title = "PLAYAUTO YOUTUBE",
+            snap = snap,
+            extra = formatPlayAuto(result),
+            launched = launchMode() == YouTubeLaunchMode.DEVICE_TEST && result.searchOpened,
+        )
+        if (result.searchOpened &&
+            launchMode() == YouTubeLaunchMode.DEVICE_TEST &&
+            !result.resultSelected
+        ) {
+            pollSelectResult(snap)
+        }
+    }
+
+    private fun formatPlayAuto(result: YouTubePlayAutoResult): String = buildString {
+        appendLine("PlayAutoRequest.targetApp: ${result.targetApp}")
+        appendLine("PlayAutoRequest.query: ${result.query}")
+        appendLine("Accessibility selector: ${selector.isAvailable()}")
+        appendLine("Search opened: ${result.searchOpened}")
+        appendLine("Result selected: ${result.resultSelected}")
+        appendLine("Playback requested: ${result.playbackRequested}")
+        appendLine("Matched title: ${result.matchedTitle ?: "NONE"}")
+        appendLine("Search dispatch count: ${result.searchDispatchCount}")
+        appendLine("Select attempt count: ${result.selectAttemptCount}")
+        appendLine("YouTube left open: ${result.youtubeLeftOpen}")
+        appendLine("Failure: ${result.failure ?: "none"}")
+        appendLine("PLAYBACK_CONFIRMED: not claimed from this harness")
+        appendLine("Voice connected: NO")
+    }
+
+    private fun pollSelectResult(snap: YouTubeCapabilitySnapshot) {
+        pollSelect?.let { handler.removeCallbacks(it) }
+        val started = System.currentTimeMillis()
+        val task = object : Runnable {
+            override fun run() {
+                val outcome = YouTubePlayAutoSelectBus.lastOutcome
+                val selected = outcome as? YouTubeSelectOutcome.Selected
+                val extra = buildString {
+                    appendLine("Select bus: $outcome")
+                    appendLine("Job: ${YouTubePlayAutoSelectBus.job}")
+                    appendLine(
+                        formatPlayAuto(
+                            YouTubePlayAutoResult(
+                                targetApp = "YouTube",
+                                query = playAutoRequest().query,
+                                searchOpened = true,
+                                resultSelected = selected != null,
+                                playbackRequested = selected?.playbackRequested == true,
+                                matchedTitle = selected?.matchedTitle,
+                                failure = when (outcome) {
+                                    is YouTubeSelectOutcome.Failed -> outcome.reason
+                                    is YouTubeSelectOutcome.Unavailable -> outcome.reason
+                                    else -> null
+                                },
+                                youtubeLeftOpen = true,
+                            ),
+                        ),
+                    )
+                }
+                render("PLAYAUTO YOUTUBE (select)", snap, extra, launched = true)
+                val done = outcome is YouTubeSelectOutcome.Selected ||
+                    outcome is YouTubeSelectOutcome.Failed
+                if (!done && System.currentTimeMillis() - started < 13_000L) {
+                    handler.postDelayed(this, 1500L)
+                }
+            }
+        }
+        pollSelect = task
+        handler.postDelayed(task, 1500L)
     }
 
     private fun runStrategy(strategy: PlaybackStrategy) {
@@ -192,5 +286,10 @@ class YouTubePlayAutoHarnessActivity : Activity() {
             if (extra.isNotBlank()) append(extra)
         }
         logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    override fun onDestroy() {
+        pollSelect?.let { handler.removeCallbacks(it) }
+        super.onDestroy()
     }
 }

@@ -140,6 +140,30 @@
             android:textAllCaps="false" />
     </LinearLayout>
 
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_playauto"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_marginEnd="4dp"
+            android:layout_weight="2"
+            android:text="@string/harness_playauto"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_a11y_settings"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:text="@string/harness_a11y_settings"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
     <ScrollView
         android:id="@+id/harness_log_scroll"
         android:layout_width="match_parent"

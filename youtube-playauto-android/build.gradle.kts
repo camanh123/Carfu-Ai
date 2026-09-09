@@ -13,8 +13,8 @@ android {
         applicationId = "org.stypox.dicio.youtubeplayauto"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 47
-        versionName = "4.7-harness"
+        versionCode = 48
+        versionName = "4.8-harness"
     }
 
     buildTypes {
