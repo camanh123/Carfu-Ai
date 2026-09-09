@@ -28,6 +28,9 @@ import org.stypox.dicio.io.session.CarfuPcmHub
 import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.VoiceSessionManager
+import org.stypox.dicio.io.session.VoiceToActionLatency
+import org.stypox.dicio.io.session.VoiceToActionLatencyPolicy
+import org.stypox.dicio.io.session.VoiceToActionStage
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -41,6 +44,10 @@ import java.util.concurrent.atomic.AtomicReference
  * - BOS/EOS are logged only; they do not own session lifetime
  * - SpeechRecognizer callbacks are events; the product silence timeout owns no-speech
  * - stale listeners (wrong generation) cannot terminate a new session
+ *
+ * Phase 4.3A: SpeechRecognizer callbacks also stamp [VoiceToActionLatency]
+ * stages (ready / BOS / EOS / partial / final). That is instrumentation only —
+ * it does not change listener ownership or execute from partials.
  *
  * Never starts a recognizer Activity or a browser search. Never binds this
  * app's own [org.stypox.dicio.io.input.stt_service.SttService].
@@ -201,6 +208,10 @@ class AndroidSpeechInputDevice(
         CarfuVoiceTrace.srCreate(component.packageName, component.className)
         sr.setRecognitionListener(Listener(generation))
         val intent = recognizerIntent()
+        VoiceToActionLatency.mark(
+            VoiceToActionStage.SR_INTENT_CONFIG,
+            VoiceToActionLatencyPolicy.recognizerSilenceExtrasLog(),
+        )
         CarfuLatencyLog.nowMs = { SystemClock.elapsedRealtime() }
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SR_START_LISTENING)
         CarfuLatencyLog.logPipelineStage("SR_START_LISTENING")
@@ -233,6 +244,8 @@ class AndroidSpeechInputDevice(
 
     private fun recognizerIntent(): Intent {
         val cfg = CommandRecognitionPolicy.recognizerIntentConfig()
+        // OEM-sensitive: do NOT put EXTRA_SPEECH_INPUT_* silence/minimum extras.
+        // Policy constants exist for Smart helpers only; unset → OEM endpointer defaults.
         return Intent(cfg.action).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, cfg.languageModel)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, cfg.language)
@@ -358,6 +371,7 @@ class AndroidSpeechInputDevice(
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SR_READY)
             CarfuLatencyLog.logPipelineStage("SR_READY")
             CarfuVoiceTrace.srReady()
+            VoiceToActionLatency.mark(VoiceToActionStage.LISTENING_READY, "sr_onReadyForSpeech")
         }
 
         override fun onBeginningOfSpeech() {
@@ -367,6 +381,7 @@ class AndroidSpeechInputDevice(
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.BEGINNING_OF_SPEECH)
             CarfuLatencyLog.logPipelineStage("SR_BEGIN")
             CarfuVoiceTrace.srBeginSpeech()
+            VoiceToActionLatency.mark(VoiceToActionStage.FIRST_SPEECH, "sr_onBeginningOfSpeech")
         }
 
         override fun onRmsChanged(rmsdB: Float) = Unit
@@ -379,6 +394,7 @@ class AndroidSpeechInputDevice(
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.END_OF_SPEECH)
             CarfuLatencyLog.logPipelineStage("SR_END_OF_SPEECH")
             CarfuVoiceTrace.srEndSpeech()
+            VoiceToActionLatency.mark(VoiceToActionStage.LAST_SPEECH, "sr_onEndOfSpeech")
             if (SpeechRecognizerSessionPolicy.endOfSpeechTerminatesProduct()) {
                 onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) {
                     it(InputEvent.None)
@@ -452,6 +468,10 @@ class AndroidSpeechInputDevice(
                 SpeechRecognizerSessionPolicy.ProductAction.PROCESS_FINAL -> {
                     val text = utterances.firstOrNull()?.first.orEmpty()
                     CarfuVoiceTrace.srFinal(text, utterances.size)
+                    VoiceToActionLatency.mark(
+                        VoiceToActionStage.FINAL_TRANSCRIPT,
+                        "candidates=${utterances.size} text=${text.trim().take(80)}",
+                    )
                     onTerminal(CommandRecognitionPolicy.RecognizerTerminal.RESULT) { listener ->
                         listener(InputEvent.Final(utterances))
                     }
@@ -487,6 +507,10 @@ class AndroidSpeechInputDevice(
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.PARTIAL_RESULT)
             CarfuLatencyLog.logPipelineStage("SR_PARTIAL", "len=${text.length}")
             CarfuVoiceTrace.srPartial(text)
+            VoiceToActionLatency.mark(
+                VoiceToActionStage.PARTIAL_TRANSCRIPT,
+                "len=${text.length} text=${text.trim().take(80)}",
+            )
             // Visible transcript / ranking only — never terminates the SR session.
             listenerRef.get()?.invoke(InputEvent.Partial(text))
         }

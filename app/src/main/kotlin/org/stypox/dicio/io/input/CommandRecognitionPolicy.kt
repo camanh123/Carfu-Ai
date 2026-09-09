@@ -29,7 +29,8 @@ object CommandRecognitionPolicy {
 
     /**
      * Historical Smart-STT constants retained for downstream policy modules / tests.
-     * They must NOT drive SpeechRecognizer lifecycle ownership.
+     * They must NOT drive SpeechRecognizer lifecycle ownership, and they are
+     * **not** written onto RecognizerIntent (OEM-sensitive silence extras stay UNSET).
      */
     const val ANDROID_NO_SPEECH_AFTER_READY_MS = 0L
     const val ANDROID_SILENCE_ENDPOINT_MS = 1_000L

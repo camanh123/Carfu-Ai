@@ -9,6 +9,8 @@ import androidx.annotation.StringRes
 import org.dicio.skill.context.SpeechOutputDevice
 import org.stypox.dicio.R
 import org.stypox.dicio.io.session.CarfuLatencyLog
+import org.stypox.dicio.io.session.VoiceToActionLatency
+import org.stypox.dicio.io.session.VoiceToActionStage
 import java.util.Locale
 
 class AndroidTtsSpeechDevice(private var context: Context, locale: Locale) : SpeechOutputDevice {
@@ -31,6 +33,14 @@ class AndroidTtsSpeechDevice(private var context: Context, locale: Locale) : Spe
                         setOnUtteranceProgressListener(object :
                             UtteranceProgressListener() {
                             override fun onStart(utteranceId: String) {
+                                // Do not map confirmation TTS through CarfuLatencyLog.TTS_ON_START:
+                                // that mark is aliased to ACK_START (MODE listening-cue budget).
+                                if (VoiceToActionLatency.hasLockedCommand()) {
+                                    VoiceToActionLatency.mark(
+                                        VoiceToActionStage.TTS_START,
+                                        "utteranceId=$utteranceId confirmation=true",
+                                    )
+                                }
                                 CarfuLatencyLog.mark(CarfuLatencyLog.Mark.TTS_ON_START)
                             }
                             override fun onDone(utteranceId: String) {
