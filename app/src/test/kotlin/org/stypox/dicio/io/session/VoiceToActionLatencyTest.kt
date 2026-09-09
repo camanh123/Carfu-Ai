@@ -35,7 +35,7 @@ class VoiceToActionLatencyTest : StringSpec({
         VoiceToActionLatency.mark(VoiceToActionStage.COMPLETE_PARTIAL_HELD, "first")
         clock[0] = 1_400L
         VoiceToActionLatency.mark(VoiceToActionStage.COMPLETE_PARTIAL_HELD, "second")
-        VoiceToActionLatency.millisOf(VoiceToActionStage.COMPLETE_PARTIAL_HELD) shouldBeExactly 1_200L
+        VoiceToActionLatency.millisOf(VoiceToActionStage.COMPLETE_PARTIAL_HELD)!! shouldBeExactly 1_200L
         CarfuVoiceTrace.eventsForTests().count { it.contains("COMPLETE_PARTIAL_HELD") } shouldBe 1
     }
 
