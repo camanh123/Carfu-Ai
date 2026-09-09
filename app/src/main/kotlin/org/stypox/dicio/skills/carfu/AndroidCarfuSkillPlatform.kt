@@ -14,6 +14,8 @@ import android.view.KeyEvent
 import androidx.core.content.ContextCompat
 import androidx.datastore.core.DataStore
 import kotlinx.coroutines.runBlocking
+import org.stypox.dicio.io.session.VoiceToActionLatency
+import org.stypox.dicio.io.session.VoiceToActionStage
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.UserSettings
@@ -75,6 +77,10 @@ class AndroidCarfuSkillPlatform(
     private fun startActivity(intent: Intent): Boolean {
         return try {
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            VoiceToActionLatency.mark(
+                VoiceToActionStage.INTENT_DISPATCH,
+                "action=${intent.action} data=${intent.dataString} pkg=${intent.`package`}",
+            )
             context.startActivity(intent)
             started += StartedActivity(
                 action = intent.action,

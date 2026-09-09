@@ -37,6 +37,10 @@ class CanonicalCommandExecutor(
     }
 
     fun executeTraced(command: CanonicalCommand): ExecutionTrace {
+        VoiceToActionLatency.mark(
+            VoiceToActionStage.ACTION_REQUEST,
+            "cmd=${command::class.simpleName}",
+        )
         val speech = VietnameseCommandUnderstanding.confirmationSpeechVi(command).orEmpty()
         val trace = when (command) {
             is CanonicalCommand.Navigate -> executeNavigate(command, speech)

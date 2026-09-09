@@ -55,6 +55,8 @@ import org.stypox.dicio.io.session.VietnameseCommandUnderstanding
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.VoiceLifecycleLog
+import org.stypox.dicio.io.session.VoiceToActionLatency
+import org.stypox.dicio.io.session.VoiceToActionStage
 import org.stypox.dicio.io.session.VoiceOnlinePolicy
 import org.stypox.dicio.io.session.VoiceSessionManager
 import org.stypox.dicio.io.session.VoiceTriggerManager
@@ -124,6 +126,10 @@ class SkillEvaluatorImpl(
         val sid = silenceWatchSessionId
         if (sid == 0L) return@Runnable
         if (!VoiceSessionManager.shouldSilentExit(sid)) return@Runnable
+        VoiceToActionLatency.mark(
+            VoiceToActionStage.SILENCE_TIMEOUT,
+            "product_no_speech_ms=${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS}",
+        )
         scope.launch {
             handleSilentNoSpeech(
                 "product_silence_${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS}ms",
@@ -147,7 +153,19 @@ class SkillEvaluatorImpl(
 
     override fun processInputEvent(event: InputEvent) {
         val sidAtReceive = commandSession.ui.value.sessionId
+        if (event is InputEvent.Final) {
+            VoiceToActionLatency.mark(
+                VoiceToActionStage.INPUT_EVENT_RECEIVED,
+                "event=Final session=$sidAtReceive",
+            )
+        }
         scope.launch {
+            if (event is InputEvent.Final) {
+                VoiceToActionLatency.mark(
+                    VoiceToActionStage.INPUT_EVENT_DISPATCHED,
+                    "event=Final session=$sidAtReceive",
+                )
+            }
             if (VoiceSessionManager.shouldIgnoreCallback(sidAtReceive) ||
                 !CarfuSessionGate.isCurrent(sidAtReceive)
             ) {
@@ -286,6 +304,7 @@ class SkillEvaluatorImpl(
         CarfuLatencyLog.logSessionEvent("MODE_TOGGLE_CANCEL", "reason=$reason")
         CarfuVoiceTrace.terminal(reason)
         CarfuVoiceTrace.sessionEnd(reason)
+        VoiceToActionLatency.end(reason)
     }
 
     private fun beginExternalSession(
@@ -364,6 +383,10 @@ class SkillEvaluatorImpl(
         CarfuVoiceTrace.bind(result.sessionId, trigger.origin)
         CarfuVoiceTrace.trigger(CarfuVoiceTrace.origin)
         CarfuVoiceTrace.sessionStart()
+        VoiceToActionLatency.begin(
+            result.sessionId.toString(),
+            "origin=$gateOrigin triggerId=${trigger.triggerId}",
+        )
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_ACCEPTED)
         when (origin) {
             CarfuActivationSource.Kind.AUTOMATIC_WAKE -> CarfuActivationSource.markAutomaticWake()
@@ -583,6 +606,10 @@ class SkillEvaluatorImpl(
                         true,
                     )}",
             )
+            VoiceToActionLatency.mark(
+                VoiceToActionStage.PRODUCT_LISTENING,
+                "engine=ANDROID_ONLINE silence_watch_ms=${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS}",
+            )
             return
         }
         if (!sttInputDevice.isRecognizerReady()) {
@@ -642,6 +669,10 @@ class SkillEvaluatorImpl(
                 "silenceMs=${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS} " +
                 CommandPcmStats.snapshot(),
         )
+        VoiceToActionLatency.mark(
+            VoiceToActionStage.PRODUCT_LISTENING,
+            "engine=VOSK_LEGACY silence_watch_ms=${VoiceSessionManager.NO_SPEECH_TIMEOUT_MS}",
+        )
     }
 
     private suspend fun awaitCommandConsumer(timeoutMs: Long): Boolean {
@@ -674,6 +705,7 @@ class SkillEvaluatorImpl(
             VoiceSessionManager.terminate(sid, reason)
             CarfuVoiceTrace.terminal(reason)
             CarfuVoiceTrace.sessionEnd(reason)
+            VoiceToActionLatency.end(reason)
             CarfuLatencyLog.logSessionEvent(
                 "SESSION_END",
                 "reason=${sessionEndReasonTag(reason)} detail=$reason",
@@ -810,6 +842,7 @@ class SkillEvaluatorImpl(
             val hadTranscript = sessionHadTranscript.getAndSet(false)
             VoiceSessionManager.onListenTerminal(sid, reason)
             VoiceSessionManager.terminate(sid, reason)
+            VoiceToActionLatency.end(reason)
             CarfuLatencyLog.logSessionEvent(
                 "SESSION_END",
                 "reason=${sessionEndReasonTag(reason)} detail=$reason",
@@ -947,6 +980,7 @@ class SkillEvaluatorImpl(
                     return
                 }
                 cancelSilenceWatch()
+                VoiceToActionLatency.mark(VoiceToActionStage.SILENCE_WATCH_CANCELLED, "event=Final")
                 val sid = commandSession.ui.value.sessionId
                 if (SessionCommandDecision.isCancelled(sid) ||
                     VoiceSessionManager.shouldIgnoreCallback(sid)
@@ -1010,6 +1044,10 @@ class SkillEvaluatorImpl(
                     return
                 }
                 cancelSilenceWatch()
+                VoiceToActionLatency.mark(
+                    VoiceToActionStage.SILENCE_WATCH_CANCELLED,
+                    "event=Partial",
+                )
                 VoiceSessionManager.onLiveTranscript(sid, event.utterance)
                 rememberCandidates(listOf(event.utterance to 1.0f))
                 // Provisional understanding only — never execute from partial.
@@ -1020,6 +1058,16 @@ class SkillEvaluatorImpl(
                     recognizerConfidence = 1f,
                 )
                 SessionCommandDecision.onPartial(sid, provisional)
+                if (provisional.completeness == SemanticCompleteness.COMPLETE &&
+                    provisional.command != null
+                ) {
+                    VoiceToActionLatency.mark(
+                        VoiceToActionStage.COMPLETE_PARTIAL_HELD,
+                        "intent=${provisional.intent} cmd=${provisional.command} " +
+                            "executable=false wait_for_android_final=true " +
+                            "text=${event.utterance.trim().take(80)}",
+                    )
+                }
                 commandSession.onPartial(event.utterance)
                 sessionHadTranscript.set(true)
                 _state.value = _state.value.copy(
@@ -1115,6 +1163,11 @@ class SkillEvaluatorImpl(
             decision.completeness == SemanticCompleteness.COMPLETE &&
             decision.command != null
         ) {
+            VoiceToActionLatency.mark(
+                VoiceToActionStage.CANONICAL_COMMAND_READY,
+                "intent=${decision.intent} cmd=${decision.command} " +
+                    "reason=${decision.reason} from_final=true",
+            )
             when (val cmd = decision.command!!) {
                 is CanonicalCommand.Navigate,
                 is CanonicalCommand.OpenApp,
@@ -1174,6 +1227,10 @@ class SkillEvaluatorImpl(
             VoiceLifecycleLog.phase4("GATE", sid, "claim=rejected already_claimed")
             return
         }
+        VoiceToActionLatency.mark(
+            VoiceToActionStage.COMMAND_LOCKED,
+            "gate=CanonicalActionGate intent=${decision.intent} session=$sid",
+        )
         VoiceLifecycleLog.phase4("GATE", sid, "claim=accepted")
         if (!CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED)) {
             return
@@ -1260,6 +1317,10 @@ class SkillEvaluatorImpl(
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.COMMAND_EXECUTE)
         withContext(Dispatchers.Main) {
             if (speech.isNotBlank()) {
+                VoiceToActionLatency.mark(
+                    VoiceToActionStage.TTS_REQUEST,
+                    "confirmation len=${speech.length} after_action=true",
+                )
                 commandSession.onTtsStarted()
                 VoiceSessionManager.onResponding(sid)
                 skillContext.speechOutputDevice.speak(speech)
