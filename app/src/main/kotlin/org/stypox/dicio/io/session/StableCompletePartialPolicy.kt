@@ -1,40 +1,31 @@
 package org.stypox.dicio.io.session
 
 /**
- * Phase 4.3B.1 — conservative stable COMPLETE partial commit.
+ * Phase 4.4 — semantic COMPLETE partial commit for OPEN_APP / PLAY_MEDIA.
  *
- * Why this exists:
- * [AndroidSpeechInputDevice] never calls [android.speech.SpeechRecognizer.stopListening].
- * [RecognitionListener.onEndOfSpeech] is log-only for the product session (non-terminal).
- * After EOS the recognizer instance stays alive until [onResults]/[onError], then we
- * [SpeechRecognizer.cancel] + [SpeechRecognizer.destroy]. That passive OEM/network
- * finalization is the 8–10s gap Phase 4.3B tried to close.
+ * Device-proven (Phase 4.3b.2 sessions 15–16): CARFU OEM often emits no useful
+ * [android.speech.RecognitionListener.onEndOfSpeech] and no Android Final before
+ * [CommandRecognitionPolicy.ANDROID_LISTEN_TIMEOUT_MS] (12s from startListening).
+ * Phase 4.3B.1 therefore WAIT-ed on COMPLETE OpenApp("YouTube") until
+ * SR_HARD_CEILING → transcript_rescued (~8–9s after COMPLETE_PARTIAL_HELD).
  *
- * Phase 4.3B originally committed when either:
- * A. two consecutive identical COMPLETE fingerprints, OR
- * B. the first eligible COMPLETE fingerprint was unchanged for 350ms.
+ * Phase 4.4 commits from **semantic completeness**, not time:
+ * - OPEN_APP: exact unique catalog app, not prefix-ambiguous, not a prefix of
+ *   a higher-priority supported canonical command (Navigate `"mở bản đồ đến …"`).
+ * - PLAY_MEDIA: complete query + known provider (`mở bài … trên …`).
  *
- * Condition B is unsafe: Navigate becomes COMPLETE as soon as the destination has
- * two characters, so `"chỉ đường đến Mỹ"` could commit Navigate("Mỹ") while the user
- * was still about to say `"Đình"`. The 350ms Handler was also the only 4.3B path
- * that could cancel/destroy SpeechRecognizer before Android Final.
+ * NAVIGATE stays on the conservative 4.3B.1 rule: two consecutive identical
+ * COMPLETE fingerprints **and** onEndOfSpeech, plus a multi-token destination.
  *
- * Phase 4.3B.1 rule (AND, not OR):
- * 1. current session id
- * 2. current recognizer generation
- * 3. non-empty transcript
- * 4. eligible COMPLETE canonical command
- * 5. same canonical fingerprint in [CONSECUTIVE_IDENTICAL_TO_COMMIT] consecutive partials
- * 6. [RecognitionListener.onEndOfSpeech] confirmed for that session/generation
+ * Not used:
+ * - arbitrary stability / 350ms / 500ms hold timers ([holdTimerMayCommit] = false)
+ * - requiring two identical OPEN_APP partials (device showed one COMPLETE)
+ * - requiring EOS for OPEN_APP / PLAY_MEDIA on this OEM
  *
- * No hold timer. No fingerprint/job/lock from empty, UNKNOWN, INCOMPLETE, or
- * pre-speech callbacks. CALL / Volume / Time stay excluded. Navigate fast-path
- * additionally requires a multi-token destination so a pause after `"Mỹ"` cannot
- * lock a still-growing place name.
- *
- * Calling [android.speech.SpeechRecognizer.stopListening] after EOS is still not
- * used. Only a successful current-session commit may [SessionCommandDecision.lockFinal]
- * and then take the existing cancel/destroy retire path into the existing executor.
+ * [android.speech.SpeechRecognizer.stopListening] is still not used. A successful
+ * current-session commit [SessionCommandDecision.lockFinal]s then takes the
+ * existing cancel/destroy retire path into the existing executor.
+ * SR_HARD_CEILING remains the failsafe when no safely complete command exists.
  */
 object StableCompletePartialPolicy {
     const val CONSECUTIVE_IDENTICAL_TO_COMMIT: Int = 2
@@ -48,13 +39,26 @@ object StableCompletePartialPolicy {
 
     fun retireRecognizerUsesCancelThenDestroy(): Boolean = true
 
+    /**
+     * Arbitrary first COMPLETE of any intent still must not execute (Navigate).
+     * OPEN_APP / PLAY_MEDIA use [isSemanticEarlyCommitSafe] instead.
+     */
     fun firstCompletePartialExecutesImmediately(): Boolean = false
 
     fun holdTimerMayCommit(): Boolean = false
 
+    /** Conservative Navigate / non-semantic path still requires EOS. */
     fun requiresEndOfSpeech(): Boolean = true
 
+    fun requiresEndOfSpeechForOpenApp(): Boolean = false
+
+    fun requiresEndOfSpeechForPlayMedia(): Boolean = false
+
     fun requiresConsecutiveIdenticalFingerprints(): Boolean = true
+
+    fun semanticOpenAppMayCommitWithoutEos(): Boolean = true
+
+    fun semanticPlayMediaMayCommitWithoutEos(): Boolean = true
 
     fun isEnabled(): Boolean = true
 
@@ -80,13 +84,73 @@ object StableCompletePartialPolicy {
             is CanonicalCommand.PlayMedia -> command.query.trim().length >= 2
             is CanonicalCommand.OpenApp -> {
                 command.appName.trim().isNotEmpty() &&
-                    !CommandTranscriptNormalizer.isPrefixAmbiguous(result.normalizedTranscript)
+                    !isOpenAppPrefixAmbiguous(result)
             }
             is CanonicalCommand.CallContact,
             is CanonicalCommand.Volume,
             CanonicalCommand.Time,
             -> false
         }
+    }
+
+    /**
+     * Semantic early commit: complete unique OPEN_APP catalog entity, or
+     * complete PLAY_MEDIA query+known provider. No EOS. No stability timer.
+     */
+    fun isSemanticEarlyCommitSafe(result: UnderstandingResult): Boolean {
+        if (!isEligible(result)) return false
+        return when (result.command) {
+            is CanonicalCommand.OpenApp -> isOpenAppSemanticCommitSafe(result)
+            is CanonicalCommand.PlayMedia -> isPlayMediaSemanticCommitSafe(result)
+            else -> false
+        }
+    }
+
+    fun isOpenAppSemanticCommitSafe(result: UnderstandingResult): Boolean {
+        val command = result.command as? CanonicalCommand.OpenApp ?: return false
+        if (result.intent != VoiceIntent.OPEN_APP) return false
+        if (result.completeness != SemanticCompleteness.COMPLETE) return false
+        if (command.appName.trim().isEmpty()) return false
+        if (!VietnameseCommandUnderstanding.isExactCatalogOpenApp(result)) return false
+        if (isOpenAppPrefixAmbiguous(result)) return false
+        if (canExtendToHigherPriorityCanonical(result)) return false
+        return true
+    }
+
+    fun isPlayMediaSemanticCommitSafe(result: UnderstandingResult): Boolean {
+        val command = result.command as? CanonicalCommand.PlayMedia ?: return false
+        if (result.intent != VoiceIntent.PLAY_MEDIA) return false
+        if (result.completeness != SemanticCompleteness.COMPLETE) return false
+        if (result.reason != "media_complete") return false
+        if (command.query.trim().length < 2) return false
+        if (!VietnameseCommandUnderstanding.isKnownPlayMediaProvider(command.provider)) {
+            return false
+        }
+        return true
+    }
+
+    /**
+     * OPEN_APP prefix-ambiguity:
+     * 1. Known extendable catalog aliases (`mo smarttube` → `mo smarttube beta`).
+     * 2. Prefix of a supported NAVIGATE command (`mo ban do` → `mo ban do den …`).
+     *
+     * `"Mở YouTube"` is **not** a prefix of a higher-priority supported command:
+     * YouTube Music is not in the OpenApp catalog, and PLAY_MEDIA requires
+     * `"mở bài … trên …"` (a different verb/entity shape).
+     */
+    fun isOpenAppPrefixAmbiguous(result: UnderstandingResult): Boolean {
+        val folded = result.normalizedTranscript
+        if (folded.isEmpty()) return true
+        if (CommandTranscriptNormalizer.isPrefixAmbiguous(folded)) return true
+        if (CommandTranscriptNormalizer.isPrefixOfSupportedNavigation(folded)) return true
+        return false
+    }
+
+    fun canExtendToHigherPriorityCanonical(result: UnderstandingResult): Boolean {
+        if (result.command !is CanonicalCommand.OpenApp) return false
+        return CommandTranscriptNormalizer.isPrefixOfSupportedNavigation(
+            result.normalizedTranscript,
+        )
     }
 
     fun fingerprint(result: UnderstandingResult): String {
@@ -178,6 +242,8 @@ object StableCompletePartialTracker {
     fun lastGenerationForTests(): Long = synchronized(lock) { lastGeneration }
 
     fun eosConfirmedForTests(): Boolean = synchronized(lock) { eosConfirmed }
+
+    fun committedForTests(): Boolean = synchronized(lock) { committed }
 
     fun onPartial(
         forSessionId: Long,
@@ -308,6 +374,24 @@ object StableCompletePartialTracker {
     }
 
     private fun decideLocked(result: UnderstandingResult, generation: Long): Observe {
+        if (StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result)) {
+            committed = true
+            val why = when (result.command) {
+                is CanonicalCommand.OpenApp -> "semantic_open_app"
+                is CanonicalCommand.PlayMedia -> "semantic_play_media"
+                else -> "semantic_complete"
+            }
+            return Observe(
+                decision = Decision.COMMIT,
+                result = result,
+                reason = why,
+                consecutive = consecutive,
+                fingerprint = fingerprint,
+                sessionId = sessionId,
+                generation = generation,
+                eosConfirmed = eosConfirmed,
+            )
+        }
         val ready = consecutive >= StableCompletePartialPolicy.CONSECUTIVE_IDENTICAL_TO_COMMIT &&
             eosConfirmed
         if (ready) {

@@ -601,6 +601,28 @@ object VietnameseCommandUnderstanding {
         is CanonicalCommand.CallContact -> "Đang gọi ${command.contactName}"
     }
 
+    /**
+     * Exact catalog OPEN_APP (KNOWN_APP_LABELS or exact APP_TARGETS alias).
+     * Fuzzy 0.78 [CommandTranscriptNormalizer.bestAppTarget] matches are not exact.
+     */
+    fun isExactCatalogOpenApp(result: UnderstandingResult): Boolean {
+        val command = result.command as? CanonicalCommand.OpenApp ?: return false
+        if (result.completeness != SemanticCompleteness.COMPLETE) return false
+        if (result.reason != "open_catalog") return false
+        if (command.appName.isBlank()) return false
+        val remainder = CommandTranscriptNormalizer.openAppRemainder(result.normalizedTranscript)
+        if (remainder.isEmpty()) return false
+        if (KNOWN_APP_LABELS.containsKey(remainder)) return true
+        return CommandTranscriptNormalizer.hasExactAppAlias(remainder)
+    }
+
+    fun isKnownPlayMediaProvider(provider: String?): Boolean {
+        if (provider.isNullOrBlank()) return false
+        val folded = VietnameseTranscript.foldForMatch(provider)
+        return PROVIDER_LABELS.containsKey(folded) ||
+            PROVIDER_LABELS.values.any { it.equals(provider, ignoreCase = true) }
+    }
+
     private fun resolveKnownApp(foldedRemainder: String): String? {
         KNOWN_APP_LABELS[foldedRemainder]?.let { return it }
         // Conservative fuzzy via catalog only (threshold inside normalizer).

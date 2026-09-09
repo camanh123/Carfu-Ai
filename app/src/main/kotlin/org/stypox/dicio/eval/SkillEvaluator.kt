@@ -1102,7 +1102,8 @@ class SkillEvaluatorImpl(
                 )
                 VoiceSessionManager.onLiveTranscript(sid, event.utterance)
                 rememberCandidates(listOf(event.utterance to 1.0f))
-                // Provisional understanding only — never execute from the first partial.
+                // Semantic OPEN_APP / PLAY_MEDIA may commit from this partial;
+                // Navigate still waits for consecutive identical + EOS.
                 val provisional = VietnameseCommandUnderstanding.understand(
                     raw = event.utterance,
                     sessionId = sid,
@@ -1117,6 +1118,7 @@ class SkillEvaluatorImpl(
                         VoiceToActionStage.COMPLETE_PARTIAL_HELD,
                         "intent=${provisional.intent} cmd=${provisional.command} " +
                             "eligible=${StableCompletePartialPolicy.isEligible(provisional)} " +
+                            "semantic=${StableCompletePartialPolicy.isSemanticEarlyCommitSafe(provisional)} " +
                             "text=${event.utterance.trim().take(80)}",
                     )
                 }
@@ -1149,6 +1151,16 @@ class SkillEvaluatorImpl(
         ) {
             return true
         }
+        if (CommandSessionOutcome.peek() != CommandSessionOutcome.Kind.OPEN) {
+            return true
+        }
+        if (SessionCommandDecision.locked(sid) != null) {
+            CarfuLatencyLog.logSessionEvent(
+                "TRANSCRIPT_RESCUE_SKIPPED",
+                "already_locked",
+            )
+            return true
+        }
         val candidates = sessionBestCandidates.get().distinctBy { it.first }
         if (candidates.isEmpty()) return false
         val decision = SessionCommandDecision.decideFinal(sid, candidates) ?: return false
@@ -1161,7 +1173,12 @@ class SkillEvaluatorImpl(
                 "reason=${decision.reason}",
         )
         sttInputDevice.stopListening("transcript_rescued")
-        processUnderstandingDecision(decision, decision.rawTranscript, candidates)
+        processUnderstandingDecision(
+            decision,
+            decision.rawTranscript,
+            candidates,
+            fromFinal = true,
+        )
         return true
     }
 
@@ -1270,6 +1287,7 @@ class SkillEvaluatorImpl(
             locked,
             locked.rawTranscript,
             listOf(locked.rawTranscript to locked.recognizerConfidence.coerceAtLeast(1f)),
+            fromFinal = false,
         )
     }
 
@@ -1277,6 +1295,7 @@ class SkillEvaluatorImpl(
         decision: UnderstandingResult?,
         original: String,
         utterances: List<Pair<String, Float>>,
+        fromFinal: Boolean = true,
     ) {
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.ROUTER_START)
         val sid = commandSession.ui.value.sessionId
@@ -1307,7 +1326,7 @@ class SkillEvaluatorImpl(
             VoiceToActionLatency.mark(
                 VoiceToActionStage.CANONICAL_COMMAND_READY,
                 "intent=${decision.intent} cmd=${decision.command} " +
-                    "reason=${decision.reason} from_final=true",
+                    "reason=${decision.reason} from_final=$fromFinal",
             )
             when (val cmd = decision.command!!) {
                 is CanonicalCommand.Navigate,

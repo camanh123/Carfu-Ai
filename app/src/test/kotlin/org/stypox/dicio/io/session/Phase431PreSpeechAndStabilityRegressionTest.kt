@@ -255,10 +255,23 @@ class Phase431PreSpeechAndStabilityRegressionTest : StringSpec({
         SessionCommandDecision.locked(1L).shouldBeNull()
     }
 
-    "ENTITY 22-24. Navigate/OpenApp/PlayMedia fast path after consecutive+EOS" {
+    "ENTITY 22. Navigate fast path still requires consecutive+EOS" {
+        StableCompletePartialTracker.bind(1L)
+        val result = u("Chỉ đường đến Mỹ Đình")
+        result.command shouldBe CanonicalCommand.Navigate("Mỹ Đình")
+        StableCompletePartialPolicy.isEligible(result).shouldBeTrue()
+        StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result).shouldBeFalse()
+        StableCompletePartialTracker.onPartial(1L, result, 0L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        StableCompletePartialTracker.onPartial(1L, result, 10L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        StableCompletePartialTracker.onEndOfSpeech(1L, 20L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.COMMIT
+    }
+
+    "ENTITY 23-24. OpenApp/PlayMedia semantic-commit on first complete partial" {
         data class Case(val sid: Long, val raw: String, val command: CanonicalCommand)
         listOf(
-            Case(1L, "Chỉ đường đến Mỹ Đình", CanonicalCommand.Navigate("Mỹ Đình")),
             Case(2L, "Mở YouTube", CanonicalCommand.OpenApp("YouTube")),
             Case(
                 3L,
@@ -270,10 +283,10 @@ class Phase431PreSpeechAndStabilityRegressionTest : StringSpec({
             val result = u(case.raw, case.sid)
             result.command shouldBe case.command
             StableCompletePartialPolicy.isEligible(result).shouldBeTrue()
-            StableCompletePartialTracker.onPartial(case.sid, result, 0L, case.sid)
-            StableCompletePartialTracker.onPartial(case.sid, result, 10L, case.sid)
-            val eos = StableCompletePartialTracker.onEndOfSpeech(case.sid, 20L, case.sid)
-            eos.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+            StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result).shouldBeTrue()
+            val first = StableCompletePartialTracker.onPartial(case.sid, result, 0L, case.sid)
+            first.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+            first.eosConfirmed.shouldBeFalse()
         }
     }
 

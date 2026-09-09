@@ -179,8 +179,30 @@ object CommandTranscriptNormalizer {
     }
 
     fun matchAppInOpenDomain(folded: String): AppTarget? {
-        val remainder = OPEN_APP_PREFIX.replace(folded, "").trim().ifBlank { folded }
+        val remainder = openAppRemainder(folded)
         return bestAppTarget(remainder)
+    }
+
+    /** Folded remainder after `mở` / `bật` / `mở ứng dụng`, or [folded] if none. */
+    fun openAppRemainder(folded: String): String =
+        OPEN_APP_PREFIX.replace(folded, "").trim().ifBlank { folded }
+
+    /** Exact alias match only — not the 0.78 fuzzy [bestAppTarget] path. */
+    fun hasExactAppAlias(foldedRemainder: String): Boolean {
+        val normalized = normalizeForMatch(foldedRemainder)
+        if (normalized.isEmpty()) return false
+        return APP_TARGETS.any { target -> target.aliases.any { it == normalized } }
+    }
+
+    /**
+     * True when [folded] is a strict prefix of a supported NAVIGATE phrase
+     * (e.g. `"mo ban do"` → `"mo ban do den …"`).
+     */
+    fun isPrefixOfSupportedNavigation(folded: String): Boolean {
+        if (folded.isEmpty()) return false
+        return NAV_PREFIXES.any { nav ->
+            nav.length > folded.length && nav.startsWith("$folded ")
+        }
     }
 
     /** Destination text after a navigation prefix, or null if incomplete / not navigation. */

@@ -217,22 +217,32 @@ class StableCompletePartialPolicyTest : StringSpec({
             StableCompletePartialTracker.Decision.COMMIT
     }
 
-    "12. OPEN_APP fast path" {
+    "12. OPEN_APP semantic commit on first complete catalog partial" {
         val open = u("Mở YouTube")
         open.command shouldBe CanonicalCommand.OpenApp("YouTube")
         StableCompletePartialPolicy.isEligible(open).shouldBeTrue()
+        StableCompletePartialPolicy.isSemanticEarlyCommitSafe(open).shouldBeTrue()
         StableCompletePartialTracker.bind(2L)
-        waitThenEosCommit(2L, open, generation = 4L).decision shouldBe
-            StableCompletePartialTracker.Decision.COMMIT
+        val obs = StableCompletePartialTracker.onPartial(2L, open, 0L, 4L)
+        obs.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        obs.reason shouldBe "semantic_open_app"
+        obs.eosConfirmed.shouldBeFalse()
+        StableCompletePartialTracker.onPartial(2L, open, 10L, 4L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
+        StableCompletePartialTracker.onEndOfSpeech(2L, 20L, 4L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
     }
 
-    "13. PLAY_MEDIA fast path" {
+    "13. PLAY_MEDIA semantic commit on complete query+provider" {
         val media = u("Mở bài Đừng xa em đêm nay trên YouTube")
         media.command shouldBe CanonicalCommand.PlayMedia("Đừng xa em đêm nay", "YouTube")
         StableCompletePartialPolicy.isEligible(media).shouldBeTrue()
+        StableCompletePartialPolicy.isSemanticEarlyCommitSafe(media).shouldBeTrue()
         StableCompletePartialTracker.bind(3L)
-        waitThenEosCommit(3L, media, generation = 6L).decision shouldBe
-            StableCompletePartialTracker.Decision.COMMIT
+        val obs = StableCompletePartialTracker.onPartial(3L, media, 0L, 6L)
+        obs.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        obs.reason shouldBe "semantic_play_media"
+        obs.eosConfirmed.shouldBeFalse()
     }
 
     "14. CALL/contact commands remain excluded" {
