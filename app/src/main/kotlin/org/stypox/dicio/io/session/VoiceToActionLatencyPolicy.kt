@@ -19,8 +19,10 @@ import org.stypox.dicio.io.input.CommandRecognitionPolicy
  *
  * Source-proven answers (this policy + call sites):
  * - Eligible Navigate / OpenApp / PlayMedia may commit from a **stable** COMPLETE
- *   partial ([StableCompletePartialPolicy]); other commands still wait for Final.
+ *   partial ([StableCompletePartialPolicy]) only after two consecutive identical
+ *   fingerprints **and** onEndOfSpeech; other commands still wait for Final.
  * - First COMPLETE partial never executes immediately.
+ * - A 350ms hold timer must not commit (unsafe while the user is still speaking).
  * - Execution **does not** wait for the 5s product timeout after speech.
  * - Execution **does not** wait for confirmation TTS to finish before startActivity.
  * - Recognizer silence extras are **not** set (OEM defaults apply).
@@ -52,6 +54,11 @@ object VoiceToActionLatencyPolicy {
 
     fun callsStopListeningAfterEndOfSpeech(): Boolean =
         StableCompletePartialPolicy.callsStopListeningAfterEndOfSpeech()
+
+    fun holdTimerMayCommit(): Boolean = StableCompletePartialPolicy.holdTimerMayCommit()
+
+    fun requiresEndOfSpeechForStablePartial(): Boolean =
+        StableCompletePartialPolicy.requiresEndOfSpeech()
 
     /**
      * RecognizerIntent extras that **are** currently put on the listening Intent.

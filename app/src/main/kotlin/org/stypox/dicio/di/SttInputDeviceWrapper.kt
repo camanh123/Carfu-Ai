@@ -67,6 +67,8 @@ interface SttInputDeviceWrapper {
 
     fun usesAndroidOnlineEngine(): Boolean = false
 
+    fun currentRecognizerGeneration(): Long = 0L
+
     fun commandEngine(): CommandRecognitionEngine =
         CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE
 }
@@ -283,6 +285,9 @@ class SttInputDeviceWrapperImpl(
             wrapEventListener(thenStartListeningEventListener)
         } else { null }) ?: false
     }
+
+    override fun currentRecognizerGeneration(): Long =
+        sttInputDevice?.currentRecognizerGeneration() ?: 0L
 
     override fun stopListening(reason: String) {
         org.stypox.dicio.io.session.CarfuVoiceTrace.stopRequest(reason)

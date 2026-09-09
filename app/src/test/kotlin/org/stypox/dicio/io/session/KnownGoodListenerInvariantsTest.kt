@@ -55,6 +55,9 @@ class KnownGoodListenerInvariantsTest : StringSpec({
         KnownGoodListenerInvariants.partialMayTerminateListener().shouldBeFalse()
         KnownGoodListenerInvariants.fastPartialRuntimeExecutionEnabled().shouldBeFalse()
         KnownGoodListenerInvariants.stableCompletePartialFastPathEnabled().shouldBeTrue()
+        KnownGoodListenerInvariants.preSpeechFastPathMayArmTimer().shouldBeFalse()
+        KnownGoodListenerInvariants.holdTimerMayCommitStablePartial().shouldBeFalse()
+        KnownGoodListenerInvariants.stablePartialRequiresEndOfSpeech().shouldBeTrue()
     }
 
     "F: final n-best still routes through Smart matcher exactly once" {

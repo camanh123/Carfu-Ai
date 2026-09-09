@@ -12,6 +12,9 @@ interface SttInputDevice {
 
     fun onClick(eventListener: (InputEvent) -> Unit)
 
+    /** Live SpeechRecognizer listener generation; 0 when the device has no generation. */
+    fun currentRecognizerGeneration(): Long = 0L
+
     suspend fun destroy()
 
     companion object {

@@ -66,6 +66,8 @@ class AndroidSpeechInputDevice(
     private val sawReady = AtomicBoolean(false)
     private val sawSpeechOrPartial = AtomicBoolean(false)
 
+    override fun currentRecognizerGeneration(): Long = listenerGeneration.get()
+
     private val hardListenTimeoutRunnable = Runnable {
         CarfuLatencyLog.logSessionEvent("SR_TIMEOUT", "kind=HARD_LISTEN_CEILING")
         CarfuLatencyLog.logPipelineStage("SR_TIMEOUT")
@@ -403,6 +405,10 @@ class AndroidSpeechInputDevice(
                 onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) {
                     it(InputEvent.None)
                 }
+            } else {
+                // Acoustic only — product session stays LISTENING. SkillEvaluator may
+                // use this as a stability signal; it must not cancel the 5s watch.
+                listenerRef.get()?.invoke(InputEvent.EndOfSpeech)
             }
         }
 

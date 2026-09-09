@@ -132,16 +132,18 @@ class VoiceToActionLatencyTest : StringSpec({
         VoiceToActionLatency.mark(VoiceToActionStage.PARTIAL_TRANSCRIPT)
         clock[0] = 1_000L
         VoiceToActionLatency.mark(VoiceToActionStage.COMPLETE_PARTIAL_HELD)
-        clock[0] = 1_350L
+        clock[0] = 1_010L
+        VoiceToActionLatency.mark(VoiceToActionStage.LAST_SPEECH)
+        clock[0] = 1_020L
         VoiceToActionLatency.mark(VoiceToActionStage.STABLE_COMPLETE_COMMIT)
         VoiceToActionLatency.mark(VoiceToActionStage.STOP_REQUEST)
-        clock[0] = 1_360L
+        clock[0] = 1_030L
         VoiceToActionLatency.mark(VoiceToActionStage.COMMAND_LOCKED)
-        clock[0] = 1_370L
+        clock[0] = 1_040L
         VoiceToActionLatency.mark(VoiceToActionStage.ACTION_REQUEST)
         val summary = VoiceToActionLatency.summary()
-        summary shouldContain "complete_partial_to_commit=350"
-        summary shouldContain "complete_partial_to_action=370"
+        summary shouldContain "complete_partial_to_commit=20"
+        summary shouldContain "complete_partial_to_action=40"
         VoiceToActionLatency.end("complete")
     }
 })

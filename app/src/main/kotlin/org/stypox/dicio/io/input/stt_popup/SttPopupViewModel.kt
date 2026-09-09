@@ -65,6 +65,7 @@ class SttPopupViewModel @Inject constructor(
                 // in case of error or in case the user said nothing, restore the previous value
                 _textFieldValue.value = lastTextFieldInput
             }
+            InputEvent.EndOfSpeech -> Unit
             is InputEvent.Final -> {
                 // receiving a final event from the STT behaves almost identically as receiving a
                 // new value in setTextFieldValue when the user types manually

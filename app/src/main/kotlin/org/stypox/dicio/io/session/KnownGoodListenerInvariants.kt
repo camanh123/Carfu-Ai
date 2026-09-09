@@ -48,6 +48,14 @@ object KnownGoodListenerInvariants {
     fun stableCompletePartialFastPathEnabled(): Boolean =
         StableCompletePartialPolicy.isEnabled()
 
+    fun preSpeechFastPathMayArmTimer(): Boolean = false
+
+    fun holdTimerMayCommitStablePartial(): Boolean =
+        StableCompletePartialPolicy.holdTimerMayCommit()
+
+    fun stablePartialRequiresEndOfSpeech(): Boolean =
+        StableCompletePartialPolicy.requiresEndOfSpeech()
+
     fun appSideNoSpeechKillerMs(): Long =
         CommandRecognitionPolicy.ANDROID_NO_SPEECH_AFTER_READY_MS
 
