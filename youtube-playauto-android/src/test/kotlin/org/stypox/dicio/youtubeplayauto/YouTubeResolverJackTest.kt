@@ -273,6 +273,15 @@ class YouTubeResolverJackTest : StringSpec({
         text shouldContain "Media keys sent: NO"
     }
 
+    "default resolver base URL is public HTTPS" {
+        YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL shouldContain "https://"
+        YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.startsWith("https://") shouldBe true
+        YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.shouldNotContain("YOUTUBE_API_KEY")
+        YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.shouldNotContain("AIza")
+        YouTubeResolverEndpoint.isHttps(YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL) shouldBe true
+        YouTubeResolverEndpoint.isConfigured(YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL) shouldBe true
+    }
+
     "no Google API key in Android jack sources" {
         val root = java.io.File("src/main/kotlin").takeIf { it.exists() }
             ?: java.io.File("youtube-playauto-android/src/main/kotlin")

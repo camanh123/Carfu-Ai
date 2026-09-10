@@ -13,11 +13,12 @@ android {
         applicationId = "org.stypox.dicio.youtubeplayauto"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 492
-        versionName = "4.9.2-harness"
+        versionCode = 493
+        versionName = "4.9.2b-harness"
+        val defaultPublicHttps = "https://beans-supporters-flu-extraordinary.trycloudflare.com"
         val resolverBase = (project.findProperty("CARFU_RESOLVER_BASE_URL") as? String)
             ?: System.getenv("CARFU_RESOLVER_BASE_URL")
-            ?: ""
+            ?: defaultPublicHttps
         buildConfigField("String", "CARFU_RESOLVER_BASE_URL", "\"${resolverBase.replace("\"", "")}\"")
     }
 

@@ -69,7 +69,7 @@ class YouTubePlayAutoHarnessActivity : Activity() {
             exportDiagnostic()
         }
 
-        logView.text = "Ready. Path: PlayAuto → resolver HTTP → exact watch URL → one ACTION_VIEW.\n" +
+        logView.text = "Ready. Resolver HTTPS is preconfigured. Path: PlayAuto → resolver HTTP → exact watch URL → one ACTION_VIEW.\n" +
             "No API key on Android. Accessibility fallback default OFF. Dry-run is default.\n"
     }
 
@@ -100,7 +100,9 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         val prefs = getSharedPreferences(YouTubeResolverEndpoint.PREFS_NAME, MODE_PRIVATE)
         val saved = prefs.getString(YouTubeResolverEndpoint.PREFS_KEY, null)
         if (!saved.isNullOrBlank()) return saved
-        return BuildConfig.CARFU_RESOLVER_BASE_URL
+        return BuildConfig.CARFU_RESOLVER_BASE_URL.ifBlank {
+            YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL
+        }
     }
 
     private fun saveBaseUrl() {

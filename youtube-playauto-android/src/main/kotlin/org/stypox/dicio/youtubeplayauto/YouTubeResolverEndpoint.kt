@@ -5,11 +5,15 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 /**
- * Configurable resolver base URL. No production hostname is hardcoded.
+ * Configurable resolver base URL. Phase 4.9.2b preconfigures the public HTTPS
+ * origin so CARFU does not need a manual CARFU_RESOLVER_BASE_URL. The EditText
+ * still overrides this for diagnostics.
  */
 object YouTubeResolverEndpoint {
-    const val PREFS_NAME = "carfu_resolver"
+    const val PREFS_NAME = "carfu_resolver_492b"
     const val PREFS_KEY = "CARFU_RESOLVER_BASE_URL"
+    const val DEFAULT_PUBLIC_HTTPS_BASE_URL =
+        "https://beans-supporters-flu-extraordinary.trycloudflare.com"
     const val RESOLVE_PATH = "/v1/youtube/resolve"
 
     fun normalizeBaseUrl(raw: String): String = raw.trim().trimEnd('/')
