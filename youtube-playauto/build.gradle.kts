@@ -24,18 +24,20 @@ android {
         }
     }
 
-    sourceSets {
-        named("main") {
-            kotlin.srcDir(file("${rootDir}/youtube-playauto-android/src/main/kotlin"))
-            kotlin.exclude("**/YouTubePlayAutoHarnessActivity.kt")
-            kotlin.exclude("**/YouTubePlayAutoAccessibilityService.kt")
-        }
-    }
-
     lint {
         abortOnError = false
         checkReleaseBuilds = false
     }
+}
+
+android.sourceSets.getByName("main").java.srcDir(
+    file("${rootDir}/youtube-playauto-android/src/main/kotlin"),
+)
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    exclude("**/YouTubePlayAutoHarnessActivity.kt")
+    exclude("**/YouTubePlayAutoAccessibilityService.kt")
+    exclude("**/AndroidYouTubeInAppSelector.kt")
 }
 
 dependencies {

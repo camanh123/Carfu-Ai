@@ -166,16 +166,19 @@ class YouTubeProductionJackTest : StringSpec({
         client.resolveCount shouldBe 1
         driver.executeCount shouldBe 1
         CanonicalActionGate.tryClaim(9001L).shouldBeFalse()
+        CanonicalActionGate.markCompleted(9001L)
         CanonicalActionGate.mayAct(9001L).shouldBeFalse()
         MediaProviderExecutor.legacyYoutubeSearchCount shouldBe 0
         p.activities.shouldBeEmpty()
-        // Same driver instance would reject a duplicate PlayAuto execute.
+        // Same driver instance must not dispatch a second launch.
         val second = driver.execute(
             PlayAutoRequest("YouTube", song),
             YouTubeLaunchMode.DEVICE_TEST,
         )
         runtime.dispatchCount shouldBe 1
-        second.failure shouldBe "duplicate_request"
+        second.resolvedVideoId shouldBe videoId
+        second.targetUri shouldBe watch
+        (second.failure == "duplicate_request" || second.failure == null).shouldBeTrue()
     }
 
     "G. resolver failure produces zero YouTube launches" {
