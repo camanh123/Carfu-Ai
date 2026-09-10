@@ -33,8 +33,8 @@ android {
         applicationId = "org.stypox.dicio"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 25
-        versionName = "4.5"
+        versionCode = 26
+        versionName = "4.9.3-youtube-jack"
         testInstrumentationRunner = "org.stypox.dicio.CustomTestRunner"
 
         vectorDrawables.useSupportLibrary = true
@@ -146,6 +146,7 @@ dependencies {
     // Dicio own libraries
     implementation(libs.dicio.numbers)
     implementation(project(":skill"))
+    implementation(project(":youtube-playauto"))
 
     // Android
     implementation(libs.appcompat)

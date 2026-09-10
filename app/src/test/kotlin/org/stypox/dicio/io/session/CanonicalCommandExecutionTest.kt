@@ -7,6 +7,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
+import io.kotest.matchers.string.shouldNotContain
 import org.stypox.dicio.skills.carfu.CarfuAlarmKind
 import org.stypox.dicio.skills.carfu.CarfuContact
 import org.stypox.dicio.skills.carfu.CarfuLaunchSpec
@@ -25,16 +26,46 @@ class CanonicalCommandExecutionTest : StringSpec({
         VoiceSessionManager.resetForTests()
         VoiceTriggerManager.resetForTests()
         CommandSessionOutcome.resetForTests()
+        MediaProviderExecutor.resetForTests()
     }
 
     fun platform(): Phase3FakePlatform = Phase3FakePlatform()
 
-    fun executor(p: Phase3FakePlatform = platform()) = CanonicalCommandExecutor(
+    fun recordingYouTube(
+        queries: MutableList<String> = mutableListOf(),
+        launched: Boolean = true,
+        failure: String? = null,
+        watchUrl: String? = "https://www.youtube.com/watch?v=W20zl5N_jbg",
+        videoId: String? = "W20zl5N_jbg",
+    ): YouTubePlayAutoPort = YouTubePlayAutoPort { q ->
+        queries += q
+        YouTubeProductionJackResult(
+            query = q,
+            playAutoRequestCount = 1,
+            launched = launched && failure == null,
+            launchCount = if (launched && failure == null) 1 else 0,
+            watchUrl = if (launched && failure == null) watchUrl else null,
+            videoId = if (launched && failure == null) videoId else null,
+            failure = failure,
+            path = if (failure == null) "RESOLVER_DIRECT_TARGET" else "RESOLVER_DIRECT_TARGET",
+            searchOpened = false,
+            accessibilityFallbackUsed = false,
+            castApisUsed = false,
+            mediaKeysSent = false,
+            resolverStatus = failure ?: "RESOLVED",
+        )
+    }
+
+    fun executor(
+        p: Phase3FakePlatform = platform(),
+        youtube: YouTubePlayAutoPort = recordingYouTube(),
+    ) = CanonicalCommandExecutor(
         platform = p,
         appResolver = InstalledAppResolver(
             listLaunchable = { p.listLaunchableApps() },
             isLaunchable = { p.isPackageLaunchable(it) },
         ),
+        youtubePlayAuto = youtube,
     )
 
     // --- NAVIGATE ---
@@ -147,17 +178,18 @@ class CanonicalCommandExecutionTest : StringSpec({
         speech shouldContain "Đừng xa em đêm nay"
         speech shouldContain "YouTube"
         val p = platform()
-        val trace = executor(p).executeTraced(cmd)
+        val queries = mutableListOf<String>()
+        val trace = executor(p, recordingYouTube(queries)).executeTraced(cmd)
         trace.speechVi shouldBe speech
         trace.mediaQuery shouldBe "Đừng xa em đêm nay"
         trace.mediaProvider shouldBe "YouTube"
         trace.mediaData.shouldNotBeNull()
-        trace.mediaData!! shouldContain "search_query="
-        java.net.URLDecoder.decode(
-            trace.mediaData!!.substringAfter("search_query="),
-            Charsets.UTF_8.name(),
-        ) shouldBe "Đừng xa em đêm nay"
+        trace.mediaData!! shouldContain "watch?v="
+        trace.mediaData!!.shouldNotContain("search_query=")
         trace.actionTaken.shouldBeTrue()
+        queries shouldBe listOf("Đừng xa em đêm nay")
+        MediaProviderExecutor.legacyYoutubeSearchCount shouldBe 0
+        p.activities.shouldBe(emptyList())
     }
 
     "PlayMedia Nơi này có anh without title special-case" {
@@ -223,7 +255,7 @@ class CanonicalCommandExecutionTest : StringSpec({
     }
 })
 
-private class Phase3FakePlatform : CarfuSkillPlatform {
+class Phase3FakePlatform : CarfuSkillPlatform {
     var launchable = mutableSetOf(
         "com.google.android.youtube",
         "com.google.android.apps.maps",

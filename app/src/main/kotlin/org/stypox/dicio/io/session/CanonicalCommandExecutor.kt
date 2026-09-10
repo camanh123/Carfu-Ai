@@ -16,6 +16,7 @@ class CanonicalCommandExecutor(
         listLaunchable = { platform.listLaunchableApps() },
         isLaunchable = { platform.isPackageLaunchable(it) },
     ),
+    private val youtubePlayAuto: YouTubePlayAutoPort? = null,
 ) {
     data class ExecutionTrace(
         val speechVi: String,
@@ -164,6 +165,8 @@ class CanonicalCommandExecutor(
                 mediaProvider = command.provider,
                 reason = built.reason,
             )
+            is MediaProviderExecutor.Result.YouTubePlayAuto ->
+                executeYouTubePlayAuto(command, speech, built.query)
             is MediaProviderExecutor.Result.Ok -> {
                 var launch = built.launch
                 if (launch.spec.packageName != null &&
@@ -196,6 +199,60 @@ class CanonicalCommandExecutor(
                 }
             }
         }
+    }
+
+    private fun executeYouTubePlayAuto(
+        command: CanonicalCommand.PlayMedia,
+        speech: String,
+        query: String,
+    ): ExecutionTrace {
+        val port = youtubePlayAuto
+        if (port == null) {
+            return ExecutionTrace(
+                speechVi = "Không phát được bài trên YouTube.",
+                actionTaken = false,
+                mediaQuery = query,
+                mediaProvider = "YouTube",
+                reason = "youtube_playauto_unconfigured",
+            )
+        }
+        val result = port.play(query)
+        val searchLeak = result.watchUrl?.contains("search_query=") == true ||
+            result.searchOpened ||
+            result.accessibilityFallbackUsed
+        if (result.launched &&
+            result.launchCount == 1 &&
+            result.playAutoRequestCount == 1 &&
+            !searchLeak &&
+            !result.watchUrl.isNullOrBlank()
+        ) {
+            return ExecutionTrace(
+                speechVi = speech.ifBlank {
+                    VietnameseCommandUnderstanding.confirmationSpeechVi(command).orEmpty()
+                },
+                actionTaken = true,
+                mediaQuery = result.query,
+                mediaProvider = "YouTube",
+                mediaData = result.watchUrl,
+                packageName = "com.google.android.youtube",
+                reason = "youtube_playauto_direct_target",
+            )
+        }
+        return ExecutionTrace(
+            speechVi = youtubeFailureSpeech(result.failure ?: result.resolverStatus),
+            actionTaken = false,
+            mediaQuery = result.query.ifBlank { query },
+            mediaProvider = "YouTube",
+            mediaData = null,
+            reason = result.failure ?: result.resolverStatus ?: "youtube_playauto_failed",
+        )
+    }
+
+    private fun youtubeFailureSpeech(status: String?): String = when (status) {
+        "NO_RESULTS" -> "Không tìm thấy bài trên YouTube."
+        "NETWORK_UNAVAILABLE", "TIMEOUT" -> "Không kết nối được YouTube."
+        "QUOTA_EXCEEDED" -> "YouTube tạm thời quá tải."
+        else -> "Không phát được bài trên YouTube."
     }
 
     private fun executeVolume(
