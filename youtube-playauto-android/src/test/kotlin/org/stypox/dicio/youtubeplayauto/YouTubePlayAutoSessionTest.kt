@@ -178,11 +178,28 @@ class YouTubePlayAutoSessionTest : StringSpec({
     "YouTubePlayAutoResult failure leaves YouTube open at driver layer" {
         val selector = FakeYouTubeInAppSelector(selectSucceeds = false)
         val adapter = YouTubeMediaAdapter(FakeYouTubeRuntime()).also { it.detect() }
-        val result = YouTubePlayAutoDriver(adapter, selector)
-            .execute(PlayAutoRequest("YouTube", song), YouTubeLaunchMode.DEVICE_TEST)
+        val result = YouTubePlayAutoDriver(
+            adapter = adapter,
+            selector = selector,
+            resolver = NoOpYouTubeContentResolver,
+            options = YouTubePlayAutoOptions(accessibilityFallbackEnabled = true),
+        ).execute(PlayAutoRequest("YouTube", song), YouTubeLaunchMode.DEVICE_TEST)
         result.youtubeLeftOpen shouldBe true
         result.searchOpened shouldBe true
         result.resultSelected shouldBe false
+        result.accessibilityFallbackUsed shouldBe true
         adapter.dispatchCount shouldBe 1
+    }
+
+    "primary path resolver miss does not open YouTube or click" {
+        val selector = FakeYouTubeInAppSelector()
+        val adapter = YouTubeMediaAdapter(FakeYouTubeRuntime()).also { it.detect() }
+        val result = YouTubePlayAutoDriver(adapter, selector, NoOpYouTubeContentResolver)
+            .execute(PlayAutoRequest("YouTube", song), YouTubeLaunchMode.DEVICE_TEST)
+        result.youtubeLeftOpen shouldBe false
+        result.searchOpened shouldBe false
+        result.accessibilityFallbackUsed shouldBe false
+        selector.selectCount shouldBe 0
+        adapter.dispatchCount shouldBe 0
     }
 })
