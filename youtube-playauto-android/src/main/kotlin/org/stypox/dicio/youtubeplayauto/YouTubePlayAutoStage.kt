@@ -6,6 +6,7 @@ enum class YouTubePlayAutoStage {
     SEARCH_SUBMIT_REQUESTED,
     WAITING_RESULTS,
     RESULTS_READY,
+    SELECT_REQUESTED,
     RESULT_SELECTED,
     DONE,
     FAILED,
@@ -29,9 +30,17 @@ data class YouTubePlayAutoDiagnostics(
     var searchSubmitAttempted: Boolean = false,
     var searchSubmitMethod: YouTubeSearchSubmitMethod = YouTubeSearchSubmitMethod.NONE,
     var resultsPageDetected: Boolean = false,
+    var accessibilityCandidateCount: Int = 0,
     var candidateVideoCount: Int = 0,
     var bestMatchedTitle: String? = null,
+    var bestNormalizedTitle: String? = null,
     var bestMatchScore: Int = 0,
+    var bestNodeClass: String? = null,
+    var bestNodeClickable: Boolean = false,
+    var parentDepthUsed: Int? = null,
+    var clickableAncestorClass: String? = null,
+    var actionClickAttempted: Boolean = false,
+    var actionClickReturned: Boolean? = null,
     var selectAttemptCount: Int = 0,
     var resultSelected: Boolean = false,
     var stage: YouTubePlayAutoStage = YouTubePlayAutoStage.SEARCH_OPENED,
@@ -43,14 +52,31 @@ data class YouTubePlayAutoDiagnostics(
         appendLine("Search submit attempted: ${yesNo(searchSubmitAttempted)}")
         appendLine("Search submit method: $searchSubmitMethod")
         appendLine("Results page detected: ${yesNo(resultsPageDetected)}")
+        appendLine("Accessibility candidate count: $accessibilityCandidateCount")
         appendLine("Candidate video count: $candidateVideoCount")
-        appendLine("Best matched title: ${bestMatchedTitle ?: "NONE"}")
+        appendLine("Best raw title: ${bestMatchedTitle ?: "NONE"}")
+        appendLine("Best normalized title: ${bestNormalizedTitle ?: "NONE"}")
         appendLine("Best match score: $bestMatchScore")
+        appendLine("Best node class: ${bestNodeClass ?: "NONE"}")
+        appendLine("Best node clickable: ${yesNo(bestNodeClickable)}")
+        appendLine("Parent depth used: ${parentDepthUsed ?: "NONE"}")
+        appendLine("Clickable ancestor class: ${clickableAncestorClass ?: "NONE"}")
+        appendLine("ACTION_CLICK attempted: ${yesNo(actionClickAttempted)}")
+        appendLine(
+            "ACTION_CLICK returned: ${
+                when (actionClickReturned) {
+                    true -> "true"
+                    false -> "false"
+                    null -> "NONE"
+                }
+            }",
+        )
         appendLine("Select attempt count: $selectAttemptCount")
         appendLine("Result selected: ${yesNo(resultSelected)}")
         appendLine("Failure stage: ${failureStage ?: "none"}")
         appendLine("Failure reason: ${failureReason ?: "none"}")
         appendLine("Stage: $stage")
+        appendLine("PLAYBACK_CONFIRMED: not claimed from ACTION_CLICK")
     }
 
     private fun yesNo(value: Boolean): String = if (value) "YES" else "NO"
@@ -60,6 +86,15 @@ sealed class YouTubePlayAutoAction {
     data object Wait : YouTubePlayAutoAction()
     data object None : YouTubePlayAutoAction()
     data class SubmitSearch(val method: YouTubeSearchSubmitMethod) : YouTubePlayAutoAction()
-    data class ClickVideo(val title: String, val score: Int) : YouTubePlayAutoAction()
+    data class ClickVideo(
+        val title: String,
+        val score: Int,
+        val titleIndex: Int = -1,
+        val clickIndex: Int = -1,
+        val titleClass: String = "",
+        val titleClickable: Boolean = false,
+        val ancestorDepth: Int = 0,
+        val clickableAncestorClass: String = "",
+    ) : YouTubePlayAutoAction()
     data class Fail(val reason: String) : YouTubePlayAutoAction()
 }

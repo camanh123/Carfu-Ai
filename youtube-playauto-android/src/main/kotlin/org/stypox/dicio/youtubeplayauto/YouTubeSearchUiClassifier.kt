@@ -12,9 +12,17 @@ data class YouTubeNodeFact(
     val focused: Boolean = false,
     val editable: Boolean = false,
     val hasImeEnterAction: Boolean = false,
+    val index: Int = -1,
+    val parentIndex: Int? = null,
 ) {
     val combined: String = listOf(text, contentDescription).filter { it.isNotBlank() }.joinToString(" ")
 }
+
+data class YouTubeScoredResult(
+    val node: YouTubeNodeFact,
+    val title: String,
+    val score: Int,
+)
 
 data class YouTubeUiFacts(
     val query: String,
@@ -97,10 +105,48 @@ object YouTubeSearchUiClassifier {
         facts.nodes.map { it.combined }.filter { isVideoResultText(it) }
 
     fun candidateVideoTitles(facts: YouTubeUiFacts): List<String> {
-        return nonChromeTitles(facts).filter { title ->
-            !isSuggestionText(title, facts.query) &&
-                YouTubeTitleMatcher.normalize(title) !in FILTER_CHIPS
+        return candidateResultEntries(facts).map { it.title }
+    }
+
+    /**
+     * Results-page candidates. Title-only rows are eligible; autocomplete
+     * [isSuggestionText] is not applied here (that filter is search-box only).
+     */
+    fun candidateResultEntries(facts: YouTubeUiFacts): List<YouTubeScoredResult> {
+        return facts.nodes.mapNotNull { node ->
+            if (!isEligibleResultNode(node, facts.query)) return@mapNotNull null
+            val title = node.combined
+            val score = YouTubeTitleMatcher.score(title, facts.query) -
+                penalizeUnwantedCompletion(title, facts.query)
+            if (!YouTubeTitleMatcher.isSelectable(score)) return@mapNotNull null
+            YouTubeScoredResult(node = node, title = title, score = score)
         }
+    }
+
+    fun isEligibleResultNode(node: YouTubeNodeFact, query: String): Boolean {
+        if (node.editable) return false
+        if (YouTubeVideoClickResolver.isKeyboardNode(node)) return false
+        if (node.className.contains("EditText") || node.className.contains("SearchView")) return false
+        val id = node.viewId.lowercase()
+        if (id.contains("shorts")) return false
+        val title = node.combined
+        if (title.isBlank()) return false
+        if (YouTubeSearchResultPicker.shouldSkipText(title)) return false
+        if (isSubmitLabel(title)) return false
+        val normalized = YouTubeTitleMatcher.normalize(title)
+        if (normalized in FILTER_CHIPS) return false
+        if (isChannelNameNode(node, query)) return false
+        return true
+    }
+
+    fun isChannelNameNode(node: YouTubeNodeFact, query: String): Boolean {
+        val id = node.viewId.lowercase()
+        val cls = node.className.lowercase()
+        val looksLikeChannel = id.contains("channel") ||
+            cls.contains("channel") ||
+            YouTubeTitleMatcher.normalize(node.combined).startsWith("by ")
+        if (!looksLikeChannel) return false
+        return YouTubeTitleMatcher.score(node.combined, query) < 50
     }
 
     fun nonChromeTitles(facts: YouTubeUiFacts): List<String> =
@@ -141,10 +187,13 @@ object YouTubeSearchUiClassifier {
     }
 
     fun penalizeUnwantedCompletion(title: String, query: String): Int {
-        val extra = YouTubeTitleMatcher.normalize(title)
-            .removePrefix(YouTubeTitleMatcher.normalize(query))
-            .trim()
+        val titleN = YouTubeTitleMatcher.normalize(title)
         val queryN = YouTubeTitleMatcher.normalize(query)
-        return if (SUGGESTION_EXTRAS.any { extra.contains(it) && !queryN.contains(it) }) 25 else 0
+        val variants = listOf("remix", "karaoke", "cover", "beat")
+        var penalty = 0
+        for (variant in variants) {
+            if (titleN.contains(variant) && !queryN.contains(variant)) penalty += 35
+        }
+        return penalty
     }
 }

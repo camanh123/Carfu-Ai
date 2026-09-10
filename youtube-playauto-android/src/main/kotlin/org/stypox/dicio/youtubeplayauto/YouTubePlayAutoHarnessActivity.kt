@@ -1,6 +1,8 @@
 package org.stypox.dicio.youtubeplayauto
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -11,6 +13,7 @@ import android.widget.EditText
 import android.widget.RadioButton
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import org.stypox.dicio.playauto.core.MediaRequest
 import org.stypox.dicio.playauto.core.MediaType
 import org.stypox.dicio.playauto.core.PlayAutoEngine
@@ -67,6 +70,9 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         findViewById<Button>(R.id.btn_playauto).setOnClickListener { runPlayAuto() }
         findViewById<Button>(R.id.btn_a11y_settings).setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+        findViewById<Button>(R.id.btn_export_diagnostic).setOnClickListener {
+            exportDiagnostic()
         }
 
         logView.text = "Ready. Dry-run is default. PlayAuto YouTube uses structured targetApp+query only. Enable the harness Accessibility service, then Device test + PlayAuto YouTube.\n"
@@ -288,6 +294,23 @@ class YouTubePlayAutoHarnessActivity : Activity() {
             appendLine("Failure reason: ${(dispatch as? YouTubeDispatchOutcome.Failed)?.detail ?: "none"}")
             if (extra.isNotBlank()) append(extra)
         }
+        logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+    }
+
+    private fun exportDiagnostic() {
+        val text = buildString {
+            appendLine("=== EXPORT DIAGNOSTIC 4.8.2 ===")
+            append(logView.text)
+            appendLine()
+            appendLine("--- session diagnostics ---")
+            append(YouTubePlayAutoSelectBus.diagnostics().format())
+        }
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText("carfu-playauto-diagnostic", text))
+            Toast.makeText(this, "Diagnostic copied to clipboard", Toast.LENGTH_SHORT).show()
+        }
+        logView.text = text
         logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 

@@ -164,6 +164,14 @@
             android:textAllCaps="false" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btn_export_diagnostic"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="4dp"
+        android:text="@string/harness_export_diagnostic"
+        android:textAllCaps="false" />
+
     <ScrollView
         android:id="@+id/harness_log_scroll"
         android:layout_width="match_parent"

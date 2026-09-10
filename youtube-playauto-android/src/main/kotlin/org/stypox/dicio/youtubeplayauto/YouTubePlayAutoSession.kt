@@ -16,7 +16,8 @@ class YouTubePlayAutoSession(
     fun onUi(facts: YouTubeUiFacts): YouTubePlayAutoAction {
         if (diagnostics.stage == YouTubePlayAutoStage.DONE ||
             diagnostics.stage == YouTubePlayAutoStage.FAILED ||
-            diagnostics.stage == YouTubePlayAutoStage.RESULT_SELECTED
+            diagnostics.stage == YouTubePlayAutoStage.RESULT_SELECTED ||
+            diagnostics.stage == YouTubePlayAutoStage.SELECT_REQUESTED
         ) {
             return YouTubePlayAutoAction.None
         }
@@ -35,6 +36,7 @@ class YouTubePlayAutoSession(
             YouTubePlayAutoStage.WAITING_RESULTS,
             -> waitForResults(kind, facts)
             YouTubePlayAutoStage.RESULTS_READY -> selectVideo(facts)
+            YouTubePlayAutoStage.SELECT_REQUESTED,
             YouTubePlayAutoStage.RESULT_SELECTED,
             YouTubePlayAutoStage.DONE,
             YouTubePlayAutoStage.FAILED,
@@ -49,8 +51,19 @@ class YouTubePlayAutoSession(
     }
 
     fun markVideoClicked() {
-        diagnostics.resultSelected = true
-        diagnostics.stage = YouTubePlayAutoStage.DONE
+        onClickResult(success = true)
+    }
+
+    fun onClickResult(success: Boolean): YouTubePlayAutoAction {
+        diagnostics.actionClickAttempted = true
+        diagnostics.actionClickReturned = success
+        return if (success) {
+            diagnostics.resultSelected = true
+            diagnostics.stage = YouTubePlayAutoStage.RESULT_SELECTED
+            YouTubePlayAutoAction.None
+        } else {
+            fail("click_failed")
+        }
     }
 
     fun timeout(): YouTubePlayAutoAction {
@@ -58,6 +71,9 @@ class YouTubePlayAutoSession(
             diagnostics.stage == YouTubePlayAutoStage.RESULT_SELECTED
         ) {
             return YouTubePlayAutoAction.None
+        }
+        if (diagnostics.stage == YouTubePlayAutoStage.SELECT_REQUESTED) {
+            return fail("click_timeout")
         }
         return fail("select_timeout")
     }
@@ -100,23 +116,46 @@ class YouTubePlayAutoSession(
 
     private fun selectVideo(facts: YouTubeUiFacts): YouTubePlayAutoAction {
         if (selectCount > 0) return YouTubePlayAutoAction.None
-        val titles = YouTubeSearchUiClassifier.candidateVideoTitles(facts)
-        diagnostics.candidateVideoCount = titles.size
-        val ranked = titles.map { title ->
-            val score = YouTubeTitleMatcher.score(title, query) -
-                YouTubeSearchUiClassifier.penalizeUnwantedCompletion(title, query)
-            title to score
-        }.filter { (_, score) -> YouTubeTitleMatcher.isSelectable(score) }
-        val best = ranked.maxByOrNull { it.second }
+        val ranked = YouTubeSearchUiClassifier.candidateResultEntries(facts)
+        diagnostics.accessibilityCandidateCount = ranked.size
+        diagnostics.candidateVideoCount = ranked.size
+        val best = ranked.maxWithOrNull(
+            compareBy<YouTubeScoredResult> { it.score }.thenBy { it.title.length },
+        )
         if (best == null) {
             return fail("no_matching_video")
         }
-        diagnostics.bestMatchedTitle = best.first
-        diagnostics.bestMatchScore = best.second
+        recordBestCandidate(best)
+        val resolved = YouTubeVideoClickResolver.resolve(best.node, facts.nodes)
+        if (resolved == null) {
+            diagnostics.parentDepthUsed = null
+            diagnostics.clickableAncestorClass = null
+            return fail("no_clickable_ancestor")
+        }
+        diagnostics.parentDepthUsed = resolved.depthFromTitle
+        diagnostics.clickableAncestorClass = resolved.clickableClass
         selectCount = 1
         diagnostics.selectAttemptCount = 1
-        diagnostics.stage = YouTubePlayAutoStage.RESULT_SELECTED
-        return YouTubePlayAutoAction.ClickVideo(best.first, best.second)
+        diagnostics.stage = YouTubePlayAutoStage.SELECT_REQUESTED
+        val titleIndex = if (best.node.index >= 0) best.node.index else facts.nodes.indexOf(best.node)
+        return YouTubePlayAutoAction.ClickVideo(
+            title = best.title,
+            score = best.score,
+            titleIndex = titleIndex,
+            clickIndex = resolved.nodeIndex,
+            titleClass = resolved.titleClass,
+            titleClickable = resolved.titleClickable,
+            ancestorDepth = resolved.depthFromTitle,
+            clickableAncestorClass = resolved.clickableClass,
+        )
+    }
+
+    private fun recordBestCandidate(best: YouTubeScoredResult) {
+        diagnostics.bestMatchedTitle = best.title
+        diagnostics.bestNormalizedTitle = YouTubeTitleMatcher.normalize(best.title)
+        diagnostics.bestMatchScore = best.score
+        diagnostics.bestNodeClass = best.node.className
+        diagnostics.bestNodeClickable = best.node.clickable
     }
 
     private fun fail(reason: String): YouTubePlayAutoAction {

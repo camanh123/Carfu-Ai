@@ -94,11 +94,17 @@ class YouTubePlayAutoSessionTest : StringSpec({
         val click = session.onUi(resultsFacts())
         click.shouldBeInstanceOf<YouTubePlayAutoAction.ClickVideo>()
         click.title shouldBe "$song - Official Audio 4:12 • 1.2M views"
+        click.ancestorDepth shouldBe 0
+        click.titleClickable shouldBe true
         session.selectCount shouldBe 1
         session.diagnostics.resultsPageDetected shouldBe true
         session.diagnostics.candidateVideoCount shouldBe 2
+        session.diagnostics.stage shouldBe YouTubePlayAutoStage.SELECT_REQUESTED
         session.onUi(resultsFacts()) shouldBe YouTubePlayAutoAction.None
         session.selectCount shouldBe 1
+        session.onClickResult(true)
+        session.diagnostics.stage shouldBe YouTubePlayAutoStage.RESULT_SELECTED
+        session.diagnostics.resultSelected shouldBe true
     }
 
     "results not ready produces no click" {

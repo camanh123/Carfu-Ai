@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="harness_app_name">CARFU YT PlayAuto 4.8.1</string>
-    <string name="harness_title">Phase 4.8.1 YouTube search-submit harness</string>
-    <string name="harness_subtitle">Standalone test only. Not connected to Voice / NLU / production CARFU. Enable the harness Accessibility service to select+play inside YouTube.</string>
+    <string name="harness_app_name">CARFU YT PlayAuto 4.8.2</string>
+    <string name="harness_title">Phase 4.8.2 YouTube result-click harness</string>
+    <string name="harness_subtitle">Standalone test only. Not connected to Voice / NLU / production CARFU. Enable the harness Accessibility service to click one matching result. Search-submit from 4.8.1 is unchanged.</string>
     <string name="harness_playauto">PlayAuto YouTube</string>
     <string name="harness_a11y_settings">A11y settings</string>
+    <string name="harness_export_diagnostic">Export diagnostic</string>
     <string name="youtube_playauto_a11y_label">CARFU YouTube PlayAuto selector</string>
     <string name="youtube_playauto_a11y_description">Harness-only. After YouTube search opens, clicks the matching result so playback can start. Not production Voice.</string>
     <string name="harness_query_label">Query</string>

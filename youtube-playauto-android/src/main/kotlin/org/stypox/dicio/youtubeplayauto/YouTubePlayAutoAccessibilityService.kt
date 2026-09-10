@@ -7,7 +7,7 @@ import android.view.accessibility.AccessibilityNodeInfo
 
 /**
  * Harness-only. Submits YouTube search once, waits for the results list, then clicks
- * one matching video. Never clicks autocomplete suggestions.
+ * one matching video via a safe clickable ancestor. Never clicks autocomplete suggestions.
  */
 class YouTubePlayAutoAccessibilityService : AccessibilityService() {
 
@@ -54,15 +54,19 @@ class YouTubePlayAutoAccessibilityService : AccessibilityService() {
                 YouTubePlayAutoSelectBus.lastDiagnostics = job.session.diagnostics
             }
             is YouTubePlayAutoAction.ClickVideo -> {
-                val ok = clickTitle(root, action.title)
-                if (ok) {
-                    job.session.markVideoClicked()
-                    YouTubePlayAutoSelectBus.lastOutcome = YouTubeSelectOutcome.Selected(
-                        matchedTitle = action.title,
-                        playbackRequested = true,
-                    )
-                    YouTubePlayAutoSelectBus.lastDiagnostics = job.session.diagnostics
-                    YouTubePlayAutoSelectBus.clear()
+                val ok = clickResolvedVideo(root, facts, action)
+                when (val result = job.session.onClickResult(ok)) {
+                    is YouTubePlayAutoAction.Fail -> applyFail(result)
+                    else -> {
+                        if (ok) {
+                            YouTubePlayAutoSelectBus.lastOutcome = YouTubeSelectOutcome.Selected(
+                                matchedTitle = action.title,
+                                playbackRequested = true,
+                            )
+                            YouTubePlayAutoSelectBus.lastDiagnostics = job.session.diagnostics
+                            YouTubePlayAutoSelectBus.clear()
+                        }
+                    }
                 }
             }
             is YouTubePlayAutoAction.Fail -> applyFail(action)
@@ -121,16 +125,47 @@ class YouTubePlayAutoAccessibilityService : AccessibilityService() {
         return target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
 
-    private fun clickTitle(root: AccessibilityNodeInfo, title: String): Boolean {
-        val node = findNode(root) { YouTubeSearchResultPicker.collectText(it) == title }
-            ?: return false
-        val target = clickableAncestor(node) ?: node
+    private fun clickResolvedVideo(
+        root: AccessibilityNodeInfo,
+        facts: YouTubeUiFacts,
+        action: YouTubePlayAutoAction.ClickVideo,
+    ): Boolean {
+        val titleFact = facts.nodes.firstOrNull { it.index == action.titleIndex && action.titleIndex >= 0 }
+            ?: facts.nodes.firstOrNull { it.combined == action.title }
+        val resolved = titleFact?.let { YouTubeVideoClickResolver.resolve(it, facts.nodes) }
+        val clickIndex = when {
+            resolved != null -> resolved.nodeIndex
+            action.clickIndex >= 0 -> action.clickIndex
+            else -> return false
+        }
+        val target = findNodeByIndex(root, clickIndex) ?: return false
+        if (!target.isClickable) return false
+        val liveFact = factFromLive(target, clickIndex, null)
+        if (!YouTubeVideoClickResolver.isSafeVideoClickTarget(liveFact)) return false
         return target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
     }
 
+    private fun factFromLive(
+        node: AccessibilityNodeInfo,
+        index: Int,
+        parentIndex: Int?,
+    ): YouTubeNodeFact = YouTubeNodeFact(
+        className = node.className?.toString().orEmpty(),
+        text = node.text?.toString().orEmpty(),
+        contentDescription = node.contentDescription?.toString().orEmpty(),
+        viewId = node.viewIdResourceName.orEmpty(),
+        clickable = node.isClickable,
+        focused = node.isFocused,
+        editable = node.isEditable,
+        hasImeEnterAction = hasImeEnter(node),
+        index = index,
+        parentIndex = parentIndex,
+    )
+
     private fun collectFacts(root: AccessibilityNodeInfo): List<YouTubeNodeFact> {
         val out = ArrayList<YouTubeNodeFact>()
-        walk(root) { node ->
+        fun walkIndexed(node: AccessibilityNodeInfo, parentIndex: Int?) {
+            val index = out.size
             out += YouTubeNodeFact(
                 className = node.className?.toString().orEmpty(),
                 text = node.text?.toString().orEmpty(),
@@ -140,9 +175,35 @@ class YouTubePlayAutoAccessibilityService : AccessibilityService() {
                 focused = node.isFocused,
                 editable = node.isEditable,
                 hasImeEnterAction = hasImeEnter(node),
+                index = index,
+                parentIndex = parentIndex,
             )
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walkIndexed(child, index)
+            }
         }
+        walkIndexed(root, null)
         return out
+    }
+
+    private fun findNodeByIndex(root: AccessibilityNodeInfo, index: Int): AccessibilityNodeInfo? {
+        var current = 0
+        var found: AccessibilityNodeInfo? = null
+        fun walkIndexed(node: AccessibilityNodeInfo) {
+            if (found != null) return
+            if (current == index) {
+                found = node
+                return
+            }
+            current += 1
+            for (i in 0 until node.childCount) {
+                val child = node.getChild(i) ?: continue
+                walkIndexed(child)
+            }
+        }
+        walkIndexed(root)
+        return found
     }
 
     private fun findNode(
