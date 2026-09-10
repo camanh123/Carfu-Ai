@@ -98,6 +98,8 @@ class SttService : RecognitionService() {
 
                     logRemoteExceptions { listener.partialResults(partResult) }
                 }
+
+                InputEvent.EndOfSpeech -> Unit
             }
         }
 

@@ -1,6 +1,5 @@
 package org.stypox.dicio.io.input.android
 
-import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -13,7 +12,6 @@ import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +25,7 @@ import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CarfuPcmHub
 import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.CommandSession
+import org.stypox.dicio.io.session.RecordAudioPermission
 import org.stypox.dicio.io.session.VoiceSessionManager
 import org.stypox.dicio.io.session.VoiceToActionLatency
 import org.stypox.dicio.io.session.VoiceToActionLatencyPolicy
@@ -65,6 +64,8 @@ class AndroidSpeechInputDevice(
     private val armStartedAtMs = AtomicLong(0L)
     private val sawReady = AtomicBoolean(false)
     private val sawSpeechOrPartial = AtomicBoolean(false)
+
+    override fun currentRecognizerGeneration(): Long = listenerGeneration.get()
 
     private val hardListenTimeoutRunnable = Runnable {
         CarfuLatencyLog.logSessionEvent("SR_TIMEOUT", "kind=HARD_LISTEN_CEILING")
@@ -162,11 +163,13 @@ class AndroidSpeechInputDevice(
         component: CommandRecognitionPolicy.RecognitionServiceCandidate,
     ): Boolean {
         if (destroyed.get()) return false
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED missing_record_audio")
-            CarfuVoiceTrace.permissionOrAvailability("missing_record_audio")
+        val perm = RecordAudioPermission.logForVoiceTrigger(context, "startListeningOnMain")
+        if (!perm.mayStartSpeechRecognizer()) {
+            CarfuLog.e(
+                CommandSession.TAG,
+                "ANDROID_SR_REFUSED ${perm.runtimeLabel()} " +
+                    "manifest=${perm.manifestLabel()}",
+            )
             return false
         }
         val recognitionAvailable = try {
@@ -391,6 +394,10 @@ class AndroidSpeechInputDevice(
         override fun onEndOfSpeech() {
             if (!isCurrent("onEndOfSpeech")) return
             // Logged only — must not terminate the product session.
+            // Do NOT call SpeechRecognizer.stopListening() here: EOS means the OEM
+            // endpointer already stopped capture. Remaining delay is remote/final
+            // processing. stopListening after EOS is unproven and OEM-unsafe.
+            // Do NOT cancel()/destroy() here either — that would abort onResults.
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.END_OF_SPEECH)
             CarfuLatencyLog.logPipelineStage("SR_END_OF_SPEECH")
             CarfuVoiceTrace.srEndSpeech()
@@ -399,6 +406,10 @@ class AndroidSpeechInputDevice(
                 onTerminal(CommandRecognitionPolicy.RecognizerTerminal.ERROR) {
                     it(InputEvent.None)
                 }
+            } else {
+                // Acoustic only — product session stays LISTENING. SkillEvaluator may
+                // use this as a stability signal; it must not cancel the 5s watch.
+                listenerRef.get()?.invoke(InputEvent.EndOfSpeech)
             }
         }
 

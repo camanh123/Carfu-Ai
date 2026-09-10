@@ -8,6 +8,8 @@
 .externalNativeBuild
 /models
 /aars/build
+/playauto/build
+/youtube-playauto-android/build
 /checkouts
 .kotlin
 

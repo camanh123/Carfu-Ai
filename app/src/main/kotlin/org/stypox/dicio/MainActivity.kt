@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -29,6 +30,7 @@ import org.stypox.dicio.eval.SkillEvaluator
 import org.stypox.dicio.io.assist.CarfuAssistIntents
 import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuSessionGate
+import org.stypox.dicio.io.session.RecordAudioPermission
 import org.stypox.dicio.io.session.VoiceTriggerManager
 import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.WakeService
@@ -58,6 +60,34 @@ class MainActivity : BaseActivity() {
     private var sttPermissionJob: Job? = null
     private var wakeServiceJob: Job? = null
 
+    private val recordAudioLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        RecordAudioPermission.markRequested(this)
+        if (granted) {
+            when (RecordAudioPermission.consumePending()) {
+                RecordAudioPermission.Pending.HARDWARE_MODE ->
+                    skillEvaluator.onHardwareButtonDetected()
+                RecordAudioPermission.Pending.UI_MIC ->
+                    skillEvaluator.onUiModeDetected()
+                RecordAudioPermission.Pending.NONE -> Unit
+            }
+        } else {
+            RecordAudioPermission.logForVoiceTrigger(this, "permission_denied", this)
+            try {
+                speechOutputDevice.stopSpeaking()
+                speechOutputDevice.speak(getString(R.string.carfu_need_microphone_permission))
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
+    private fun requestRecordAudioForVoice(pending: RecordAudioPermission.Pending) {
+        RecordAudioPermission.pendingAfterGrant = pending
+        RecordAudioPermission.markRequested(this)
+        recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    }
+
     /**
      * FYT MODE / system Assist. Converges at [SkillEvaluator.onHardwareButtonDetected] →
      * [VoiceTriggerManager] HARDWARE_MODE. Duplicate VIS + ASSIST fan-out is rejected
@@ -81,6 +111,11 @@ class MainActivity : BaseActivity() {
         CarfuLatencyLog.nowMs = { SystemClock.elapsedRealtime() }
         CarfuLatencyLog.onModeIntent()
         Log.d(TAG, "Received assist intent action=${intent?.action}")
+        val snap = RecordAudioPermission.logForVoiceTrigger(this, "hardware_mode", this)
+        if (!snap.mayStartSpeechRecognizer()) {
+            requestRecordAudioForVoice(RecordAudioPermission.Pending.HARDWARE_MODE)
+            return
+        }
         skillEvaluator.onHardwareButtonDetected()
     }
 
@@ -105,6 +140,16 @@ class MainActivity : BaseActivity() {
         handleWakeWordTurnOnScreen(intent)
         if (isAssistIntent(intent)) {
             onAssistIntentReceived(intent)
+        } else if (intent.getBooleanExtra(RecordAudioPermission.EXTRA_REQUEST_RECORD_AUDIO, false)) {
+            val pending = try {
+                RecordAudioPermission.Pending.valueOf(
+                    intent.getStringExtra(RecordAudioPermission.EXTRA_PENDING_VOICE)
+                        ?: RecordAudioPermission.Pending.UI_MIC.name,
+                )
+            } catch (_: Throwable) {
+                RecordAudioPermission.Pending.UI_MIC
+            }
+            requestRecordAudioForVoice(pending)
         }
     }
 
@@ -129,6 +174,15 @@ class MainActivity : BaseActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         isCreated += 1
+        RecordAudioPermission.requester = RecordAudioPermission.Requester {
+            requestRecordAudioForVoice(
+                if (RecordAudioPermission.pendingAfterGrant != RecordAudioPermission.Pending.NONE) {
+                    RecordAudioPermission.pendingAfterGrant
+                } else {
+                    RecordAudioPermission.Pending.UI_MIC
+                },
+            )
+        }
 
         // Observe CommandSession for Ambient HUD after Activity exists (not Application.onCreate).
         try {
@@ -155,6 +209,16 @@ class MainActivity : BaseActivity() {
         if (isAssistIntent(intent)) {
             // Recreation redelivers the old Assist Intent — not a new MODE press.
             onAssistIntentReceived(intent, stale = savedInstanceState != null)
+        } else if (intent.getBooleanExtra(RecordAudioPermission.EXTRA_REQUEST_RECORD_AUDIO, false)) {
+            val pending = try {
+                RecordAudioPermission.Pending.valueOf(
+                    intent.getStringExtra(RecordAudioPermission.EXTRA_PENDING_VOICE)
+                        ?: RecordAudioPermission.Pending.UI_MIC.name,
+                )
+            } catch (_: Throwable) {
+                RecordAudioPermission.Pending.UI_MIC
+            }
+            requestRecordAudioForVoice(pending)
         }
 
         // The Activity may start the foreground wake service, but does not own its lifetime
@@ -204,6 +268,7 @@ class MainActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
+        RecordAudioPermission.requester = null
         // STT can be unloaded when the Activity is gone; wake AudioRecord stays with WakeService.
         sttInputDevice.reinitializeToReleaseResources()
         isCreated -= 1

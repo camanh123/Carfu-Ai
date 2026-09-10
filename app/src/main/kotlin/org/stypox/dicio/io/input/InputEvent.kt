@@ -33,6 +33,14 @@ sealed interface InputEvent {
     ) : InputEvent
 
     /**
+     * Acoustic end-of-speech from the recognizer endpointer. Product-non-terminal:
+     * must not idle the session, cancel the 5s no-speech watch, or destroy the
+     * recognizer by itself. Used only as a stability signal for a later COMPLETE
+     * partial commit.
+     */
+    data object EndOfSpeech : InputEvent
+
+    /**
      * The actual final user input ready to be used. May contain more than one utterance
      * alternative, but the [utterances] list is sorted by confidence. Every item in [utterances]
      * is an utterance with its score from 1.0 (best) to 0.0 (worst).

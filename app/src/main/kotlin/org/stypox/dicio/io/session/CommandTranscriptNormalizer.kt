@@ -157,6 +157,9 @@ object CommandTranscriptNormalizer {
         ) {
             return Domain.MEDIA
         }
+        if (VietnameseMediaCommandGrammar.isMediaCommand(folded)) {
+            return Domain.MEDIA
+        }
         if (OPEN_APP_PREFIX.containsMatchIn(folded) || looksLikeBareAppName(folded)) {
             return Domain.OPEN_APP
         }
@@ -179,8 +182,41 @@ object CommandTranscriptNormalizer {
     }
 
     fun matchAppInOpenDomain(folded: String): AppTarget? {
-        val remainder = OPEN_APP_PREFIX.replace(folded, "").trim().ifBlank { folded }
+        val remainder = openAppRemainder(folded)
         return bestAppTarget(remainder)
+    }
+
+    private val OPEN_FILLERS: List<String> = listOf("giup toi", "giup")
+
+    /** Folded remainder after `mở` / `bật` / `mở ứng dụng`, or [folded] if none. */
+    fun openAppRemainder(folded: String): String {
+        var remainder = OPEN_APP_PREFIX.replace(folded, "").trim().ifBlank { folded }
+        for (filler in OPEN_FILLERS) {
+            if (remainder == filler) return ""
+            if (remainder.startsWith("$filler ")) {
+                remainder = remainder.removePrefix("$filler ").trim()
+                break
+            }
+        }
+        return remainder
+    }
+
+    /** Exact alias match only — not the 0.78 fuzzy [bestAppTarget] path. */
+    fun hasExactAppAlias(foldedRemainder: String): Boolean {
+        val normalized = normalizeForMatch(foldedRemainder)
+        if (normalized.isEmpty()) return false
+        return APP_TARGETS.any { target -> target.aliases.any { it == normalized } }
+    }
+
+    /**
+     * True when [folded] is a strict prefix of a supported NAVIGATE phrase
+     * (e.g. `"mo ban do"` → `"mo ban do den …"`).
+     */
+    fun isPrefixOfSupportedNavigation(folded: String): Boolean {
+        if (folded.isEmpty()) return false
+        return NAV_PREFIXES.any { nav ->
+            nav.length > folded.length && nav.startsWith("$folded ")
+        }
     }
 
     /** Destination text after a navigation prefix, or null if incomplete / not navigation. */

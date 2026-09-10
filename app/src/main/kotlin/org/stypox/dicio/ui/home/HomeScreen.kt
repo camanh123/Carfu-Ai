@@ -1,5 +1,6 @@
 package org.stypox.dicio.ui.home
 
+import android.Manifest
 import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -12,6 +13,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import org.dicio.skill.skill.Permission
 import org.stypox.dicio.io.session.CommandUiState
+import org.stypox.dicio.io.session.RecordAudioPermission
 import org.stypox.dicio.probe.CarfuProbeActivity
 import org.stypox.dicio.ui.driving.DrivingScreen
 import org.stypox.dicio.util.checkPermissions
@@ -52,6 +54,15 @@ fun HomeScreen(
     val viewModel: HomeScreenViewModel = hiltViewModel()
     viewModel.skillEvaluator.permissionRequester = ::requestPermissions
 
+    val micPermissionLauncher = rememberPermissionFlowRequestLauncher { grantedMap ->
+        RecordAudioPermission.markRequested(context)
+        if (grantedMap[Manifest.permission.RECORD_AUDIO] == true ||
+            grantedMap.values.all { it }
+        ) {
+            viewModel.skillEvaluator.onUiModeDetected()
+        }
+    }
+
     val interactionsState = viewModel.skillEvaluator.state.collectAsState()
     val sttState = viewModel.sttInputDevice.uiState.collectAsState()
     val commandUi = viewModel.commandSession.ui.collectAsState()
@@ -69,7 +80,13 @@ fun HomeScreen(
         lastCommand = lastCommand,
         lastReply = lastReply,
         onMicClick = {
-            viewModel.skillEvaluator.onUiModeDetected()
+            if (checkPermissions(context, Manifest.permission.RECORD_AUDIO)) {
+                viewModel.skillEvaluator.onUiModeDetected()
+            } else {
+                RecordAudioPermission.pendingAfterGrant = RecordAudioPermission.Pending.UI_MIC
+                RecordAudioPermission.markRequested(context)
+                micPermissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO))
+            }
         },
         onSettingsClick = onSettingsClick,
         onDiagnosticsClick = {

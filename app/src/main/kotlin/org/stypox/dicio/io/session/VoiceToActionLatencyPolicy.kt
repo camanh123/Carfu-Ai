@@ -3,37 +3,34 @@ package org.stypox.dicio.io.session
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 
 /**
- * Phase 4.3A — documents the **current** voice-to-action latency path.
+ * Phase 4.4 — documents the voice-to-action latency path after semantic
+ * COMPLETE partial commit.
  *
- * This object does **not** change runtime behavior. It exists so tests and
- * device logs can prove what the code actually waits for, versus what it
- * does not wait for.
- *
- * Observed CARFU device symptom (Phase 4.2 pass): after the user finishes
- * speaking, NAVIGATE / PLAY_MEDIA feel ~8–10s late. Candidates:
- *
- * A. Android SpeechRecognizer final-result latency
- * B. product 5s no-speech timeout
- * C. waiting for Android Final even when a COMPLETE command exists in partials
- * D. CommandSession / canonical lock
- * E. confirmation TTS sequencing
- * F. Android Intent execution
- * G. coroutine / dispatcher scheduling
+ * Device-proven (Phase 4.3b.2 sessions 15–16): COMPLETE OpenApp("YouTube") was
+ * held until SR_HARD_CEILING (12s from startListening) because 4.3B.1 required
+ * onEndOfSpeech that this OEM did not emit. The Android Intent executor is not
+ * the delay (`action_to_intent` ≈ 7ms).
  *
  * Source-proven answers (this policy + call sites):
- * - Execution **does** wait for Android Final ([waitsForAndroidFinalBeforeExecute]).
+ * - OPEN_APP / PLAY_MEDIA may semantic-commit from a COMPLETE unique catalog
+ *   / complete query+provider partial. No EOS. No stability timer.
+ * - NAVIGATE still requires two consecutive identical fingerprints **and** EOS.
+ * - First COMPLETE Navigate partial never executes immediately.
+ * - A 350ms hold timer must not commit.
+ * - SR_HARD_CEILING remains a failsafe, not the normal OpenApp path.
  * - Execution **does not** wait for the 5s product timeout after speech.
  * - Execution **does not** wait for confirmation TTS to finish before startActivity.
  * - Recognizer silence extras are **not** set (OEM defaults apply).
+ * - [android.speech.SpeechRecognizer.stopListening] is **not** called after EOS.
  */
 object VoiceToActionLatencyPolicy {
 
     /** Product silence is a no-speech timeout only. After first speech/partial it is cancelled. */
     const val PRODUCT_NO_SPEECH_TIMEOUT_MS: Long = VoiceSessionManager.NO_SPEECH_TIMEOUT_MS
 
-    fun waitsForAndroidFinalBeforeExecute(): Boolean = true
+    fun waitsForAndroidFinalBeforeExecute(): Boolean = false
 
-    fun executesFromCompletePartial(): Boolean = false
+    fun executesFromCompletePartial(): Boolean = true
 
     fun productSilenceAppliesAfterSpeechDetected(): Boolean = false
 
@@ -45,7 +42,24 @@ object VoiceToActionLatencyPolicy {
 
     fun maxSrRearms(): Int = CommandRecognitionPolicy.MAX_SR_REARMS
 
+    /** Unsafe first-partial execute (no stability) remains disabled. */
     fun tryFastPartialExecutionEnabled(): Boolean = false
+
+    fun stableCompletePartialEnabled(): Boolean = StableCompletePartialPolicy.isEnabled()
+
+    fun callsStopListeningAfterEndOfSpeech(): Boolean =
+        StableCompletePartialPolicy.callsStopListeningAfterEndOfSpeech()
+
+    fun holdTimerMayCommit(): Boolean = StableCompletePartialPolicy.holdTimerMayCommit()
+
+    fun requiresEndOfSpeechForStablePartial(): Boolean =
+        StableCompletePartialPolicy.requiresEndOfSpeech()
+
+    fun requiresEndOfSpeechForOpenAppSemanticCommit(): Boolean =
+        StableCompletePartialPolicy.requiresEndOfSpeechForOpenApp()
+
+    fun requiresEndOfSpeechForPlayMediaSemanticCommit(): Boolean =
+        StableCompletePartialPolicy.requiresEndOfSpeechForPlayMedia()
 
     /**
      * RecognizerIntent extras that **are** currently put on the listening Intent.

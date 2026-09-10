@@ -26,7 +26,9 @@ enum class VoiceToActionStage {
     FIRST_SPEECH,
     PARTIAL_TRANSCRIPT,
     COMPLETE_PARTIAL_HELD,
+    STABLE_COMPLETE_COMMIT,
     LAST_SPEECH,
+    STOP_REQUEST,
     FINAL_TRANSCRIPT,
     INPUT_EVENT_RECEIVED,
     INPUT_EVENT_DISPATCHED,
@@ -119,8 +121,12 @@ object VoiceToActionLatency {
         val parts = t.entries.joinToString(" ") { (stage, ts) ->
             "${stage.name}=${ts - trigger}"
         }
-        val eos = t[VoiceToActionStage.LAST_SPEECH]
+        val firstPartial = t[VoiceToActionStage.PARTIAL_TRANSCRIPT]
+        val firstSpeech = t[VoiceToActionStage.FIRST_SPEECH]
         val complete = t[VoiceToActionStage.COMPLETE_PARTIAL_HELD]
+        val commit = t[VoiceToActionStage.STABLE_COMPLETE_COMMIT]
+        val eos = t[VoiceToActionStage.LAST_SPEECH]
+        val stop = t[VoiceToActionStage.STOP_REQUEST]
         val finalT = t[VoiceToActionStage.FINAL_TRANSCRIPT]
         val received = t[VoiceToActionStage.INPUT_EVENT_RECEIVED]
         val locked = t[VoiceToActionStage.COMMAND_LOCKED]
@@ -129,6 +135,13 @@ object VoiceToActionLatency {
         val ttsReq = t[VoiceToActionStage.TTS_REQUEST]
         val ttsStart = t[VoiceToActionStage.TTS_START]
         val critical = buildString {
+            append("trigger_to_first_partial=${delta(trigger, firstPartial)} ")
+            append("first_speech_to_complete_partial=${delta(firstSpeech, complete)} ")
+            append("complete_partial_to_commit=${delta(complete, commit)} ")
+            append("eos_to_stop_request=${delta(eos, stop)} ")
+            append("stop_request_to_final=${delta(stop, finalT)} ")
+            append("final_to_action=${delta(finalT, action)} ")
+            append("complete_partial_to_action=${delta(complete, action)} ")
             append("eos_to_final=${delta(eos, finalT)} ")
             append("complete_partial_to_final=${delta(complete, finalT)} ")
             append("final_to_input=${delta(finalT, received)} ")

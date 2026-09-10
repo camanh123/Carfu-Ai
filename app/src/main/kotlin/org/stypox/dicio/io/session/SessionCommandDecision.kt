@@ -3,8 +3,9 @@ package org.stypox.dicio.io.session
 /**
  * Session-bound ownership of provisional vs final command decisions.
  *
- * Partial/live transcripts may update a provisional understanding for UI/ranking,
- * but must not lock an executable [CanonicalCommand].
+ * Partial/live transcripts may update a provisional understanding for UI/ranking.
+ * They must not lock an executable [CanonicalCommand] until
+ * [StableCompletePartialTracker] or a Final/[decideFinal] commit.
  *
  * Once a final decision is locked for a session, weaker/late candidates cannot
  * downgrade it. Cross-session candidates are rejected.
