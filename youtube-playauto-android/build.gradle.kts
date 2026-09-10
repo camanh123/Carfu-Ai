@@ -13,11 +13,12 @@ android {
         applicationId = "org.stypox.dicio.youtubeplayauto"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 492
-        versionName = "4.9.2-harness"
+        versionCode = 495
+        versionName = "4.9.2b-stable"
+        val defaultPublicHttps = "https://carfu-ai-beryl.vercel.app"
         val resolverBase = (project.findProperty("CARFU_RESOLVER_BASE_URL") as? String)
             ?: System.getenv("CARFU_RESOLVER_BASE_URL")
-            ?: ""
+            ?: defaultPublicHttps
         buildConfigField("String", "CARFU_RESOLVER_BASE_URL", "\"${resolverBase.replace("\"", "")}\"")
     }
 

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="harness_app_name">CARFU YT PlayAuto 4.9.2</string>
-    <string name="harness_title">Phase 4.9.2 resolver jack harness</string>
-    <string name="harness_subtitle">Standalone test only. PlayAuto → CARFU resolver HTTP → exact watch URL → one ACTION_VIEW. Not connected to Voice / NLU / production CARFU. No API key on device.</string>
+    <string name="harness_app_name">CARFU YT PlayAuto 4.9.2b</string>
+    <string name="harness_title">Phase 4.9.2b live HTTPS resolver harness</string>
+    <string name="harness_subtitle">Standalone test only. Resolver HTTPS is preconfigured. PlayAuto → public HTTPS CARFU resolver → exact watch URL → one ACTION_VIEW. Not connected to Voice / NLU / production CARFU. No API key on device.</string>
     <string name="harness_playauto">PlayAuto YouTube</string>
     <string name="harness_resolve">Resolve</string>
     <string name="harness_open_exact">Open Exact Video</string>
@@ -13,7 +13,7 @@
     <string name="youtube_playauto_a11y_description">Harness-only fallback. Disabled unless the Accessibility fallback checkbox is on. Not production Voice. Resolver jack does not use this path.</string>
     <string name="harness_query_label">Query</string>
     <string name="harness_base_url_label">CARFU_RESOLVER_BASE_URL</string>
-    <string name="harness_base_url_hint">https://resolver.example:8787</string>
+    <string name="harness_base_url_hint">https://carfu-ai-beryl.vercel.app</string>
     <string name="harness_mode_dry">Dry run (no launch)</string>
     <string name="harness_mode_device">Device test (launch YouTube)</string>
     <string name="harness_default_query">Đừng Xa Em Đêm Nay</string>

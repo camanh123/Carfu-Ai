@@ -36,6 +36,20 @@ Official sources (all last updated **2026-09-04 UTC** unless noted):
 This service therefore uses **one `search.list` call per cache miss**
 (`type=video`, `maxResults=8`) and does **not** call `videos.list` by default.
 
+## Public HTTPS (Phase 4.9.2b)
+
+The frozen JVM process binds `0.0.0.0` and reads `PORT` / `YOUTUBE_API_KEY`
+from the environment. A public HTTPS URL is a reverse proxy in front of that
+process (Dockerfile / `fly.toml` / Cloudflare Tunnel). Ranking, cache, and
+REST contracts in `src/main` are unchanged.
+
+```bash
+export YOUTUBE_API_KEY=your_key_here
+export PORT=8787
+./gradlew :carfu-resolver-service:installDist
+./carfu-resolver-service/build/install/carfu-resolver-service/bin/carfu-resolver-service
+```
+
 ## Run locally
 
 ```bash

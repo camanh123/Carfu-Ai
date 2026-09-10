@@ -158,7 +158,7 @@ class HttpYouTubeResolverClient(
                 instanceFollowRedirects = true
                 setRequestProperty("Accept", "application/json")
                 setRequestProperty("Accept-Charset", "utf-8")
-                setRequestProperty("User-Agent", "carfu-youtube-playauto-harness/4.9.2")
+                setRequestProperty("User-Agent", "carfu-youtube-playauto-harness/4.9.2b")
             }
             return try {
                 val code = connection.responseCode
