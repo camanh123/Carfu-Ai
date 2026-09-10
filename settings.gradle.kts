@@ -8,6 +8,7 @@ include(":app")
 include(":skill")
 include(":playauto")
 include(":youtube-playauto-android")
+include(":carfu-resolver-service")
 // we use includeBuild here since the plugins are compile-time dependencies
 includeBuild("sentences-compiler-plugin")
 includeBuild("unicode-cldr-plugin")

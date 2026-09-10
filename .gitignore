@@ -10,6 +10,8 @@
 /aars/build
 /playauto/build
 /youtube-playauto-android/build
+/carfu-resolver-service/build
+.env
 /checkouts
 .kotlin
 
