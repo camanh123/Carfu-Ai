@@ -1,17 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="harness_app_name">CARFU YT PlayAuto 4.9</string>
-    <string name="harness_title">Phase 4.9 YouTube direct-target harness</string>
-    <string name="harness_subtitle">Standalone test only. Primary path: resolve query → open exact watch URL. Accessibility fallback is OFF by default. Not connected to Voice / NLU / production CARFU.</string>
+    <string name="harness_app_name">CARFU YT PlayAuto 4.9.2</string>
+    <string name="harness_title">Phase 4.9.2 resolver jack harness</string>
+    <string name="harness_subtitle">Standalone test only. PlayAuto → CARFU resolver HTTP → exact watch URL → one ACTION_VIEW. Not connected to Voice / NLU / production CARFU. No API key on device.</string>
     <string name="harness_playauto">PlayAuto YouTube</string>
     <string name="harness_resolve">Resolve</string>
     <string name="harness_open_exact">Open Exact Video</string>
     <string name="harness_a11y_settings">A11y settings</string>
-    <string name="harness_a11y_fallback">Enable Accessibility fallback</string>
+    <string name="harness_a11y_fallback">Enable Accessibility fallback (not used by resolver jack)</string>
     <string name="harness_export_diagnostic">Export diagnostic</string>
     <string name="youtube_playauto_a11y_label">CARFU YouTube PlayAuto selector</string>
-    <string name="youtube_playauto_a11y_description">Harness-only fallback. Disabled unless the Accessibility fallback checkbox is on. Not production Voice.</string>
+    <string name="youtube_playauto_a11y_description">Harness-only fallback. Disabled unless the Accessibility fallback checkbox is on. Not production Voice. Resolver jack does not use this path.</string>
     <string name="harness_query_label">Query</string>
+    <string name="harness_base_url_label">CARFU_RESOLVER_BASE_URL</string>
+    <string name="harness_base_url_hint">https://resolver.example:8787</string>
     <string name="harness_mode_dry">Dry run (no launch)</string>
     <string name="harness_mode_device">Device test (launch YouTube)</string>
     <string name="harness_default_query">Đừng Xa Em Đêm Nay</string>

@@ -19,12 +19,15 @@ import org.stypox.dicio.playauto.core.PlaybackStrategy
 import java.util.concurrent.Executors
 
 /**
- * Standalone YouTube PlayAuto harness. Primary path is DIRECT_TARGET.
- * Accessibility fallback is off unless the tester checks the box.
+ * Standalone YouTube PlayAuto harness. Phase 4.9.2 jack:
+ * PlayAutoRequest → CARFU resolver HTTP → existing DIRECT_TARGET launcher.
+ * Accessibility fallback is off unless the tester checks the box, and the
+ * resolver jack never uses it.
  */
 class YouTubePlayAutoHarnessActivity : Activity() {
 
     private lateinit var queryField: EditText
+    private lateinit var baseUrlField: EditText
     private lateinit var dryRunRadio: RadioButton
     private lateinit var a11yFallback: CheckBox
     private lateinit var logView: TextView
@@ -33,10 +36,10 @@ class YouTubePlayAutoHarnessActivity : Activity() {
     private lateinit var runtime: AndroidYouTubeRuntime
     private lateinit var adapter: YouTubeMediaAdapter
     private lateinit var selector: AndroidYouTubeInAppSelector
-    private lateinit var searchClient: AndroidYouTubeHtmlSearchClient
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var lastResolved: ResolvedYouTubeTarget? = null
+    private var lastPlayAuto: YouTubePlayAutoResult? = null
     private var lastResolutionMethod: String = "NONE"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,6 +47,7 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         setContentView(R.layout.activity_youtube_playauto_harness)
 
         queryField = findViewById(R.id.harness_query)
+        baseUrlField = findViewById(R.id.harness_base_url)
         dryRunRadio = findViewById(R.id.harness_mode_dry)
         a11yFallback = findViewById(R.id.harness_a11y_fallback)
         logView = findViewById(R.id.harness_log)
@@ -52,8 +56,8 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         runtime = AndroidYouTubeRuntime(this)
         adapter = YouTubeMediaAdapter(runtime)
         selector = AndroidYouTubeInAppSelector(this)
-        searchClient = AndroidYouTubeHtmlSearchClient()
         a11yFallback.isChecked = false
+        baseUrlField.setText(loadBaseUrl())
 
         findViewById<Button>(R.id.btn_resolve).setOnClickListener { resolveOnly() }
         findViewById<Button>(R.id.btn_open_exact).setOnClickListener { openExact() }
@@ -65,23 +69,46 @@ class YouTubePlayAutoHarnessActivity : Activity() {
             exportDiagnostic()
         }
 
-        logView.text = "Ready. Primary path: Resolve → watch URL → one launch. Accessibility fallback default OFF. Dry-run is default.\n"
+        logView.text = "Ready. Path: PlayAuto → resolver HTTP → exact watch URL → one ACTION_VIEW.\n" +
+            "No API key on Android. Accessibility fallback default OFF. Dry-run is default.\n"
     }
 
     private fun launchMode(): YouTubeLaunchMode =
         if (dryRunRadio.isChecked) YouTubeLaunchMode.DRY_RUN else YouTubeLaunchMode.DEVICE_TEST
 
-    private fun driver(): YouTubePlayAutoDriver = YouTubePlayAutoDriver(
-        adapter = adapter,
-        selector = selector,
-        resolver = defaultHarnessContentResolver(searchClient),
-        options = YouTubePlayAutoOptions(accessibilityFallbackEnabled = a11yFallback.isChecked),
-    )
+    private fun driver(): YouTubePlayAutoDriver {
+        saveBaseUrl()
+        return YouTubePlayAutoDriver(
+            adapter = adapter,
+            selector = selector,
+            resolver = ParsedYouTubeContentResolver,
+            options = YouTubePlayAutoOptions(accessibilityFallbackEnabled = a11yFallback.isChecked),
+            resolverClient = HttpYouTubeResolverClient(baseUrlProvider = { configuredBaseUrl() }),
+        )
+    }
 
     private fun playAutoRequest(): PlayAutoRequest = PlayAutoRequest(
         targetApp = "YouTube",
         query = queryField.text?.toString().orEmpty(),
     )
+
+    private fun configuredBaseUrl(): String = YouTubeResolverEndpoint.normalizeBaseUrl(
+        baseUrlField.text?.toString().orEmpty(),
+    )
+
+    private fun loadBaseUrl(): String {
+        val prefs = getSharedPreferences(YouTubeResolverEndpoint.PREFS_NAME, MODE_PRIVATE)
+        val saved = prefs.getString(YouTubeResolverEndpoint.PREFS_KEY, null)
+        if (!saved.isNullOrBlank()) return saved
+        return BuildConfig.CARFU_RESOLVER_BASE_URL
+    }
+
+    private fun saveBaseUrl() {
+        getSharedPreferences(YouTubeResolverEndpoint.PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString(YouTubeResolverEndpoint.PREFS_KEY, configuredBaseUrl())
+            .apply()
+    }
 
     private fun resolveOnly() {
         val query = playAutoRequest().query
@@ -108,7 +135,10 @@ class YouTubePlayAutoHarnessActivity : Activity() {
                                     resolverSuccess = true,
                                     launchAttempted = false,
                                     launchResult = "NOT_LAUNCHED",
-                                    path = "DIRECT_TARGET",
+                                    path = "RESOLVER_DIRECT_TARGET",
+                                    resolverBaseUrlConfigured = YouTubeResolverEndpoint.isConfigured(configuredBaseUrl()),
+                                    resolverRequestAttempted = resolution.target.source == "carfu_resolver_service",
+                                    resolverStatus = "RESOLVED",
                                 ).formatHarness(),
                             launched = false,
                         )
@@ -119,7 +149,7 @@ class YouTubePlayAutoHarnessActivity : Activity() {
                         render(
                             "RESOLVE",
                             extra = "Resolver success: NO\nFailure: ${resolution.reason}\n" +
-                                "Local query→videoId: only if the query is already an id or watch URL.\n",
+                                "Launch attempted: NO\nPath: RESOLVER_DIRECT_TARGET\n",
                             launched = false,
                         )
                     }
@@ -145,12 +175,14 @@ class YouTubePlayAutoHarnessActivity : Activity() {
                     playbackRequested = false,
                     failure = "no_resolved_video_target",
                     launchResult = "NOT_LAUNCHED",
-                    path = "DIRECT_TARGET",
+                    path = "RESOLVER_DIRECT_TARGET",
+                    resolverBaseUrlConfigured = YouTubeResolverEndpoint.isConfigured(configuredBaseUrl()),
                 )
             } else {
                 lastResolved = target
                 drive.openExact(target, query, launchMode())
             }
+            lastPlayAuto = result
             main.post {
                 render(
                     "OPEN EXACT VIDEO",
@@ -164,12 +196,14 @@ class YouTubePlayAutoHarnessActivity : Activity() {
     private fun runPlayAuto() {
         worker.execute {
             val result = driver().execute(playAutoRequest(), launchMode())
+            lastPlayAuto = result
             if (result.resolverSuccess && result.resolvedVideoId != null) {
                 lastResolved = ResolvedYouTubeTarget(
                     videoId = result.resolvedVideoId,
-                    canonicalUri = result.targetUri ?: YouTubeVideoIdParser.canonicalWatchUri(result.resolvedVideoId),
+                    canonicalUri = result.targetUri
+                        ?: YouTubeVideoIdParser.canonicalWatchUri(result.resolvedVideoId),
                     title = result.resolvedTitle,
-                    source = result.resolutionMethod ?: "playauto",
+                    source = result.resolutionMethod ?: "carfu_resolver_service",
                 )
             }
             main.post {
@@ -183,10 +217,10 @@ class YouTubePlayAutoHarnessActivity : Activity() {
     }
 
     private fun formatResolution(resolution: YouTubeContentResolution.Resolved): String = buildString {
-        appendLine("Resolved video id: ${resolution.target.videoId}")
+        appendLine("Resolved videoId: ${resolution.target.videoId}")
         appendLine("Resolved title: ${resolution.target.title ?: "NONE"}")
+        appendLine("Resolved watchUrl: ${resolution.target.canonicalUri}")
         appendLine("Resolution method: ${resolution.target.source}")
-        appendLine("Target URI: ${resolution.target.canonicalUri}")
     }
 
     private fun formatPlayAuto(result: YouTubePlayAutoResult): String = buildString {
@@ -212,20 +246,36 @@ class YouTubePlayAutoHarnessActivity : Activity() {
         val snap = adapter.detect()
         val req = playAutoRequest()
         val dispatch = adapter.lastDispatch
+        val base = configuredBaseUrl()
+        val result = lastPlayAuto
         logView.text = buildString {
             appendLine("=== $title ===")
             appendLine("YouTube package: ${snap.packageName ?: "NONE"}")
             appendLine("Installed: ${snap.installed}")
             appendLine("Query: ${req.query}")
-            appendLine("Resolved video id: ${lastResolved?.videoId ?: "NONE"}")
-            appendLine("Resolved title: ${lastResolved?.title ?: "NONE"}")
+            appendLine("Resolver base URL configured: ${if (YouTubeResolverEndpoint.isConfigured(base)) "YES" else "NO"}")
+            if (YouTubeResolverEndpoint.isCleartextHttp(base)) {
+                appendLine("HTTPS unavailable: cleartext HTTP configured for harness/dev only (not production TLS weakening)")
+            }
+            appendLine("Resolver request attempted: ${if (result?.resolverRequestAttempted == true) "YES" else "NO"}")
+            appendLine("Resolver status: ${result?.resolverStatus ?: "NONE"}")
+            appendLine("HTTP status: ${result?.resolverHttpStatus?.toString() ?: "NONE"}")
+            appendLine("Resolved videoId: ${result?.resolvedVideoId ?: lastResolved?.videoId ?: "NONE"}")
+            appendLine("Resolved title: ${result?.resolvedTitle ?: lastResolved?.title ?: "NONE"}")
+            appendLine("Resolved channel: ${result?.resolvedChannelTitle ?: "NONE"}")
+            appendLine("Resolved watchUrl: ${result?.targetUri ?: lastResolved?.canonicalUri ?: "NONE"}")
+            appendLine("Resolver cache: ${result?.resolverCache ?: "NONE"}")
+            appendLine("Resolver latency: ${result?.resolverLatencyMs?.let { "${it}ms" } ?: "NONE"}")
+            appendLine("Launch attempted: ${if (result?.launchAttempted == true) "YES" else "NO"}")
+            appendLine("Launch result: ${result?.launchResult ?: "NONE"}")
+            appendLine("Path: ${result?.path ?: "RESOLVER_DIRECT_TARGET"}")
             appendLine("Resolution method: ${lastResolved?.source ?: lastResolutionMethod}")
-            appendLine("Target URI: ${lastResolved?.canonicalUri ?: "NONE"}")
             appendLine("Launch mode: ${launchMode()}")
             appendLine("Selected strategy: ${adapter.lastStrategy ?: PlaybackStrategy.DEEP_LINK}")
             appendLine("Launch spec: ${adapter.lastSpec ?: "none"}")
             appendLine("Dispatch result: ${dispatch ?: "none"}")
             appendLine("External launch this press: $launched")
+            appendLine("Accessibility fallback used: NO")
             appendLine("Cast APIs used: NO")
             appendLine("Media keys sent: NO")
             appendLine("Accessibility fallback checkbox: ${if (a11yFallback.isChecked) "ON" else "OFF"}")
@@ -236,7 +286,7 @@ class YouTubePlayAutoHarnessActivity : Activity() {
 
     private fun exportDiagnostic() {
         val text = buildString {
-            appendLine("=== EXPORT DIAGNOSTIC 4.9 ===")
+            appendLine("=== EXPORT DIAGNOSTIC 4.9.2 ===")
             append(logView.text)
         }
         val clipboard = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager

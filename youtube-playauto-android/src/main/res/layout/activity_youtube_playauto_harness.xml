@@ -26,6 +26,24 @@
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:text="@string/harness_base_url_label"
+        android:textColor="#BDBDBD"
+        android:textSize="12sp" />
+
+    <EditText
+        android:id="@+id/harness_base_url"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="@string/harness_base_url_hint"
+        android:inputType="textUri"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#757575"
+        android:textSize="14sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
         android:text="@string/harness_query_label"
         android:textColor="#BDBDBD"
         android:textSize="12sp" />

@@ -13,8 +13,12 @@ android {
         applicationId = "org.stypox.dicio.youtubeplayauto"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 490
-        versionName = "4.9.0-harness"
+        versionCode = 492
+        versionName = "4.9.2-harness"
+        val resolverBase = (project.findProperty("CARFU_RESOLVER_BASE_URL") as? String)
+            ?: System.getenv("CARFU_RESOLVER_BASE_URL")
+            ?: ""
+        buildConfigField("String", "CARFU_RESOLVER_BASE_URL", "\"${resolverBase.replace("\"", "")}\"")
     }
 
     buildTypes {
@@ -60,6 +64,7 @@ tasks.withType<Test>().configureEach {
 
 dependencies {
     implementation(project(":playauto"))
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
     testImplementation(libs.kotest.runner.junit5)
     testImplementation(libs.kotest.assertions.core)
