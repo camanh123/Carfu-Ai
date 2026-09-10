@@ -10,10 +10,10 @@ import java.nio.charset.StandardCharsets
  * still overrides this for diagnostics.
  */
 object YouTubeResolverEndpoint {
-    const val PREFS_NAME = "carfu_resolver_492b"
+    const val PREFS_NAME = "carfu_resolver_492c"
     const val PREFS_KEY = "CARFU_RESOLVER_BASE_URL"
     const val DEFAULT_PUBLIC_HTTPS_BASE_URL =
-        "https://beans-supporters-flu-extraordinary.trycloudflare.com"
+        "https://temporary-rushing-amber-m2t0usl.vercel.app"
     const val RESOLVE_PATH = "/v1/youtube/resolve"
 
     fun normalizeBaseUrl(raw: String): String = raw.trim().trimEnd('/')

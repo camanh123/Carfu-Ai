@@ -13,7 +13,7 @@
     <string name="youtube_playauto_a11y_description">Harness-only fallback. Disabled unless the Accessibility fallback checkbox is on. Not production Voice. Resolver jack does not use this path.</string>
     <string name="harness_query_label">Query</string>
     <string name="harness_base_url_label">CARFU_RESOLVER_BASE_URL</string>
-    <string name="harness_base_url_hint">https://beans-supporters-flu-extraordinary.trycloudflare.com</string>
+    <string name="harness_base_url_hint">https://temporary-rushing-amber-m2t0usl.vercel.app</string>
     <string name="harness_mode_dry">Dry run (no launch)</string>
     <string name="harness_mode_device">Device test (launch YouTube)</string>
     <string name="harness_default_query">Đừng Xa Em Đêm Nay</string>
