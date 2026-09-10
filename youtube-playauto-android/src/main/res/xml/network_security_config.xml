@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Harness-only. Permits cleartext so a tester can point CARFU_RESOLVER_BASE_URL at a
+  LAN HTTP endpoint. This APK is not the production CARFU app and does not change
+  production TLS. The UI reports HTTPS vs cleartext explicitly.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

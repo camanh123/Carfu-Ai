@@ -42,13 +42,35 @@ data class YouTubePlayAutoResult(
     val castApisUsed: Boolean = false,
     val mediaKeysSent: Boolean = false,
     val path: String = "NONE",
+    val resolverBaseUrlConfigured: Boolean = false,
+    val resolverRequestAttempted: Boolean = false,
+    val resolverStatus: String? = null,
+    val resolverHttpStatus: Int? = null,
+    val resolvedChannelTitle: String? = null,
+    val resolverCache: String? = null,
+    val resolverLatencyMs: Long? = null,
+    val resolverHttps: Boolean? = null,
+    val resolverCleartextHttp: Boolean = false,
+    val httpsUnavailableNote: String? = null,
 ) {
     fun formatHarness(): String = buildString {
+        appendLine("Query: $query")
+        appendLine("Resolver base URL configured: ${yesNo(resolverBaseUrlConfigured)}")
+        appendLine("Resolver request attempted: ${yesNo(resolverRequestAttempted)}")
+        appendLine("Resolver status: ${resolverStatus ?: "NONE"}")
+        appendLine("HTTP status: ${resolverHttpStatus?.toString() ?: "NONE"}")
         appendLine("Resolver success: ${yesNo(resolverSuccess)}")
-        appendLine("Resolved video id: ${resolvedVideoId ?: "NONE"}")
+        appendLine("Resolved videoId: ${resolvedVideoId ?: "NONE"}")
         appendLine("Resolved title: ${resolvedTitle ?: "NONE"}")
+        appendLine("Resolved channel: ${resolvedChannelTitle ?: "NONE"}")
+        appendLine("Resolved watchUrl: ${targetUri ?: "NONE"}")
+        appendLine("Resolver cache: ${resolverCache ?: "NONE"}")
+        appendLine("Resolver latency: ${resolverLatencyMs?.let { "${it}ms" } ?: "NONE"}")
+        appendLine("HTTPS used: ${resolverHttps?.let { yesNo(it) } ?: "NONE"}")
+        if (resolverCleartextHttp || !httpsUnavailableNote.isNullOrBlank()) {
+            appendLine("HTTPS unavailable: ${httpsUnavailableNote ?: "cleartext HTTP configured for harness/dev only"}")
+        }
         appendLine("Resolution method: ${resolutionMethod ?: "NONE"}")
-        appendLine("Target URI: ${targetUri ?: "NONE"}")
         appendLine("Launch attempted: ${yesNo(launchAttempted)}")
         appendLine("Launch result: ${launchResult ?: "NONE"}")
         appendLine("Path: $path")
