@@ -276,7 +276,9 @@ class YouTubeResolverJackTest : StringSpec({
     "default resolver base URL is public HTTPS" {
         YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL shouldContain "https://"
         YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.startsWith("https://") shouldBe true
+        YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL shouldContain "carfu-ai-beryl.vercel.app"
         YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.shouldNotContain("trycloudflare")
+        YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.shouldNotContain("temporary-")
         YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.shouldNotContain("YOUTUBE_API_KEY")
         YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL.shouldNotContain("AIza")
         YouTubeResolverEndpoint.isHttps(YouTubeResolverEndpoint.DEFAULT_PUBLIC_HTTPS_BASE_URL) shouldBe true
