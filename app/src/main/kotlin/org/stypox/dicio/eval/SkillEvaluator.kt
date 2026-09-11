@@ -1106,8 +1106,8 @@ class SkillEvaluatorImpl(
                 )
                 VoiceSessionManager.onLiveTranscript(sid, event.utterance)
                 rememberCandidates(listOf(event.utterance to 1.0f))
-                // Semantic OPEN_APP / PLAY_MEDIA may commit from this partial;
-                // Navigate still waits for consecutive identical + EOS.
+                // Semantic OPEN_APP / PLAY_MEDIA / NAVIGATE may commit from this
+                // complete partial. Incomplete Navigate remains ineligible.
                 val provisional = VietnameseCommandUnderstanding.understand(
                     raw = event.utterance,
                     sessionId = sid,

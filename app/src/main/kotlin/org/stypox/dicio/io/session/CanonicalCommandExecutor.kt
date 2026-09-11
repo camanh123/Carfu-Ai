@@ -82,22 +82,36 @@ class CanonicalCommandExecutor(
                 reason = "empty_destination",
             )
         }
-        val uri = NavigatePayload.geoUri(destination)
-        val spec = CarfuLaunchSpec(action = CarfuDialer.ACTION_VIEW, data = uri)
-        if (CarfuDialer.isBlockedPackage(platform.resolveLaunch(spec))) {
+        val uri = NavigatePayload.navigationUri(destination)
+        if (uri.isNullOrBlank() || !NavigatePayload.isNavigationUri(uri)) {
+            return ExecutionTrace(
+                speechVi = "Hãy nói nơi bạn muốn đến.",
+                actionTaken = false,
+                reason = "invalid_navigation_uri",
+            )
+        }
+        val mapsPkg = NavigatePayload.GOOGLE_MAPS_PACKAGE
+        if (CarfuDialer.isBlockedPackage(mapsPkg) || !platform.isPackageLaunchable(mapsPkg)) {
             return ExecutionTrace(
                 speechVi = "Không tìm thấy ứng dụng bản đồ.",
                 actionTaken = false,
                 geoUri = uri,
-                reason = "maps_blocked",
+                packageName = mapsPkg,
+                reason = "maps_missing",
             )
         }
+        val spec = CarfuLaunchSpec(
+            action = CarfuDialer.ACTION_VIEW,
+            packageName = mapsPkg,
+            data = uri,
+        )
         val ok = platform.startLaunch(spec)
         return if (ok) {
             ExecutionTrace(
                 speechVi = speech.ifBlank { "Đang chỉ đường đến $destination" },
                 actionTaken = true,
                 geoUri = uri,
+                packageName = mapsPkg,
                 reason = "navigate_ok",
             )
         } else {
@@ -105,6 +119,7 @@ class CanonicalCommandExecutor(
                 speechVi = "Không tìm thấy ứng dụng bản đồ.",
                 actionTaken = false,
                 geoUri = uri,
+                packageName = mapsPkg,
                 reason = "maps_missing",
             )
         }

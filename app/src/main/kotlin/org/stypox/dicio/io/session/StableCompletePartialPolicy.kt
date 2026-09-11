@@ -14,14 +14,16 @@ package org.stypox.dicio.io.session
  *   a higher-priority supported canonical command (Navigate `"mở bản đồ đến …"`).
  * - PLAY_MEDIA: complete query + known provider (compositional Vietnamese media
  *   grammar; not a hardcoded utterance list).
+ * - NAVIGATE: complete destination (two or more tokens), reason `nav_complete`.
+ *   Device-proven: waiting for EOS / consecutive identical partials delayed
+ *   "Chỉ đường tới Mỹ Đình" until SR_HARD_CEILING while Maps search opened.
  *
- * NAVIGATE stays on the conservative 4.3B.1 rule: two consecutive identical
- * COMPLETE fingerprints **and** onEndOfSpeech, plus a multi-token destination.
+ * Incomplete Navigate (`"Chỉ đường tới…"`) is never eligible.
  *
  * Not used:
  * - arbitrary stability / 350ms / 500ms hold timers ([holdTimerMayCommit] = false)
- * - requiring two identical OPEN_APP partials (device showed one COMPLETE)
- * - requiring EOS for OPEN_APP / PLAY_MEDIA on this OEM
+ * - requiring two identical OPEN_APP / PLAY_MEDIA / NAVIGATE partials
+ * - requiring EOS for OPEN_APP / PLAY_MEDIA / NAVIGATE on this OEM
  *
  * [android.speech.SpeechRecognizer.stopListening] is still not used. A successful
  * current-session commit [SessionCommandDecision.lockFinal]s then takes the
@@ -41,25 +43,29 @@ object StableCompletePartialPolicy {
     fun retireRecognizerUsesCancelThenDestroy(): Boolean = true
 
     /**
-     * Arbitrary first COMPLETE of any intent still must not execute (Navigate).
-     * OPEN_APP / PLAY_MEDIA use [isSemanticEarlyCommitSafe] instead.
+     * Arbitrary first COMPLETE of any intent still must not execute.
+     * OPEN_APP / PLAY_MEDIA / NAVIGATE use [isSemanticEarlyCommitSafe] instead.
      */
     fun firstCompletePartialExecutesImmediately(): Boolean = false
 
     fun holdTimerMayCommit(): Boolean = false
 
-    /** Conservative Navigate / non-semantic path still requires EOS. */
+    /** Conservative non-semantic path still requires EOS. */
     fun requiresEndOfSpeech(): Boolean = true
 
     fun requiresEndOfSpeechForOpenApp(): Boolean = false
 
     fun requiresEndOfSpeechForPlayMedia(): Boolean = false
 
+    fun requiresEndOfSpeechForNavigate(): Boolean = false
+
     fun requiresConsecutiveIdenticalFingerprints(): Boolean = true
 
     fun semanticOpenAppMayCommitWithoutEos(): Boolean = true
 
     fun semanticPlayMediaMayCommitWithoutEos(): Boolean = true
+
+    fun semanticNavigateMayCommitWithoutEos(): Boolean = true
 
     fun isEnabled(): Boolean = true
 
@@ -95,14 +101,16 @@ object StableCompletePartialPolicy {
     }
 
     /**
-     * Semantic early commit: complete unique OPEN_APP catalog entity, or
-     * complete PLAY_MEDIA query+known provider. No EOS. No stability timer.
+     * Semantic early commit: complete unique OPEN_APP catalog entity,
+     * complete PLAY_MEDIA query+known provider, or complete NAVIGATE
+     * destination. No EOS. No stability timer.
      */
     fun isSemanticEarlyCommitSafe(result: UnderstandingResult): Boolean {
         if (!isEligible(result)) return false
         return when (result.command) {
             is CanonicalCommand.OpenApp -> isOpenAppSemanticCommitSafe(result)
             is CanonicalCommand.PlayMedia -> isPlayMediaSemanticCommitSafe(result)
+            is CanonicalCommand.Navigate -> isNavigateSemanticCommitSafe(result)
             else -> false
         }
     }
@@ -125,6 +133,23 @@ object StableCompletePartialPolicy {
         if (result.reason != "media_complete") return false
         if (command.query.trim().length < 2) return false
         if (!VietnameseCommandUnderstanding.isKnownPlayMediaProvider(command.provider)) {
+            return false
+        }
+        return true
+    }
+
+    fun isNavigateSemanticCommitSafe(result: UnderstandingResult): Boolean {
+        val command = result.command as? CanonicalCommand.Navigate ?: return false
+        if (result.intent != VoiceIntent.NAVIGATE) return false
+        if (result.completeness != SemanticCompleteness.COMPLETE) return false
+        if (result.reason != "nav_complete") return false
+        val destination = command.destination.trim()
+        if (destination.length < 2) return false
+        if (!navigateDestinationIsFastPathSafe(destination)) return false
+        if (VietnameseCommandUnderstanding.isNavParticleOnly(
+                VietnameseTranscript.foldForMatch(destination),
+            )
+        ) {
             return false
         }
         return true
@@ -405,6 +430,7 @@ object StableCompletePartialTracker {
             val why = when (result.command) {
                 is CanonicalCommand.OpenApp -> "semantic_open_app"
                 is CanonicalCommand.PlayMedia -> "semantic_play_media"
+                is CanonicalCommand.Navigate -> "semantic_navigate"
                 else -> "semantic_complete"
             }
             return Observe(

@@ -23,10 +23,12 @@ class VoiceToActionLatencyPolicyTest : StringSpec({
         StableCompletePartialPolicy.requiresEndOfSpeech() shouldBe true
         StableCompletePartialPolicy.requiresEndOfSpeechForOpenApp() shouldBe false
         StableCompletePartialPolicy.requiresEndOfSpeechForPlayMedia() shouldBe false
+        StableCompletePartialPolicy.requiresEndOfSpeechForNavigate() shouldBe false
         VoiceToActionLatencyPolicy.holdTimerMayCommit() shouldBe false
         VoiceToActionLatencyPolicy.requiresEndOfSpeechForStablePartial() shouldBe true
         VoiceToActionLatencyPolicy.requiresEndOfSpeechForOpenAppSemanticCommit() shouldBe false
         VoiceToActionLatencyPolicy.requiresEndOfSpeechForPlayMediaSemanticCommit() shouldBe false
+        VoiceToActionLatencyPolicy.requiresEndOfSpeechForNavigateSemanticCommit() shouldBe false
     }
 
     "product 5s timeout is no-speech only and does not apply after speech" {
