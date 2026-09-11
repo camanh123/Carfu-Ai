@@ -7,8 +7,20 @@ import java.nio.charset.StandardCharsets
 
 /**
  * Lightweight media-provider boundary. Unknown providers fail safely.
+ *
+ * YouTube PlayMedia is owned by [YouTubePlayAutoPort] (Phase 4.9.3). The legacy
+ * search ACTION_VIEW helpers remain for audit/tests and must not run on the
+ * production YouTube route.
  */
 object MediaProviderExecutor {
+    @Volatile
+    var legacyYoutubeSearchCount: Int = 0
+        private set
+
+    fun resetForTests() {
+        legacyYoutubeSearchCount = 0
+    }
+
     data class MediaLaunch(
         val spec: CarfuLaunchSpec,
         val query: String,
@@ -17,22 +29,25 @@ object MediaProviderExecutor {
         val searchRoute: Boolean,
     )
 
+    fun isYouTubeProvider(provider: String?): Boolean {
+        val folded = VietnameseTranscript.foldForMatch(provider?.trim().orEmpty())
+        return folded == "youtube" || folded == "you tube" || folded == "yt"
+    }
+
     fun build(query: String, provider: String?): Result {
         val q = query.trim()
         if (q.isEmpty()) return Result.Unsupported("empty_query")
         val p = provider?.trim().orEmpty()
         if (p.isEmpty()) return Result.Unsupported("missing_provider")
-        val folded = VietnameseTranscript.foldForMatch(p)
-        return when (folded) {
-            "youtube", "you tube", "yt" -> Result.Ok(youtubeSearch(q))
-            else -> Result.Unsupported("unknown_provider:$p")
-        }
+        if (isYouTubeProvider(p)) return Result.YouTubePlayAuto(q)
+        return Result.Unsupported("unknown_provider:$p")
     }
 
     fun youtubeSearch(query: String): MediaLaunch {
+        legacyYoutubeSearchCount += 1
         val encoded = URLEncoder.encode(query.trim(), StandardCharsets.UTF_8.name())
             .replace("+", "%20")
-        // Public YouTube search deep link — deterministic query delivery, not exact autoplay.
+        // Legacy public YouTube search deep link — not the production YouTube owner.
         val data = "https://www.youtube.com/results?search_query=$encoded"
         return MediaLaunch(
             spec = CarfuLaunchSpec(
@@ -55,6 +70,7 @@ object MediaProviderExecutor {
 
     sealed class Result {
         data class Ok(val launch: MediaLaunch) : Result()
+        data class YouTubePlayAuto(val query: String) : Result()
         data class Unsupported(val reason: String) : Result()
     }
 }

@@ -55,6 +55,7 @@ import org.stypox.dicio.io.session.UnderstandingResult
 import org.stypox.dicio.io.session.VietnameseCommandUnderstanding
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.session.CarfuVoiceTrace
+import org.stypox.dicio.io.session.YouTubeProductionJack
 import org.stypox.dicio.io.session.StableCompletePartialPolicy
 import org.stypox.dicio.io.session.StableCompletePartialTracker
 import org.stypox.dicio.io.session.VoiceLifecycleLog
@@ -122,7 +123,10 @@ class SkillEvaluatorImpl(
     private val sessionBestCandidates = AtomicReference<List<Pair<String, Float>>>(emptyList())
     private val platform = AndroidCarfuSkillPlatform(skillContext.android, userSettings)
     private val skillExecutor = CarfuVietnameseSkillExecutor(platform)
-    private val canonicalExecutor = CanonicalCommandExecutor(platform)
+    private val canonicalExecutor = CanonicalCommandExecutor(
+        platform = platform,
+        youtubePlayAuto = YouTubeProductionJack.create(skillContext.android),
+    )
     private val mainHandler = Handler(Looper.getMainLooper())
     private var silenceWatchSessionId: Long = 0L
     private val silenceWatchRunnable = Runnable {

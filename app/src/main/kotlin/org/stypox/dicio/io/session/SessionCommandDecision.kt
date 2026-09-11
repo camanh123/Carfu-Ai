@@ -53,7 +53,7 @@ object SessionCommandDecision {
             if (s.locked != null) return s.locked
         }
         val ranked = VietnameseCommandUnderstanding.rankCandidates(sessionId, candidates)
-        val best = ranked.firstOrNull()
+        val best = VietnameseCommandUnderstanding.selectDecision(ranked)
             ?: return UnderstandingResult.unknown(
                 sessionId = sessionId,
                 raw = candidates.firstOrNull()?.first.orEmpty(),
