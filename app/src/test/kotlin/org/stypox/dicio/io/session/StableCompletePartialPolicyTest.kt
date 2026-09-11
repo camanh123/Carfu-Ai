@@ -306,4 +306,40 @@ class StableCompletePartialPolicyTest : StringSpec({
         StableCompletePartialPolicy.isEligible(my).shouldBeFalse()
         StableCompletePartialPolicy.isEligible(full).shouldBeTrue()
     }
+
+    "sân bay category head does not early-commit before Nội Bài" {
+        val airport = u("Đi đến sân bay")
+        airport.command shouldBe CanonicalCommand.Navigate("sân bay")
+        StableCompletePartialPolicy.navigateDestinationIsFastPathSafe("sân bay").shouldBeFalse()
+        StableCompletePartialPolicy.isEligible(airport).shouldBeFalse()
+        val noi = u("Đi đến sân bay Nội")
+        noi.command shouldBe CanonicalCommand.Navigate("sân bay Nội")
+        StableCompletePartialPolicy.isEligible(noi).shouldBeFalse()
+        val full = u("Đi đến sân bay Nội Bài")
+        full.command shouldBe CanonicalCommand.Navigate("sân bay Nội Bài")
+        StableCompletePartialPolicy.isEligible(full).shouldBeTrue()
+        StableCompletePartialTracker.bind(8L)
+        StableCompletePartialTracker.onPartial(8L, airport, 0L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
+        StableCompletePartialTracker.onPartial(8L, noi, 10L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
+        val commit = StableCompletePartialTracker.onPartial(8L, full, 20L, 1L)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        commit.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"
+    }
+
+    "new session bind drops previous Navigate fingerprint" {
+        StableCompletePartialTracker.bind(1L)
+        val first = u("Chỉ đường đến Mỹ Đình")
+        StableCompletePartialTracker.onPartial(1L, first, 0L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.COMMIT
+        StableCompletePartialTracker.committedForTests().shouldBeTrue()
+        StableCompletePartialTracker.bind(2L)
+        StableCompletePartialTracker.committedForTests().shouldBeFalse()
+        StableCompletePartialTracker.hasPendingStabilityWork().shouldBeFalse()
+        val second = u("Dẫn đường đến Hồ Gươm")
+        val obs = StableCompletePartialTracker.onPartial(2L, second, 0L, 2L)
+        obs.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        obs.fingerprint shouldBe "NAVIGATE|Hồ Gươm"
+    }
 })

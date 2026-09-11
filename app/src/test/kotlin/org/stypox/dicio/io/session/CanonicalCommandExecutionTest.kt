@@ -87,6 +87,7 @@ class CanonicalCommandExecutionTest : StringSpec({
         p.activities.single().action shouldBe CarfuDialer.ACTION_VIEW
         p.activities.single().packageName shouldBe NavigatePayload.GOOGLE_MAPS_PACKAGE
         p.activities.single().data shouldBe "google.navigation:q=M%E1%BB%B9%20%C4%90%C3%ACnh"
+        p.activities.single().flags shouldBe NavigatePayload.NAVIGATION_INTENT_FLAGS
         trace.packageName shouldBe NavigatePayload.GOOGLE_MAPS_PACKAGE
         trace.reason shouldBe "navigate_ok"
         p.activities.size shouldBe 1
@@ -298,7 +299,7 @@ class Phase3FakePlatform : CarfuSkillPlatform {
 
     override fun startLaunch(spec: CarfuLaunchSpec): Boolean {
         val pkg = resolveLaunch(spec) ?: return false
-        activities += StartedActivity(spec.action, pkg, spec.className, spec.data)
+        activities += StartedActivity(spec.action, pkg, spec.className, spec.data, spec.flags)
         return true
     }
 

@@ -16,6 +16,20 @@ object NavigatePayload {
     const val GEO_SEARCH_PREFIX = "geo:0,0?q="
 
     /**
+     * Android Intent flag bits (numeric so JVM tests do not import android.content.Intent).
+     *
+     * Device round 2: FLAG_ACTIVITY_NEW_TASK alone brings an existing Maps navigation
+     * task to the front and drops a new `google.navigation` URI. CLEAR_TOP+CLEAR_TASK
+     * on the **same** ACTION_VIEW delivers the new destination without a second launch.
+     */
+    const val FLAG_ACTIVITY_NEW_TASK = 0x10000000
+    const val FLAG_ACTIVITY_CLEAR_TOP = 0x04000000
+    const val FLAG_ACTIVITY_CLEAR_TASK = 0x00008000
+
+    const val NAVIGATION_INTENT_FLAGS =
+        FLAG_ACTIVITY_NEW_TASK or FLAG_ACTIVITY_CLEAR_TOP or FLAG_ACTIVITY_CLEAR_TASK
+
+    /**
      * Direct Google Maps navigation URI. Null when [destination] is blank.
      */
     fun navigationUri(destination: String): String? {

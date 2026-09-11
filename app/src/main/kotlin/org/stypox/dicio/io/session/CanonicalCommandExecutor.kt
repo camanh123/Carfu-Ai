@@ -76,6 +76,12 @@ class CanonicalCommandExecutor(
     ): ExecutionTrace {
         val destination = command.destination.trim()
         if (destination.isEmpty()) {
+            logNavigateDispatch(
+                destination = "",
+                uri = "",
+                startActivityCalled = false,
+                result = "empty_destination",
+            )
             return ExecutionTrace(
                 speechVi = "Hãy nói nơi bạn muốn đến.",
                 actionTaken = false,
@@ -84,6 +90,12 @@ class CanonicalCommandExecutor(
         }
         val uri = NavigatePayload.navigationUri(destination)
         if (uri.isNullOrBlank() || !NavigatePayload.isNavigationUri(uri)) {
+            logNavigateDispatch(
+                destination = destination,
+                uri = uri.orEmpty(),
+                startActivityCalled = false,
+                result = "invalid_navigation_uri",
+            )
             return ExecutionTrace(
                 speechVi = "Hãy nói nơi bạn muốn đến.",
                 actionTaken = false,
@@ -92,6 +104,12 @@ class CanonicalCommandExecutor(
         }
         val mapsPkg = NavigatePayload.GOOGLE_MAPS_PACKAGE
         if (CarfuDialer.isBlockedPackage(mapsPkg) || !platform.isPackageLaunchable(mapsPkg)) {
+            logNavigateDispatch(
+                destination = destination,
+                uri = uri,
+                startActivityCalled = false,
+                result = "maps_missing",
+            )
             return ExecutionTrace(
                 speechVi = "Không tìm thấy ứng dụng bản đồ.",
                 actionTaken = false,
@@ -104,8 +122,16 @@ class CanonicalCommandExecutor(
             action = CarfuDialer.ACTION_VIEW,
             packageName = mapsPkg,
             data = uri,
+            flags = NavigatePayload.NAVIGATION_INTENT_FLAGS,
         )
         val ok = platform.startLaunch(spec)
+        val result = if (ok) "navigate_ok" else "maps_missing"
+        logNavigateDispatch(
+            destination = destination,
+            uri = uri,
+            startActivityCalled = ok,
+            result = result,
+        )
         return if (ok) {
             ExecutionTrace(
                 speechVi = speech.ifBlank { "Đang chỉ đường đến $destination" },
@@ -123,6 +149,22 @@ class CanonicalCommandExecutor(
                 reason = "maps_missing",
             )
         }
+    }
+
+    private fun logNavigateDispatch(
+        destination: String,
+        uri: String,
+        startActivityCalled: Boolean,
+        result: String,
+    ) {
+        val sid = VoiceSessionManager.liveSession()?.sessionId ?: 0L
+        val line =
+            "NAVIGATE_DISPATCH SESSION_ID=$sid RAW_FINAL_OR_COMMITTED_TEXT=$destination " +
+                "CANONICAL_DESTINATION=$destination FINAL_NAV_URI=$uri " +
+                "ACTION_CLAIMED=true START_ACTIVITY_CALLED=$startActivityCalled " +
+                "RESULT=$result"
+        CarfuLog.i(VoiceLifecycleLog.TAG, line)
+        CarfuDiag.voice(line)
     }
 
     private fun executeOpenApp(

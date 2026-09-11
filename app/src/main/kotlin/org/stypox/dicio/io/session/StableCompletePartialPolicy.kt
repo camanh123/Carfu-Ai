@@ -17,6 +17,8 @@ package org.stypox.dicio.io.session
  * - NAVIGATE: complete destination (two or more tokens), reason `nav_complete`.
  *   Device-proven: waiting for EOS / consecutive identical partials delayed
  *   "Chỉ đường tới Mỹ Đình" until SR_HARD_CEILING while Maps search opened.
+ *   Category heads (`sân bay`, …) are not fast-path so growing STT cannot
+ *   lock `"sân bay"` before `"sân bay Nội Bài"`.
  *
  * Incomplete Navigate (`"Chỉ đường tới…"`) is never eligible.
  *
@@ -71,8 +73,26 @@ object StableCompletePartialPolicy {
 
     fun shouldObservePartial(text: String): Boolean = text.isNotBlank()
 
+    /**
+     * Category nouns that are prefixes of a longer spoken place. Early-commit of
+     * `"sân bay"` must not lock before `"sân bay Nội Bài"`.
+     * These are grammar heads, not hardcoded destinations.
+     */
+    private val NAV_CATEGORY_HEADS = setOf(
+        "san bay",
+        "ben xe",
+        "ben tau",
+        "benh vien",
+    )
+
     fun navigateDestinationIsFastPathSafe(destination: String): Boolean {
-        return tokenCount(destination) >= 2
+        if (tokenCount(destination) < 2) return false
+        val folded = VietnameseTranscript.foldForMatch(destination)
+        for (head in NAV_CATEGORY_HEADS) {
+            if (folded == head) return false
+            if (folded.startsWith("$head ") && tokenCount(destination) < 4) return false
+        }
+        return true
     }
 
     fun tokenCount(text: String): Int =

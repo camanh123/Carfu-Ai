@@ -99,6 +99,7 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
             p.activities.single().action shouldBe CarfuDialer.ACTION_VIEW
             p.activities.single().packageName shouldBe NavigatePayload.GOOGLE_MAPS_PACKAGE
             p.activities.single().data shouldBe trace.geoUri
+            p.activities.single().flags shouldBe NavigatePayload.NAVIGATION_INTENT_FLAGS
         }
     }
 
@@ -163,6 +164,7 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
         trace.geoUri.shouldBeNull()
         p.activities.single().action shouldBe "LAUNCH"
         p.activities.single().data.shouldBeNull()
+        p.activities.single().flags shouldBe 0
         NavigatePayload.isNavigationUri(p.activities.single().data).shouldBeFalse()
     }
 
@@ -212,5 +214,90 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
         p.activities.size shouldBe 1
         p.activities.single().data!!.shouldNotContain("geo:")
         p.activities.none { it.action == "LAUNCH" }.shouldBeTrue()
+        p.activities.single().flags shouldBe NavigatePayload.NAVIGATION_INTENT_FLAGS
+    }
+
+    "consecutive MODE sessions dispatch four distinct current destinations" {
+        val spokenSessions = listOf(
+            "Chỉ đường tới Mỹ Đình" to "Mỹ Đình",
+            "Dẫn đường đến Hồ Gươm" to "Hồ Gươm",
+            "Đi đến sân bay Nội Bài" to "sân bay Nội Bài",
+            "Chỉ đường đến bia bà" to "bia bà",
+        )
+        val p = platform()
+        val exec = executor(p)
+        spokenSessions.forEachIndexed { index, (raw, destination) ->
+            val sid = (index + 1).toLong()
+            SessionCommandDecision.bindSession(sid)
+            CanonicalActionGate.bind(sid)
+            CommandSessionOutcome.reset()
+            StableCompletePartialTracker.bind(sid)
+            StableCompletePartialTracker.committedForTests().shouldBeFalse()
+            StableCompletePartialTracker.hasPendingStabilityWork().shouldBeFalse()
+            CanonicalActionGate.tryClaim(sid).shouldBeTrue()
+            val understood = VietnameseCommandUnderstanding.understand(raw, sessionId = sid)
+            understood.command shouldBe CanonicalCommand.Navigate(destination)
+            understood.destination shouldBe destination
+            StableCompletePartialPolicy.isSemanticEarlyCommitSafe(understood).shouldBeTrue()
+            val obs = StableCompletePartialTracker.onPartial(sid, understood, 0L, sid)
+            obs.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+            obs.fingerprint shouldBe "NAVIGATE|$destination"
+            val trace = exec.executeTraced(understood.command!!)
+            trace.actionTaken.shouldBeTrue()
+            NavigatePayload.decodeQuery(trace.geoUri!!) shouldBe destination
+            trace.geoUri shouldBe NavigatePayload.navigationUri(destination)
+        }
+        p.activities.size shouldBe spokenSessions.size
+        val decoded = p.activities.map { NavigatePayload.decodeQuery(it.data!!) }
+        decoded shouldBe spokenSessions.map { it.second }
+        p.activities.map { it.data }.toSet().size shouldBe spokenSessions.size
+        p.activities.forEach { launched ->
+            launched.action shouldBe CarfuDialer.ACTION_VIEW
+            launched.packageName shouldBe NavigatePayload.GOOGLE_MAPS_PACKAGE
+            launched.flags shouldBe NavigatePayload.NAVIGATION_INTENT_FLAGS
+            NavigatePayload.isGeoSearchUri(launched.data).shouldBeFalse()
+        }
+    }
+
+    "growing partials do not truncate bia bà or sân bay Nội Bài" {
+        StableCompletePartialTracker.bind(1L)
+        listOf("Chỉ đường đến", "Chỉ đường đến bia").forEach { raw ->
+            val mid = VietnameseCommandUnderstanding.understand(raw, 1L)
+            StableCompletePartialPolicy.isSemanticEarlyCommitSafe(mid).shouldBeFalse()
+            StableCompletePartialTracker.onPartial(1L, mid, 0L, 1L).decision shouldBe
+                StableCompletePartialTracker.Decision.IGNORE
+        }
+        val biaBa = VietnameseCommandUnderstanding.understand("Chỉ đường đến bia bà", 1L)
+        biaBa.command shouldBe CanonicalCommand.Navigate("bia bà")
+        val biaCommit = StableCompletePartialTracker.onPartial(1L, biaBa, 10L, 1L)
+        biaCommit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        biaCommit.fingerprint shouldBe "NAVIGATE|bia bà"
+        NavigatePayload.navigationUri("bia bà") shouldBe "google.navigation:q=bia%20b%C3%A0"
+
+        StableCompletePartialTracker.bind(2L)
+        listOf("Đi đến sân bay", "Đi đến sân bay Nội").forEach { raw ->
+            val mid = VietnameseCommandUnderstanding.understand(raw, 2L)
+            mid.command.shouldBeInstanceOf<CanonicalCommand.Navigate>()
+            StableCompletePartialPolicy.isEligible(mid).shouldBeFalse()
+            StableCompletePartialTracker.onPartial(2L, mid, 0L, 2L).decision shouldBe
+                StableCompletePartialTracker.Decision.IGNORE
+        }
+        val fullAirport = VietnameseCommandUnderstanding.understand("Đi đến sân bay Nội Bài", 2L)
+        fullAirport.command shouldBe CanonicalCommand.Navigate("sân bay Nội Bài")
+        val airportCommit = StableCompletePartialTracker.onPartial(2L, fullAirport, 20L, 2L)
+        airportCommit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        airportCommit.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"
+    }
+
+    "Navigate dispatch diagnostics name current destination" {
+        CarfuDiag.clear()
+        executor().executeTraced(CanonicalCommand.Navigate("Hồ Gươm"))
+        val lines = CarfuDiag.recent(CarfuDiag.TAG_VOICE)
+        val nav = lines.last { it.contains("NAVIGATE_DISPATCH") }
+        nav shouldContain "CANONICAL_DESTINATION=Hồ Gươm"
+        nav shouldContain "FINAL_NAV_URI=google.navigation:q=H%E1%BB%93%20G%C6%B0%C6%A1m"
+        nav shouldContain "START_ACTIVITY_CALLED=true"
+        nav shouldContain "RESULT=navigate_ok"
+        nav shouldContain "ACTION_CLAIMED=true"
     }
 })
