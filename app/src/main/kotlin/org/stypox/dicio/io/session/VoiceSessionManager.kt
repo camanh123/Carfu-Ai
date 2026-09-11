@@ -333,7 +333,10 @@ object VoiceSessionManager {
         }
         SessionCommandDecision.clear(sessionId)
         CanonicalActionGate.clear(sessionId)
+        CommandSessionOutcome.close(sessionId)
+        StableCompletePartialTracker.markCancelled()
         VoiceTriggerManager.onSessionTerminal(sessionId)
+        VoiceSessionGuard.cancelNavTimer()
         return true
     }
 
@@ -384,5 +387,8 @@ object VoiceSessionManager {
         }
         SessionCommandDecision.resetForTests()
         CanonicalActionGate.resetForTests()
+        CommandSessionOutcome.resetForTests()
+        StableCompletePartialTracker.resetForTests()
+        VoiceSessionGuard.resetForTests()
     }
 }

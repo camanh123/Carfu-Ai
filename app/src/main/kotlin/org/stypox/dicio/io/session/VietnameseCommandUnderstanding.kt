@@ -73,6 +73,16 @@ object VietnameseCommandUnderstanding {
             understandNavigate(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
                 ?.let { return it }
         }
+        if (isUnsupportedPlaceOrNearbyQuery(trimmed, folded)) {
+            return UnderstandingResult.unknown(
+                sessionId = sessionId,
+                raw = trimmed,
+                normalized = folded,
+                candidateIndex = candidateIndex,
+                recognizerConfidence = recognizerConfidence,
+                reason = "unsupported_place_search",
+            )
+        }
         mediaResult(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
             ?.let { return it }
         if (VietnameseTranscript.isTooWeakToSubmit(trimmed)) {
@@ -595,6 +605,31 @@ object VietnameseCommandUnderstanding {
 
     fun isKnownPlayMediaProvider(provider: String?): Boolean =
         VietnameseMediaCommandGrammar.isKnownProviderLabel(provider)
+
+    /**
+     * Nearby / place-find phrasing without a media noun or provider.
+     * CARFU has no PlaceSearch skill yet — these must not be PlayMedia or SEARCH.
+     */
+    fun isUnsupportedPlaceOrNearbyQuery(
+        raw: String,
+        folded: String = VietnameseTranscript.foldForMatch(raw),
+    ): Boolean {
+        if (folded.isBlank()) return false
+        if (NavigationAddressNormalizer.looksLikeNavigationCommand(raw)) return false
+        val tokens = folded.split(' ').filter { it.isNotEmpty() }
+        if (tokens.isEmpty() || tokens.first() != "tim") return false
+        val mediaNouns = setOf("bai", "hat", "nhac", "video", "clip")
+        if (tokens.any { it in mediaNouns }) return false
+        if (tokens.any { it in setOf("youtube", "yt", "smarttube", "musicloop") }) return false
+        val politeFind = tokens.size >= 3 &&
+            (
+                tokens.take(3) == listOf("tim", "cho", "toi") ||
+                    tokens.take(3) == listOf("tim", "giup", "toi") ||
+                    tokens.take(3) == listOf("tim", "cho", "minh")
+                )
+        val nearby = tokens.contains("gan")
+        return (politeFind || nearby) && tokens.size >= 4
+    }
 
     private fun resolveKnownApp(foldedRemainder: String): String? {
         KNOWN_APP_LABELS[foldedRemainder]?.let { return it }

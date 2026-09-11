@@ -137,14 +137,15 @@ fun DrivingScreen(
         }
     }
     val heard = if (presentation.showPartial) {
-        commandUi.partial?.takeIf { it.isNotBlank() } ?: lastCommand
+        commandUi.activeTranscript()
     } else {
         lastCommand
     }
-    val reply = if (commandUi.unclear && lastReply.isNullOrBlank()) {
-        stringResource(R.string.carfu_state_unclear)
-    } else {
-        lastReply
+    val reply = when {
+        commandUi.isLiveSessionUi -> null
+        commandUi.unclear && lastReply.isNullOrBlank() ->
+            stringResource(R.string.carfu_state_unclear)
+        else -> lastReply
     }
     val musicMissing = stringResource(R.string.carfu_music_not_found)
     val volumeFailed = stringResource(R.string.carfu_volume_failed)

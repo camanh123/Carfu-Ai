@@ -42,9 +42,12 @@ class CommandSessionOutcomeTest : StringSpec({
         CommandSessionOutcome.peek() shouldBe CommandSessionOutcome.Kind.EXECUTED
     }
 
-    "transcript then NO_MATCH cannot overwrite EXECUTED" {
-        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED).shouldBeTrue()
-        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.NO_SPEECH).shouldBeFalse()
+    "stale session cannot claim the next session's outcome" {
+        CommandSessionOutcome.bind(10L)
+        CommandSessionOutcome.close(10L)
+        CommandSessionOutcome.bind(11L)
+        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.NO_SPEECH, 10L).shouldBeFalse()
+        CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED, 11L).shouldBeTrue()
         CommandSessionOutcome.peek() shouldBe CommandSessionOutcome.Kind.EXECUTED
     }
 })
