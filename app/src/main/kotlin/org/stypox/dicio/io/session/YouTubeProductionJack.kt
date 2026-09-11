@@ -97,5 +97,6 @@ private fun YouTubePlayAutoResult.toJackResult(
         castApisUsed = castApisUsed,
         mediaKeysSent = mediaKeysSent,
         resolverStatus = resolverStatus,
+        resolvedTitle = resolvedTitle,
     )
 }

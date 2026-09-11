@@ -23,4 +23,5 @@ data class YouTubeProductionJackResult(
     val castApisUsed: Boolean,
     val mediaKeysSent: Boolean,
     val resolverStatus: String?,
+    val resolvedTitle: String? = null,
 )

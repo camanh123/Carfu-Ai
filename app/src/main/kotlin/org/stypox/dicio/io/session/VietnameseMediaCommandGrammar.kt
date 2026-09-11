@@ -206,6 +206,30 @@ object VietnameseMediaCommandGrammar {
             }
         }
 
+        // STT often drops the unstressed preposition ("trên" / "bằng").
+        // "mở <query> YouTube" is still PLAY_MEDIA when the trailing tokens are a
+        // known provider and a real query remains. Bare "mở YouTube" stays OPEN_APP.
+        val implicit = trailingKnownProvider(rest)
+        if (implicit != null) {
+            val queryTokens = rest.dropLast(implicit.second)
+            val queryFolded = queryTokens.joinToString(" ")
+            if (queryFolded.isNotEmpty() && isMeaningfulQuery(queryFolded) &&
+                (mediaClaim || sharedOpen || elliptical)
+            ) {
+                return Analysis(
+                    complete = true,
+                    reason = "media_complete",
+                    queryRaw = "",
+                    queryFolded = queryFolded,
+                    providerLabel = implicit.first,
+                    providerFolded = rest.takeLast(implicit.second).joinToString(" "),
+                    leadingTokenCount = leading,
+                    trailingTokenCount = implicit.second,
+                    knownProvider = true,
+                )
+            }
+        }
+
         if (mediaClaim) {
             return incomplete(
                 reason = "media_missing_provider",
@@ -273,6 +297,18 @@ object VietnameseMediaCommandGrammar {
             PROVIDER_LABELS[slice]?.let { return it }
         }
         PROVIDER_LABELS[tokens.joinToString(" ")]?.let { return it }
+        return null
+    }
+
+    /** Longest known provider label at the end of [tokens], with its token count. */
+    private fun trailingKnownProvider(tokens: List<String>): Pair<String, Int>? {
+        if (tokens.isEmpty()) return null
+        val max = minOf(3, tokens.size)
+        for (n in max downTo 1) {
+            val slice = tokens.takeLast(n).joinToString(" ")
+            val label = PROVIDER_LABELS[slice] ?: continue
+            return label to n
+        }
         return null
     }
 

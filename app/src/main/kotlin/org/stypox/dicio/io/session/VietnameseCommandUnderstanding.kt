@@ -136,6 +136,42 @@ object VietnameseCommandUnderstanding {
         return candidateComparator.compare(candidate, current) > 0
     }
 
+    /**
+     * Pick the command that should lock for this candidate set.
+     *
+     * Complete PlayMedia always wins over OpenApp YouTube. An in-progress PlayMedia
+     * query must not fall through to OpenApp("YouTube") (YouTube home). Bare
+     * "Mở YouTube" with no media candidate is unchanged.
+     */
+    fun selectDecision(ranked: List<UnderstandingResult>): UnderstandingResult? {
+        if (ranked.isEmpty()) return null
+        val mediaComplete = ranked.firstOrNull { result ->
+            result.completeness == SemanticCompleteness.COMPLETE &&
+                result.intent == VoiceIntent.PLAY_MEDIA &&
+                hasPlayMediaQuery(result)
+        }
+        if (mediaComplete != null) return mediaComplete
+        val best = ranked.first()
+        if (isExactCatalogOpenAppYouTube(best) && ranked.any { hasPlayMediaQuery(it) }) {
+            return ranked.firstOrNull { hasPlayMediaQuery(it) } ?: best
+        }
+        return best
+    }
+
+    fun hasPlayMediaQuery(result: UnderstandingResult): Boolean {
+        if (result.intent != VoiceIntent.PLAY_MEDIA) return false
+        val query = result.query
+            ?: (result.command as? CanonicalCommand.PlayMedia)?.query
+            ?: return false
+        return query.trim().length >= 2
+    }
+
+    fun isExactCatalogOpenAppYouTube(result: UnderstandingResult): Boolean {
+        if (!isExactCatalogOpenApp(result)) return false
+        val name = (result.command as? CanonicalCommand.OpenApp)?.appName ?: return false
+        return VietnameseTranscript.foldForMatch(name) == "youtube"
+    }
+
     private val candidateComparator = Comparator<UnderstandingResult> { a, b ->
         compareValuesBy(
             a,

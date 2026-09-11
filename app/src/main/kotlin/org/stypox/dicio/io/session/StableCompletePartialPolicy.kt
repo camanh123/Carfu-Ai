@@ -197,6 +197,12 @@ object StableCompletePartialTracker {
     private var committed: Boolean = false
     private var cancelled: Boolean = false
     private var eosConfirmed: Boolean = false
+    /**
+     * True once this session observed PLAY_MEDIA (complete or incomplete with a query).
+     * Exact catalog OpenApp("YouTube") must not steal that in-progress media command
+     * and launch YouTube home. Bare "Mở YouTube" with no prior media still early-commits.
+     */
+    private var sawPlayMediaIntent: Boolean = false
 
     fun bind(newSessionId: Long) {
         synchronized(lock) {
@@ -209,6 +215,7 @@ object StableCompletePartialTracker {
             committed = false
             cancelled = false
             eosConfirmed = false
+            sawPlayMediaIntent = false
         }
     }
 
@@ -222,6 +229,7 @@ object StableCompletePartialTracker {
             lastGeneration = 0L
             firstSeenMs = 0L
             eosConfirmed = false
+            sawPlayMediaIntent = false
         }
     }
 
@@ -246,6 +254,8 @@ object StableCompletePartialTracker {
     fun eosConfirmedForTests(): Boolean = synchronized(lock) { eosConfirmed }
 
     fun committedForTests(): Boolean = synchronized(lock) { committed }
+
+    fun sawPlayMediaIntentForTests(): Boolean = synchronized(lock) { sawPlayMediaIntent }
 
     fun onPartial(
         forSessionId: Long,
@@ -282,6 +292,7 @@ object StableCompletePartialTracker {
                 eosConfirmed = eosConfirmed,
             )
         }
+        notePlayMediaIntent(result)
         if (!StableCompletePartialPolicy.isEligible(result)) {
             fingerprint = ""
             firstSeenMs = 0L
@@ -376,7 +387,20 @@ object StableCompletePartialTracker {
     }
 
     private fun decideLocked(result: UnderstandingResult, generation: Long): Observe {
+        notePlayMediaIntent(result)
         if (StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result)) {
+            if (openAppYouTubeBlockedByPlayMedia(result)) {
+                return Observe(
+                    decision = Decision.WAIT,
+                    result = result,
+                    reason = "play_media_in_progress_blocks_open_app_youtube",
+                    consecutive = consecutive,
+                    fingerprint = fingerprint,
+                    sessionId = sessionId,
+                    generation = generation,
+                    eosConfirmed = eosConfirmed,
+                )
+            }
             committed = true
             val why = when (result.command) {
                 is CanonicalCommand.OpenApp -> "semantic_open_app"
@@ -397,6 +421,18 @@ object StableCompletePartialTracker {
         val ready = consecutive >= StableCompletePartialPolicy.CONSECUTIVE_IDENTICAL_TO_COMMIT &&
             eosConfirmed
         if (ready) {
+            if (openAppYouTubeBlockedByPlayMedia(result)) {
+                return Observe(
+                    decision = Decision.WAIT,
+                    result = result,
+                    reason = "play_media_in_progress_blocks_open_app_youtube",
+                    consecutive = consecutive,
+                    fingerprint = fingerprint,
+                    sessionId = sessionId,
+                    generation = generation,
+                    eosConfirmed = true,
+                )
+            }
             committed = true
             return Observe(
                 decision = Decision.COMMIT,
@@ -422,5 +458,16 @@ object StableCompletePartialTracker {
             generation = generation,
             eosConfirmed = eosConfirmed,
         )
+    }
+
+    private fun notePlayMediaIntent(result: UnderstandingResult) {
+        if (result.intent == VoiceIntent.PLAY_MEDIA) {
+            sawPlayMediaIntent = true
+        }
+    }
+
+    private fun openAppYouTubeBlockedByPlayMedia(result: UnderstandingResult): Boolean {
+        if (!sawPlayMediaIntent) return false
+        return VietnameseCommandUnderstanding.isExactCatalogOpenAppYouTube(result)
     }
 }

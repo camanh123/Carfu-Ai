@@ -90,6 +90,19 @@ class Phase45VietnameseMediaNluTest : StringSpec({
         u("Mở Đừng Xa Em Đêm Nay trên YouTube").intent shouldBe VoiceIntent.PLAY_MEDIA
     }
 
+    "STT dropped trên still PLAY_MEDIA for title + trailing YouTube" {
+        listOf(
+            "Mở bài Đừng Xa Em Đêm Nay YouTube",
+            "Mở Đừng Xa Em Đêm Nay YouTube",
+            "Phát bài Đừng Xa Em Đêm Nay YouTube",
+            "Phát Đừng Xa Em Đêm Nay YouTube",
+            "Cho tôi nghe Đừng Xa Em Đêm Nay YouTube",
+        ).forEach { raw ->
+            assertPlayMedia(raw)
+        }
+        u("Mở YouTube").command shouldBe CanonicalCommand.OpenApp("YouTube")
+    }
+
     "INCOMPLETE media commands are not executable" {
         listOf(
             "Mở",
