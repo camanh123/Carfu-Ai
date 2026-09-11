@@ -19,7 +19,23 @@ internal object NavigationCommitPolicy {
      */
     const val NAV_STABILIZATION_MS: Long = 800L
 
-    private val INCOMPLETE_HEADS_FOLDED = setOf(
+    /**
+     * Last-token incompleteness applies only to structural address particles that
+     * almost always need a following number/name ("số 25 phố" waits for the street).
+     *
+     * Place-type words that also occur as the *last token of a proper name* must not
+     * use this rule. Device-proven: "Hồ Văn Quán" was marked incomplete because
+     * folded last token `quan` lived in the old last-head set, so the tracker kept
+     * the shorter "Hồ Văn". Bare "quận" / "chợ" / "trường" remain incomplete via
+     * [INCOMPLETE_EXACT_FOLDED].
+     */
+    private val STRUCTURAL_TRAILING_HEADS = setOf(
+        "ngo", "ngach", "hem", "so", "duong", "pho", "phuong",
+        "xa", "thon", "to", "khu", "toa",
+    )
+
+    /** Compound category heads such as "bệnh viện" / "sân bay" (every token is a head). */
+    private val CATEGORY_HEAD_TOKENS = setOf(
         "ngo", "ngach", "hem", "so", "duong", "pho", "phuong", "quan", "huyen",
         "xa", "thon", "to", "khu", "toa", "benh", "vien", "truong", "cho",
         "san", "bay", "ben", "xe", "tau",
@@ -58,10 +74,9 @@ internal object NavigationCommitPolicy {
         if (core.isEmpty()) return true
         val coreJoined = core.joinToString(" ")
         if (coreJoined in INCOMPLETE_EXACT_FOLDED) return true
-        // Address heads are valid mid-phrase but incomplete when they are the final token
-        // ("số 25 phố" waits for the street name; "Chợ Hôm" is complete because last ≠ chợ).
-        if (core.last() in INCOMPLETE_HEADS_FOLDED) return true
-        if (core.all { it in INCOMPLETE_HEADS_FOLDED }) return true
+        // Structural particles only: "số 25 phố" waits. "Hồ Văn Quán" / "Chợ Hôm" do not.
+        if (core.last() in STRUCTURAL_TRAILING_HEADS) return true
+        if (core.all { it in CATEGORY_HEAD_TOKENS }) return true
         return false
     }
 

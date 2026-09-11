@@ -176,13 +176,16 @@ class NavigateDestinationStabilizationTest : StringSpec({
         val lines = CarfuDiag.recent(CarfuDiag.TAG_VOICE)
         val nav = lines.last { it.contains("NAV_STABILIZE") }
         nav shouldContain "SESSION_ID=6"
-        nav shouldContain "NAV_CANDIDATE=Hồ Gươm"
+        nav shouldContain "NORMALIZED_DESTINATION=Hồ Gươm"
         nav shouldContain "NAV_FINGERPRINT=NAVIGATE|Hồ Gươm"
         nav shouldContain "NAV_COMMIT_REASON=navigate_waiting_stable"
-        nav shouldContain "NAV_CANDIDATE_CHANGED_AT=10"
+        nav shouldContain "CANDIDATE_CHANGED_AT=10"
+        nav shouldContain "TIMER_SOURCE=PARTIAL"
         StableCompletePartialTracker.onTimer(6L, 10L + window)
         val committed = CarfuDiag.recent(CarfuDiag.TAG_VOICE).last { it.contains("NAV_STABILIZE") }
         committed shouldContain "NAV_COMMIT_REASON=semantic_navigate_stable"
         committed shouldContain "NAV_STABLE_FOR_MS=$window"
+        committed shouldContain "TIMER_SOURCE=STABILITY_TIMER"
+        committed shouldContain "CANDIDATE_CHANGED=false"
     }
 })

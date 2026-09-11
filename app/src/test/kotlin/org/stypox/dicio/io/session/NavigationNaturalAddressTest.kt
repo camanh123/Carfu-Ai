@@ -222,6 +222,8 @@ class NavigationNaturalAddressTest : StringSpec({
             "Dẫn đường tới số nhà 42 ngõ 12 phố Trần Thái Tông" to
                 "số nhà 42 ngõ 12 phố Trần Thái Tông",
             "Chỉ đường đến Chợ Hôm" to "Chợ Hôm",
+            "Đưa tôi đến Hồ Văn Quán" to "Hồ Văn Quán",
+            "Chỉ đường đến Đại học Văn Lang" to "Đại học Văn Lang",
             "Tìm đường đến Mỹ Đình" to "Mỹ Đình",
             "Đưa tôi tới Hồ Gươm" to "Hồ Gươm",
         ).forEach { (raw, expected) ->
@@ -297,19 +299,105 @@ class NavigationNaturalAddressTest : StringSpec({
         feed(12L, "chỉ đường đến Hồ Gươm", 10L)
         val lines = CarfuDiag.recent(CarfuDiag.TAG_VOICE)
         val candidate = lines.last { it.contains("NAV_CANDIDATE SESSION_ID=12") }
-        candidate shouldContain "RAW_PARTIAL=chỉ đường đến Hồ Gươm"
-        candidate shouldContain "NAV_CANDIDATE=Hồ Gươm"
+        candidate shouldContain "SR_RAW_PARTIAL=chỉ đường đến Hồ Gươm"
+        candidate shouldContain "NORMALIZED_DESTINATION=Hồ Gươm"
+        candidate shouldContain "PREFERRED_DESTINATION=Hồ Gươm"
         candidate shouldContain "CANDIDATE_RELATION="
+        candidate shouldContain "CANDIDATE_CHANGED="
+        candidate shouldContain "TIMER_SOURCE=PARTIAL"
         candidate shouldContain "NAV_COMPLETENESS=COMPLETE"
         val stabilize = lines.last { it.contains("NAV_STABILIZE") }
         stabilize shouldContain "SESSION_ID=12"
-        stabilize shouldContain "NAV_CANDIDATE=Hồ Gươm"
+        stabilize shouldContain "NORMALIZED_DESTINATION=Hồ Gươm"
+        stabilize shouldContain "TIMER_SOURCE=PARTIAL"
         stabilize shouldContain "CANDIDATE_RELATION="
         StableCompletePartialTracker.onTimer(12L, 10L + window)
+        val timerLine = CarfuDiag.recent(CarfuDiag.TAG_VOICE).last { it.contains("TIMER_SOURCE=STABILITY_TIMER") }
+        timerLine shouldContain "CANDIDATE_CHANGED=false"
         val committed = CarfuDiag.recent(CarfuDiag.TAG_VOICE).last { it.contains("NAV_COMMIT") }
         committed shouldContain "FINAL_DESTINATION=Hồ Gươm"
         committed shouldContain "FINAL_URI="
         committed shouldContain "ACTION_COUNT=1"
         committed shouldContain "NAV_COMMIT_REASON=semantic_navigate_stable"
+    }
+
+    "R2. Hồ Văn Quán keeps Quán — not truncated to Hồ Văn" {
+        val raw = "đưa tôi đến Hồ Văn Quán"
+        val parsed = NavigationAddressNormalizer.parse(raw)
+        parsed.destination shouldBe "Hồ Văn Quán"
+        parsed.destinationFolded shouldBe "ho van quan"
+        val result = u(raw)
+        result.completeness shouldBe SemanticCompleteness.COMPLETE
+        result.executable.shouldBeTrue()
+        result.command shouldBe CanonicalCommand.Navigate("Hồ Văn Quán")
+        NavigationCommitPolicy.isIncompleteDestination("Hồ Văn Quán").shouldBeFalse()
+        NavigationCommitPolicy.isIncompleteDestination("Hồ Văn").shouldBeFalse()
+    }
+
+    "R2. 800ms timer advances without mutating candidateChangedAt" {
+        StableCompletePartialTracker.bind(21L)
+        feed(21L, "đưa tôi đến Hồ Văn Quán", 0L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        val changedAt = NavigationCandidateTracker.candidateChangedAt()
+        changedAt shouldBe 0L
+        val mid = StableCompletePartialTracker.onTimer(21L, 400L)
+        mid.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        mid.remainingMs shouldBe 400L
+        NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
+        NavigationCandidateTracker.stableForMs(400L) shouldBe 400L
+        val commit = StableCompletePartialTracker.onTimer(21L, window)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        commit.reason shouldBe "semantic_navigate_stable"
+        NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
+        (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "Hồ Văn Quán"
+    }
+
+    "R2. growing Hồ → Hồ Văn → Hồ Văn Quán resets candidateChangedAt once per extension" {
+        StableCompletePartialTracker.bind(22L)
+        feed(22L, "đưa tôi đến Hồ", 0L)
+        val afterHo = NavigationCandidateTracker.candidateChangedAt()
+        feed(22L, "đưa tôi đến Hồ Văn", 250L)
+        val afterVan = NavigationCandidateTracker.candidateChangedAt()
+        afterVan shouldBe 250L
+        (afterVan > afterHo).shouldBeTrue()
+        feed(22L, "đưa tôi đến Hồ Văn Quán", 500L)
+        val afterQuan = NavigationCandidateTracker.candidateChangedAt()
+        afterQuan shouldBe 500L
+        (afterQuan > afterVan).shouldBeTrue()
+        NavigationCandidateTracker.preferredResult()!!.command shouldBe
+            CanonicalCommand.Navigate("Hồ Văn Quán")
+        val commit = StableCompletePartialTracker.onTimer(22L, 500L + window)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "Hồ Văn Quán"
+        NavigationCandidateTracker.candidateChangedAt() shouldBe afterQuan
+    }
+
+    "R2. identical repeated partials do not reset stabilization" {
+        StableCompletePartialTracker.bind(23L)
+        repeat(3) { i ->
+            feed(23L, "đưa tôi đến Hồ Văn Quán", i * 100L)
+        }
+        NavigationCandidateTracker.candidateChangedAt() shouldBe 0L
+        NavigationCandidateTracker.lastRelation() shouldBe NavigationCandidateRelation.UNCHANGED
+        NavigationCandidateTracker.stableForMs(300L) shouldBe 300L
+        val commit = StableCompletePartialTracker.onTimer(23L, window)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "Hồ Văn Quán"
+    }
+
+    "R2. case-only partials do not reset semantic stability" {
+        StableCompletePartialTracker.bind(24L)
+        feed(24L, "đi đến Smart", 0L)
+        val changedAt = NavigationCandidateTracker.candidateChangedAt()
+        feed(24L, "đi đến smart", 120L)
+        NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
+        NavigationCandidateTracker.lastRelation() shouldBe NavigationCandidateRelation.UNCHANGED
+        feed(24L, "đi đến Smart", 240L)
+        NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
+        val commit = StableCompletePartialTracker.onTimer(24L, window)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        VietnameseTranscript.foldForMatch(
+            (commit.result?.command as CanonicalCommand.Navigate).destination,
+        ) shouldBe "smart"
     }
 })

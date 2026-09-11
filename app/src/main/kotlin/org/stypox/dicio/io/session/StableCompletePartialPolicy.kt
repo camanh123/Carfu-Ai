@@ -2,6 +2,7 @@ package org.stypox.dicio.io.session
 
 import org.stypox.dicio.skills.carfu.nlu.NavigationCandidateTracker
 import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
+import org.stypox.dicio.skills.carfu.nlu.NavTimerSource
 
 /**
  * Phase 4.4 — semantic COMPLETE partial commit for OPEN_APP / PLAY_MEDIA.
@@ -467,13 +468,20 @@ object StableCompletePartialTracker {
                 eosConfirmed = eosConfirmed,
             )
         }
-        decideLocked(result, generation = lastGeneration, nowMs = nowMs)
+        NavigationCandidateTracker.peekForTimer(nowMs)
+        decideLocked(
+            result,
+            generation = lastGeneration,
+            nowMs = nowMs,
+            timerSource = NavTimerSource.STABILITY_TIMER,
+        )
     }
 
     private fun decideLocked(
         result: UnderstandingResult,
         generation: Long,
         nowMs: Long,
+        timerSource: NavTimerSource = NavTimerSource.PARTIAL,
     ): Observe {
         notePlayMediaIntent(result)
         if (StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result)) {
@@ -490,7 +498,7 @@ object StableCompletePartialTracker {
                 )
             }
             if (result.command is CanonicalCommand.Navigate) {
-                return decideNavigateStableLocked(result, generation, nowMs)
+                return decideNavigateStableLocked(result, generation, nowMs, timerSource)
             }
             committed = true
             val why = when (result.command) {
@@ -555,6 +563,7 @@ object StableCompletePartialTracker {
         result: UnderstandingResult,
         generation: Long,
         nowMs: Long,
+        timerSource: NavTimerSource = NavTimerSource.PARTIAL,
     ): Observe {
         val dest = (result.command as CanonicalCommand.Navigate).destination.trim()
         if (NavigationCommitPolicy.isIncompleteDestination(dest)) {
@@ -572,7 +581,7 @@ object StableCompletePartialTracker {
         }
         if (NavigationCandidateTracker.isBlockedByIncompleteGrowth()) {
             val remaining = NavigationCommitPolicy.NAV_STABILIZATION_MS
-            logNavStabilize(dest, 0L, remaining, commit = false)
+            logNavStabilize(dest, 0L, remaining, commit = false, nowMs = nowMs, timerSource = timerSource)
             return Observe(
                 decision = Decision.WAIT,
                 remainingMs = remaining,
@@ -585,10 +594,10 @@ object StableCompletePartialTracker {
                 eosConfirmed = eosConfirmed,
             )
         }
-        val elapsed = if (firstSeenMs < 0L) 0L else (nowMs - firstSeenMs).coerceAtLeast(0L)
+        val elapsed = NavigationCandidateTracker.stableForMs(nowMs)
         val remaining = (NavigationCommitPolicy.NAV_STABILIZATION_MS - elapsed)
             .coerceAtLeast(0L)
-        logNavStabilize(dest, elapsed, remaining, commit = remaining == 0L)
+        logNavStabilize(dest, elapsed, remaining, commit = remaining == 0L, nowMs = nowMs, timerSource = timerSource)
         if (remaining > 0L) {
             return Observe(
                 decision = Decision.WAIT,
@@ -655,9 +664,11 @@ object StableCompletePartialTracker {
         fingerprint = StableCompletePartialPolicy.fingerprint(use)
         lastResult = use
         consecutive = 1
-        val stableFor = snapshot?.stableForMs ?: 0L
-        firstSeenMs = nowMs - stableFor
-        return decideNavigateStableLocked(use, generation, nowMs)
+        val changedAt = snapshot?.candidateChangedAt ?: -1L
+        if (changedAt >= 0L) {
+            firstSeenMs = changedAt
+        }
+        return decideNavigateStableLocked(use, generation, nowMs, NavTimerSource.PARTIAL)
     }
 
     private fun logNavStabilize(
@@ -665,15 +676,20 @@ object StableCompletePartialTracker {
         elapsed: Long,
         remaining: Long,
         commit: Boolean,
+        nowMs: Long,
+        timerSource: NavTimerSource,
     ) {
         val reason = if (commit) "semantic_navigate_stable" else "navigate_waiting_stable"
         val completeness = NavigationCommitPolicy.completenessOf(dest)
+        val changedAt = NavigationCandidateTracker.candidateChangedAt()
         val line =
-            "NAV_STABILIZE SESSION_ID=$sessionId RAW_PARTIAL=${lastResult?.rawTranscript.orEmpty()} " +
-                "NAV_CANDIDATE=$dest CANDIDATE_RELATION=${NavigationCandidateTracker.lastRelation()} " +
-                "NAV_FINGERPRINT=$fingerprint NAV_CANDIDATE_CHANGED_AT=$firstSeenMs " +
+            "NAV_STABILIZE SESSION_ID=$sessionId SR_RAW_PARTIAL=${lastResult?.rawTranscript.orEmpty()} " +
+                "NORMALIZED_DESTINATION=$dest PREFERRED_DESTINATION=$dest " +
+                "CANDIDATE_RELATION=${NavigationCandidateTracker.lastRelation()} " +
+                "CANDIDATE_CHANGED=false CANDIDATE_CHANGED_AT=$changedAt NOW_MS=$nowMs " +
+                "NAV_FINGERPRINT=$fingerprint " +
                 "NAV_STABLE_FOR_MS=$elapsed NAV_COMPLETENESS=$completeness " +
-                "NAV_COMMIT_REASON=$reason remaining_ms=$remaining"
+                "TIMER_SOURCE=$timerSource NAV_COMMIT_REASON=$reason remaining_ms=$remaining"
         CarfuLog.i(VoiceLifecycleLog.TAG, line)
         CarfuDiag.voice(line)
     }
