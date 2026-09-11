@@ -28,7 +28,7 @@ object CommandTranscriptNormalizer {
 
     private val OPEN_APP_PREFIX = Regex("""^(?:mo|bat|mo app|mo ung dung)\s+""")
     private val NAV_PREFIX = Regex(
-        """^(?:chi duong(?: den| toi| ve)?|dan duong(?: den| toi| ve)?|mo ban do den|di den)\s+""",
+        """^(?:chi duong(?: den| toi| ve)?|dan duong(?: den| toi| ve)?|tim duong(?: den| toi)?|dua toi(?: den| toi)|mo ban do den|di (?:den|toi))\s+""",
     )
     private val NAV_PREFIXES: List<String> = listOf(
         "chi duong den",
@@ -37,8 +37,13 @@ object CommandTranscriptNormalizer {
         "dan duong den",
         "dan duong toi",
         "dan duong ve",
+        "tim duong den",
+        "tim duong toi",
+        "dua toi den",
+        "dua toi toi",
         "mo ban do den",
         "di den",
+        "di toi",
         "chi duong",
         "dan duong",
     ).sortedByDescending { it.length }

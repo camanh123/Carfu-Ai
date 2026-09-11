@@ -37,9 +37,9 @@ class NavigateDestinationStabilizationTest : StringSpec({
     }
 
     "NAV_STABILIZATION_MS is a short NAV-only window" {
-        window shouldBe 700L
-        VoiceToActionLatencyPolicy.navStabilizationMs() shouldBe 700L
-        window.shouldBeInRange(600L..900L)
+        window shouldBe 800L
+        VoiceToActionLatencyPolicy.navStabilizationMs() shouldBe 800L
+        window.shouldBeInRange(700L..1000L)
         window.shouldBeLessThan(CommandRecognitionPolicy.ANDROID_LISTEN_TIMEOUT_MS)
         StableCompletePartialPolicy.holdTimerMayCommit().shouldBeFalse()
         StableCompletePartialPolicy.STABILITY_MS shouldBe 0L
@@ -50,7 +50,7 @@ class NavigateDestinationStabilizationTest : StringSpec({
         StableCompletePartialTracker.bind(1L)
         val steps = listOf(
             "Chỉ đường đến" to null,
-            "Chỉ đường đến ngõ" to "ngõ",
+            "Chỉ đường đến ngõ" to null,
             "Chỉ đường đến ngõ 112" to "ngõ 112",
             "Chỉ đường đến ngõ 112 Trung" to "ngõ 112 Trung",
             "Chỉ đường đến ngõ 112 Trung Kính" to "ngõ 112 Trung Kính",
@@ -88,7 +88,6 @@ class NavigateDestinationStabilizationTest : StringSpec({
 
     "CASE 2 sân bay grows to Nội Bài before commit" {
         StableCompletePartialTracker.bind(2L)
-        waitNav(2L, "Đi đến sân bay", 0L)
         waitNav(2L, "Đi đến sân bay Nội", 300L)
         waitNav(2L, "Đi đến sân bay Nội Bài", 600L)
         StableCompletePartialTracker.onTimer(2L, 600L + window - 1L).decision shouldBe

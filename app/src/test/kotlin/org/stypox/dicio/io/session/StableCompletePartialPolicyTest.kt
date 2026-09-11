@@ -322,7 +322,9 @@ class StableCompletePartialPolicyTest : StringSpec({
 
     "sân bay category head does not early-commit before Nội Bài" {
         val airport = u("Đi đến sân bay")
+        airport.completeness shouldBe SemanticCompleteness.INCOMPLETE
         airport.command shouldBe CanonicalCommand.Navigate("sân bay")
+        StableCompletePartialPolicy.isEligible(airport).shouldBeFalse()
         StableCompletePartialPolicy.navigateDestinationIsFastPathSafe("sân bay").shouldBeFalse()
         val noi = u("Đi đến sân bay Nội")
         noi.command shouldBe CanonicalCommand.Navigate("sân bay Nội")
@@ -330,7 +332,7 @@ class StableCompletePartialPolicyTest : StringSpec({
         full.command shouldBe CanonicalCommand.Navigate("sân bay Nội Bài")
         StableCompletePartialTracker.bind(8L)
         StableCompletePartialTracker.onPartial(8L, airport, 0L, 1L).decision shouldBe
-            StableCompletePartialTracker.Decision.WAIT
+            StableCompletePartialTracker.Decision.IGNORE
         StableCompletePartialTracker.onPartial(8L, noi, 10L, 1L).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
         val waiting = StableCompletePartialTracker.onPartial(8L, full, 20L, 1L)

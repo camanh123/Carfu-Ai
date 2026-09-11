@@ -87,7 +87,12 @@ object CarfuCommandRouter {
         "dan duong toi ",
         "dan duong ve ",
         "mo ban do den ",
+        "tim duong den ",
+        "tim duong toi ",
+        "dua toi den ",
+        "dua toi toi ",
         "di den ",
+        "di toi ",
         "chi duong ",
         "dan duong ",
     )

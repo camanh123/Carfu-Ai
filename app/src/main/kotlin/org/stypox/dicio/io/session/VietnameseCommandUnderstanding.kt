@@ -1,5 +1,8 @@
 package org.stypox.dicio.io.session
 
+import org.stypox.dicio.skills.carfu.nlu.NavigationAddressNormalizer
+import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
+
 /**
  * Deterministic Vietnamese command understanding (Phase 2).
  *
@@ -10,24 +13,6 @@ package org.stypox.dicio.io.session
  */
 object VietnameseCommandUnderstanding {
     private val WHITESPACE = Regex("\\s+")
-
-    /**
-     * Longest folded navigation prefixes first. Trailing space required so
-     * "chi duong den" alone is incomplete (no destination token).
-     */
-    private val NAV_PREFIX_FOLDED: List<String> = listOf(
-        "chi duong den ",
-        "chi duong toi ",
-        "chi duong ve ",
-        "dan duong den ",
-        "dan duong toi ",
-        "dan duong ve ",
-        "mo ban do den ",
-        "di den ",
-        "di toi ",
-        "chi duong ",
-        "dan duong ",
-    )
 
     private val NAV_PARTICLES = setOf("den", "toi", "ve")
 
@@ -81,6 +66,12 @@ object VietnameseCommandUnderstanding {
                 candidateIndex = candidateIndex,
                 recognizerConfidence = recognizerConfidence,
             )
+        }
+        // Navigation command prefixes must win over Media's generic "tìm …" grammar.
+        // Media grammar itself is unchanged.
+        if (NavigationAddressNormalizer.looksLikeNavigationCommand(trimmed)) {
+            understandNavigate(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
+                ?.let { return it }
         }
         mediaResult(trimmed, folded, sessionId, candidateIndex, recognizerConfidence)
             ?.let { return it }
@@ -211,51 +202,38 @@ object VietnameseCommandUnderstanding {
         candidateIndex: Int,
         recognizerConfidence: Float,
     ): UnderstandingResult? {
-        val prefix = NAV_PREFIX_FOLDED.firstOrNull { folded.startsWith(it) } ?: run {
-            // Exact prefix with no destination (no trailing space match).
-            val bare = NAV_PREFIX_FOLDED.map { it.trimEnd() }
-                .firstOrNull { folded == it }
-            if (bare != null) {
-                return UnderstandingResult.incomplete(
-                    sessionId = sessionId,
-                    raw = raw,
-                    normalized = folded,
-                    intent = VoiceIntent.NAVIGATE,
-                    reason = "nav_missing_destination",
-                    candidateIndex = candidateIndex,
-                    recognizerConfidence = recognizerConfidence,
-                )
-            }
-            return null
-        }
-        val destFolded = folded.removePrefix(prefix).trim()
-        if (destFolded.isEmpty() || isNavParticleOnly(destFolded)) {
+        val normalized = NavigationAddressNormalizer.parse(raw)
+        if (!normalized.matchedCommand) return null
+        val destRaw = normalized.destination
+        val destFolded = normalized.destinationFolded
+        if (destRaw.isBlank() || destFolded.isEmpty() || isNavParticleOnly(destFolded)) {
             return UnderstandingResult.incomplete(
                 sessionId = sessionId,
                 raw = raw,
                 normalized = folded,
                 intent = VoiceIntent.NAVIGATE,
-                reason = "nav_incomplete_particle",
-                candidateIndex = candidateIndex,
-                recognizerConfidence = recognizerConfidence,
-            )
-        }
-        val destRaw = extractTrailingWords(
-            raw,
-            destFolded.split(' ').filter { it.isNotEmpty() }.size,
-        )
-        if (destRaw.isBlank() || isNavParticleOnly(VietnameseTranscript.foldForMatch(destRaw))) {
-            return UnderstandingResult.incomplete(
-                sessionId = sessionId,
-                raw = raw,
-                normalized = folded,
-                intent = VoiceIntent.NAVIGATE,
-                reason = "nav_invalid_destination",
+                reason = if (destRaw.isBlank()) "nav_missing_destination" else "nav_incomplete_particle",
                 candidateIndex = candidateIndex,
                 recognizerConfidence = recognizerConfidence,
             )
         }
         val command = CanonicalCommand.Navigate(destination = destRaw)
+        if (NavigationCommitPolicy.isIncompleteDestination(destRaw)) {
+            return UnderstandingResult(
+                sessionId = sessionId,
+                rawTranscript = raw,
+                normalizedTranscript = folded,
+                intent = VoiceIntent.NAVIGATE,
+                entities = mapOf(CommandEntityKeys.DESTINATION to destRaw),
+                confidence = 0.6f,
+                completeness = SemanticCompleteness.INCOMPLETE,
+                executable = false,
+                command = command,
+                candidateIndex = candidateIndex,
+                recognizerConfidence = recognizerConfidence,
+                reason = "nav_incomplete_head",
+            )
+        }
         return UnderstandingResult(
             sessionId = sessionId,
             rawTranscript = raw,

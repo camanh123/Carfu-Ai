@@ -289,7 +289,12 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
         NavigatePayload.navigationUri("bia bà") shouldBe "google.navigation:q=bia%20b%C3%A0"
 
         StableCompletePartialTracker.bind(2L)
-        listOf("Đi đến sân bay", "Đi đến sân bay Nội").forEachIndexed { index, raw ->
+        val airportHead = VietnameseCommandUnderstanding.understand("Đi đến sân bay", 2L)
+        airportHead.completeness shouldBe SemanticCompleteness.INCOMPLETE
+        airportHead.reason shouldBe "nav_incomplete_head"
+        StableCompletePartialTracker.onPartial(2L, airportHead, 0L, 2L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
+        listOf("Đi đến sân bay Nội").forEachIndexed { index, raw ->
             val mid = VietnameseCommandUnderstanding.understand(raw, 2L)
             mid.command.shouldBeInstanceOf<CanonicalCommand.Navigate>()
             StableCompletePartialTracker.onPartial(2L, mid, index * 10L, 2L).decision shouldBe
