@@ -10,6 +10,15 @@ import io.kotest.matchers.shouldBe
 import io.kotest.matchers.types.shouldBeInstanceOf
 import org.stypox.dicio.skills.carfu.nlu.NavigationCandidateTracker
 
+private enum class SoakKind {
+    NAVIGATE,
+    OPEN_APP,
+    UNSUPPORTED,
+    PLAY_MEDIA,
+    CANCEL,
+    TIMEOUT,
+}
+
 /**
  * Deterministic multi-session isolation: soak, late callbacks, rapid MODE.
  * No Android SpeechRecognizer / Maps / YouTube / Media grammar.
@@ -61,15 +70,6 @@ class VoiceSessionIsolationSoakTest : StringSpec({
         CanonicalActionGate.boundSessionIdForTests() shouldBe 0L
         SessionCommandDecision.boundSessionIdForTests() shouldBe 0L
         VoiceSessionManager.liveSession().shouldBeNull()
-    }
-
-    enum class SoakKind {
-        NAVIGATE,
-        OPEN_APP,
-        UNSUPPORTED,
-        PLAY_MEDIA,
-        CANCEL,
-        TIMEOUT,
     }
 
     fun runKind(sessionId: Long, kind: SoakKind) {
