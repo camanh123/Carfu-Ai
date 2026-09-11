@@ -12,9 +12,10 @@ import org.stypox.dicio.io.input.CommandRecognitionPolicy
  * the delay (`action_to_intent` ≈ 7ms).
  *
  * Source-proven answers (this policy + call sites):
- * - OPEN_APP / PLAY_MEDIA / NAVIGATE may semantic-commit from a COMPLETE unique
- *   catalog / complete query+provider / complete destination partial. No EOS.
- *   No stability timer.
+ * - OPEN_APP / PLAY_MEDIA may semantic-commit from a COMPLETE unique
+ *   catalog / complete query+provider partial. No EOS. No stability timer.
+ * - NAVIGATE candidates wait [StableCompletePartialPolicy.NAV_STABILIZATION_MS]
+ *   after the last destination change (`semantic_navigate_stable`). No EOS.
  * - Incomplete Navigate never executes.
  * - First COMPLETE of an arbitrary ineligible intent never executes immediately.
  * - A 350ms hold timer must not commit.
@@ -52,6 +53,8 @@ object VoiceToActionLatencyPolicy {
         StableCompletePartialPolicy.callsStopListeningAfterEndOfSpeech()
 
     fun holdTimerMayCommit(): Boolean = StableCompletePartialPolicy.holdTimerMayCommit()
+
+    fun navStabilizationMs(): Long = StableCompletePartialPolicy.NAV_STABILIZATION_MS
 
     fun requiresEndOfSpeechForStablePartial(): Boolean =
         StableCompletePartialPolicy.requiresEndOfSpeech()

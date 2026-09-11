@@ -250,6 +250,7 @@ class SkillEvaluatorImpl(
             return
         }
         val sid = CarfuSessionGate.cancel(reason)
+        cancelNavStabilize()
         StableCompletePartialTracker.markCancelled()
         sttInputDevice.stopListening("cancelActiveSession:$reason")
         try {
@@ -277,6 +278,7 @@ class SkillEvaluatorImpl(
             ?: CarfuSessionGate.fromActivation(commandSession.activationOrigin)
         val sid = CarfuSessionGate.cancel(reason, onlyOrigin = null)
         cancelSilenceWatch()
+        cancelNavStabilize()
         StableCompletePartialTracker.markCancelled()
         sttInputDevice.stopListening("cancelUserInitiatedSession:$reason")
         try {
@@ -403,6 +405,7 @@ class SkillEvaluatorImpl(
         // New session: drop any leftover fingerprint/EOS/generation from the prior MIC/MODE.
         StableCompletePartialTracker.bind(result.sessionId)
         CommandSessionOutcome.reset()
+        cancelNavStabilize()
         CarfuLatencyLog.bindSession(result.sessionId)
         CarfuVoiceTrace.bind(result.sessionId, trigger.origin)
         CarfuVoiceTrace.trigger(CarfuVoiceTrace.origin)
@@ -509,6 +512,44 @@ class SkillEvaluatorImpl(
     private fun cancelSilenceWatch() {
         mainHandler.removeCallbacks(silenceWatchRunnable)
         silenceWatchSessionId = 0L
+    }
+
+    private var navStabilizeSessionId: Long = 0L
+    private val navStabilizeRunnable = Runnable {
+        val sid = navStabilizeSessionId
+        if (sid == 0L) return@Runnable
+        if (CommandSessionOutcome.peek() != CommandSessionOutcome.Kind.OPEN) {
+            cancelNavStabilize()
+            return@Runnable
+        }
+        val obs = StableCompletePartialTracker.onTimer(sid, CarfuLatencyLog.nowMs())
+        if (obs.decision == StableCompletePartialTracker.Decision.COMMIT) {
+            cancelNavStabilize()
+            val result = obs.result ?: return@Runnable
+            scope.launch {
+                commitStableCompletePartial(result, obs.reason, obs.generation)
+            }
+        } else if (
+            obs.decision == StableCompletePartialTracker.Decision.WAIT &&
+            obs.remainingMs > 0L &&
+            obs.result?.command is CanonicalCommand.Navigate
+        ) {
+            scheduleNavStabilize(sid, obs.remainingMs)
+        } else {
+            cancelNavStabilize()
+        }
+    }
+
+    private fun cancelNavStabilize() {
+        mainHandler.removeCallbacks(navStabilizeRunnable)
+        navStabilizeSessionId = 0L
+    }
+
+    private fun scheduleNavStabilize(sessionId: Long, delayMs: Long) {
+        cancelNavStabilize()
+        if (sessionId == 0L || delayMs <= 0L) return
+        navStabilizeSessionId = sessionId
+        mainHandler.postDelayed(navStabilizeRunnable, delayMs)
     }
 
     private fun armSilenceWatch(sessionId: Long) {
@@ -729,6 +770,7 @@ class SkillEvaluatorImpl(
     ) {
         if (wakeSessionActive.compareAndSet(true, false)) {
             cancelSilenceWatch()
+            cancelNavStabilize()
             StableCompletePartialTracker.markCancelled()
             CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SESSION_END)
             val sid = commandSession.ui.value.sessionId
@@ -871,6 +913,7 @@ class SkillEvaluatorImpl(
     private fun finishSessionWithoutWakeResume(reason: String) {
         if (wakeSessionActive.compareAndSet(true, false)) {
             cancelSilenceWatch()
+            cancelNavStabilize()
             StableCompletePartialTracker.markCancelled()
             val sid = commandSession.ui.value.sessionId
             val origin = CarfuSessionGate.fromActivation(commandSession.activationOrigin)
@@ -1106,8 +1149,9 @@ class SkillEvaluatorImpl(
                 )
                 VoiceSessionManager.onLiveTranscript(sid, event.utterance)
                 rememberCandidates(listOf(event.utterance to 1.0f))
-                // Semantic OPEN_APP / PLAY_MEDIA / NAVIGATE may commit from this
-                // complete partial. Incomplete Navigate remains ineligible.
+                // Semantic OPEN_APP / PLAY_MEDIA may commit from this complete
+                // partial. NAVIGATE waits NAV_STABILIZATION_MS after the last
+                // destination change. Incomplete Navigate remains ineligible.
                 val provisional = VietnameseCommandUnderstanding.understand(
                     raw = event.utterance,
                     sessionId = sid,
@@ -1216,8 +1260,19 @@ class SkillEvaluatorImpl(
             generation,
         )
         if (obs.decision == StableCompletePartialTracker.Decision.COMMIT) {
+            cancelNavStabilize()
             scope.launch {
                 commitStableCompletePartial(obs.result ?: provisional, obs.reason, obs.generation)
+            }
+        } else if (
+            obs.decision == StableCompletePartialTracker.Decision.WAIT &&
+            obs.result?.command is CanonicalCommand.Navigate &&
+            obs.remainingMs > 0L
+        ) {
+            scheduleNavStabilize(sid, obs.remainingMs)
+        } else if (obs.decision == StableCompletePartialTracker.Decision.IGNORE) {
+            when (obs.reason) {
+                "ineligible", "stale_or_cancelled", "empty_transcript" -> cancelNavStabilize()
             }
         }
     }
@@ -1232,10 +1287,17 @@ class SkillEvaluatorImpl(
             generation,
         )
         if (obs.decision == StableCompletePartialTracker.Decision.COMMIT) {
+            cancelNavStabilize()
             val result = obs.result ?: return
             scope.launch {
                 commitStableCompletePartial(result, obs.reason, obs.generation)
             }
+        } else if (
+            obs.decision == StableCompletePartialTracker.Decision.WAIT &&
+            obs.result?.command is CanonicalCommand.Navigate &&
+            obs.remainingMs > 0L
+        ) {
+            scheduleNavStabilize(sid, obs.remainingMs)
         }
     }
 

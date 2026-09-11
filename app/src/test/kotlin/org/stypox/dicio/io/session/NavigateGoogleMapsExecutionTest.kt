@@ -83,9 +83,13 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
             StableCompletePartialPolicy.isSemanticEarlyCommitSafe(understood).shouldBeTrue()
             StableCompletePartialTracker.bind(1L)
             val obs = StableCompletePartialTracker.onPartial(1L, understood, 0L, 1L)
-            obs.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
-            obs.reason shouldBe "semantic_navigate"
+            obs.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+            obs.reason shouldBe "navigate_waiting_stable"
             obs.eosConfirmed.shouldBeFalse()
+            StableCompletePartialTracker.onTimer(
+                1L,
+                StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+            ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
             val p = platform()
             val trace = executor(p).executeTraced(understood.command!!)
             trace.actionTaken.shouldBeTrue()
@@ -240,8 +244,12 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
             understood.destination shouldBe destination
             StableCompletePartialPolicy.isSemanticEarlyCommitSafe(understood).shouldBeTrue()
             val obs = StableCompletePartialTracker.onPartial(sid, understood, 0L, sid)
-            obs.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+            obs.decision shouldBe StableCompletePartialTracker.Decision.WAIT
             obs.fingerprint shouldBe "NAVIGATE|$destination"
+            StableCompletePartialTracker.onTimer(
+                sid,
+                StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+            ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
             val trace = exec.executeTraced(understood.command!!)
             trace.actionTaken.shouldBeTrue()
             NavigatePayload.decodeQuery(trace.geoUri!!) shouldBe destination
@@ -261,30 +269,41 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
 
     "growing partials do not truncate bia bà or sân bay Nội Bài" {
         StableCompletePartialTracker.bind(1L)
-        listOf("Chỉ đường đến", "Chỉ đường đến bia").forEach { raw ->
-            val mid = VietnameseCommandUnderstanding.understand(raw, 1L)
-            StableCompletePartialPolicy.isSemanticEarlyCommitSafe(mid).shouldBeFalse()
-            StableCompletePartialTracker.onPartial(1L, mid, 0L, 1L).decision shouldBe
-                StableCompletePartialTracker.Decision.IGNORE
-        }
+        val incomplete = VietnameseCommandUnderstanding.understand("Chỉ đường đến", 1L)
+        incomplete.completeness shouldBe SemanticCompleteness.INCOMPLETE
+        StableCompletePartialTracker.onPartial(1L, incomplete, 0L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
+        val bia = VietnameseCommandUnderstanding.understand("Chỉ đường đến bia", 1L)
+        bia.command shouldBe CanonicalCommand.Navigate("bia")
+        StableCompletePartialTracker.onPartial(1L, bia, 5L, 1L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
         val biaBa = VietnameseCommandUnderstanding.understand("Chỉ đường đến bia bà", 1L)
         biaBa.command shouldBe CanonicalCommand.Navigate("bia bà")
         val biaCommit = StableCompletePartialTracker.onPartial(1L, biaBa, 10L, 1L)
-        biaCommit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        biaCommit.decision shouldBe StableCompletePartialTracker.Decision.WAIT
         biaCommit.fingerprint shouldBe "NAVIGATE|bia bà"
+        StableCompletePartialTracker.onTimer(
+            1L,
+            10L + StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+        ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         NavigatePayload.navigationUri("bia bà") shouldBe "google.navigation:q=bia%20b%C3%A0"
 
         StableCompletePartialTracker.bind(2L)
-        listOf("Đi đến sân bay", "Đi đến sân bay Nội").forEach { raw ->
+        listOf("Đi đến sân bay", "Đi đến sân bay Nội").forEachIndexed { index, raw ->
             val mid = VietnameseCommandUnderstanding.understand(raw, 2L)
             mid.command.shouldBeInstanceOf<CanonicalCommand.Navigate>()
-            StableCompletePartialPolicy.isEligible(mid).shouldBeFalse()
-            StableCompletePartialTracker.onPartial(2L, mid, 0L, 2L).decision shouldBe
-                StableCompletePartialTracker.Decision.IGNORE
+            StableCompletePartialTracker.onPartial(2L, mid, index * 10L, 2L).decision shouldBe
+                StableCompletePartialTracker.Decision.WAIT
         }
         val fullAirport = VietnameseCommandUnderstanding.understand("Đi đến sân bay Nội Bài", 2L)
         fullAirport.command shouldBe CanonicalCommand.Navigate("sân bay Nội Bài")
-        val airportCommit = StableCompletePartialTracker.onPartial(2L, fullAirport, 20L, 2L)
+        val airportWait = StableCompletePartialTracker.onPartial(2L, fullAirport, 20L, 2L)
+        airportWait.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        airportWait.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"
+        val airportCommit = StableCompletePartialTracker.onTimer(
+            2L,
+            20L + StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+        )
         airportCommit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         airportCommit.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"
     }
