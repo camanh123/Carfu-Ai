@@ -6,6 +6,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
+import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
 
 class StableCompletePartialPolicyTest : StringSpec({
     beforeTest {
@@ -20,11 +21,12 @@ class StableCompletePartialPolicyTest : StringSpec({
         VietnameseCommandUnderstanding.understand(raw, sessionId = sid)
 
     val navWindow = StableCompletePartialPolicy.NAV_STABILIZATION_MS
+    val noEos = NavigationCommitPolicy.noEosCommitAt(0L)
 
     fun stabilizeNav(sid: Long, result: UnderstandingResult, t0: Long = 0L, gen: Long = sid) {
         StableCompletePartialTracker.onPartial(sid, result, t0, gen).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
-        val due = StableCompletePartialTracker.onTimer(sid, t0 + navWindow)
+        val due = StableCompletePartialTracker.onTimer(sid, NavigationCommitPolicy.noEosCommitAt(t0))
         due.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         due.reason shouldBe "semantic_navigate_stable"
     }
@@ -41,7 +43,7 @@ class StableCompletePartialPolicyTest : StringSpec({
         SessionCommandDecision.onPartial(1L, nav)
         SessionCommandDecision.locked(1L).shouldBeNull()
         SessionCommandDecision.provisional(1L)!!.executable.shouldBeFalse()
-        val commit = StableCompletePartialTracker.onTimer(1L, navWindow)
+        val commit = StableCompletePartialTracker.onTimer(1L, noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.reason shouldBe "semantic_navigate_stable"
         StableCompletePartialTracker.onTimer(1L, 10_000L).decision shouldBe
@@ -313,7 +315,7 @@ class StableCompletePartialPolicyTest : StringSpec({
         firstFull.decision shouldBe StableCompletePartialTracker.Decision.WAIT
         firstFull.reason shouldBe "navigate_waiting_stable"
         firstFull.fingerprint shouldBe "NAVIGATE|Mỹ Đình"
-        val commit = StableCompletePartialTracker.onTimer(1L, 500L + navWindow)
+        val commit = StableCompletePartialTracker.onTimer(1L, NavigationCommitPolicy.noEosCommitAt(500L))
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.fingerprint shouldBe "NAVIGATE|Mỹ Đình"
         StableCompletePartialPolicy.isEligible(my).shouldBeTrue()
@@ -338,7 +340,7 @@ class StableCompletePartialPolicyTest : StringSpec({
         val waiting = StableCompletePartialTracker.onPartial(8L, full, 20L, 1L)
         waiting.decision shouldBe StableCompletePartialTracker.Decision.WAIT
         waiting.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"
-        val commit = StableCompletePartialTracker.onTimer(8L, 20L + navWindow)
+        val commit = StableCompletePartialTracker.onTimer(8L, NavigationCommitPolicy.noEosCommitAt(20L))
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"
     }

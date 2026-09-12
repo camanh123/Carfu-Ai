@@ -15,7 +15,9 @@ import org.stypox.dicio.io.input.CommandRecognitionPolicy
  * - OPEN_APP / PLAY_MEDIA may semantic-commit from a COMPLETE unique
  *   catalog / complete query+provider partial. No EOS. No stability timer.
  * - NAVIGATE candidates wait [StableCompletePartialPolicy.NAV_STABILIZATION_MS]
- *   after the last destination change (`semantic_navigate_stable`). No EOS.
+ *   after the last destination change, then EOS/Final or a NAV-only continuation
+ *   grace if speech may still be active (`semantic_navigate_stable`). OpenApp /
+ *   PlayMedia latency is unchanged.
  * - Incomplete Navigate never executes.
  * - First COMPLETE of an arbitrary ineligible intent never executes immediately.
  * - A 350ms hold timer must not commit.

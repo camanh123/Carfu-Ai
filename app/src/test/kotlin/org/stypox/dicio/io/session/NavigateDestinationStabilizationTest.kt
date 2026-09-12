@@ -8,6 +8,7 @@ import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
+import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
 
 /**
  * NAV-only destination stabilization: growing addresses must not commit a prefix.
@@ -23,6 +24,7 @@ class NavigateDestinationStabilizationTest : StringSpec({
     }
 
     val window = StableCompletePartialPolicy.NAV_STABILIZATION_MS
+    val noEos = NavigationCommitPolicy.noEosCommitAt(0L)
 
     fun u(raw: String, sid: Long = 1L) =
         VietnameseCommandUnderstanding.understand(raw, sessionId = sid)
@@ -73,7 +75,7 @@ class NavigateDestinationStabilizationTest : StringSpec({
         }
         val tooEarly = StableCompletePartialTracker.onTimer(1L, t)
         tooEarly.decision shouldBe StableCompletePartialTracker.Decision.WAIT
-        val commit = StableCompletePartialTracker.onTimer(1L, t - 250L + window)
+        val commit = StableCompletePartialTracker.onTimer(1L, t - 250L + noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.reason shouldBe "semantic_navigate_stable"
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
@@ -92,7 +94,7 @@ class NavigateDestinationStabilizationTest : StringSpec({
         waitNav(2L, "Đi đến sân bay Nội Bài", 600L)
         StableCompletePartialTracker.onTimer(2L, 600L + window - 1L).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
-        val commit = StableCompletePartialTracker.onTimer(2L, 600L + window)
+        val commit = StableCompletePartialTracker.onTimer(2L, 600L + noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.reason shouldBe "semantic_navigate_stable"
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
@@ -136,7 +138,7 @@ class NavigateDestinationStabilizationTest : StringSpec({
         StableCompletePartialTracker.onTimer(1L, window).decision shouldBe
             StableCompletePartialTracker.Decision.IGNORE
         waitNav(2L, "Dẫn đường đến Hồ Gươm", 0L, 2L)
-        val commit = StableCompletePartialTracker.onTimer(2L, window)
+        val commit = StableCompletePartialTracker.onTimer(2L, noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.fingerprint shouldBe "NAVIGATE|Hồ Gươm"
     }
@@ -158,14 +160,14 @@ class NavigateDestinationStabilizationTest : StringSpec({
         StableCompletePartialTracker.onPartial(5L, nav, 0L, 5L)
         val locked = SessionCommandDecision.lockFinal(
             5L,
-            StableCompletePartialTracker.onTimer(5L, window).result!!.copy(executable = true),
+            StableCompletePartialTracker.onTimer(5L, noEos).result!!.copy(executable = true),
         )
         locked!!.command shouldBe CanonicalCommand.Navigate("Mỹ Đình")
         CanonicalActionGate.tryClaim(5L).shouldBeTrue()
         CanonicalActionGate.tryClaim(5L).shouldBeFalse()
         CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED).shouldBeTrue()
         CommandSessionOutcome.claim(CommandSessionOutcome.Kind.EXECUTED).shouldBeFalse()
-        StableCompletePartialTracker.onTimer(5L, window + 50L).decision shouldBe
+        StableCompletePartialTracker.onTimer(5L, noEos + 50L).decision shouldBe
             StableCompletePartialTracker.Decision.IGNORE
     }
 
@@ -181,10 +183,18 @@ class NavigateDestinationStabilizationTest : StringSpec({
         nav shouldContain "NAV_COMMIT_REASON=navigate_waiting_stable"
         nav shouldContain "CANDIDATE_CHANGED_AT=10"
         nav shouldContain "TIMER_SOURCE=PARTIAL"
-        StableCompletePartialTracker.onTimer(6L, 10L + window)
+        nav shouldContain "SPEECH_ACTIVE=true"
+        nav shouldContain "NAV_COMMIT_ALLOWED=false"
+        val stillWaiting = StableCompletePartialTracker.onTimer(6L, 10L + window)
+        stillWaiting.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        val graceLine = CarfuDiag.recent(CarfuDiag.TAG_VOICE).last { it.contains("TIMER_SOURCE=STABILITY_TIMER") }
+        graceLine shouldContain "NAV_COMMIT_ALLOWED=false"
+        graceLine shouldContain "NAV_COMMIT_BLOCK_REASON=speech_may_still_be_active"
+        graceLine shouldContain "CANDIDATE_CHANGED=false"
+        StableCompletePartialTracker.onTimer(6L, 10L + noEos)
         val committed = CarfuDiag.recent(CarfuDiag.TAG_VOICE).last { it.contains("NAV_STABILIZE") }
         committed shouldContain "NAV_COMMIT_REASON=semantic_navigate_stable"
-        committed shouldContain "NAV_STABLE_FOR_MS=$window"
+        committed shouldContain "NAV_COMMIT_ALLOWED=true"
         committed shouldContain "TIMER_SOURCE=STABILITY_TIMER"
         committed shouldContain "CANDIDATE_CHANGED=false"
     }

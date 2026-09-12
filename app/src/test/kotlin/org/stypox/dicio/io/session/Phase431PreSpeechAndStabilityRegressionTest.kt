@@ -7,6 +7,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
+import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
 
 /**
  * Phase 4.3B.1 required regression matrix. Each case is JVM-source-proven against
@@ -162,7 +163,7 @@ class Phase431PreSpeechAndStabilityRegressionTest : StringSpec({
             StableCompletePartialTracker.Decision.WAIT
         StableCompletePartialTracker.onTimer(
             1L,
-            StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+            NavigationCommitPolicy.noEosCommitAt(0L),
         ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         StableCompletePartialTracker.onPartial(1L, a, 10L, 2L).decision shouldBe
             StableCompletePartialTracker.Decision.IGNORE
@@ -277,13 +278,18 @@ class Phase431PreSpeechAndStabilityRegressionTest : StringSpec({
         obs.decision shouldBe StableCompletePartialTracker.Decision.WAIT
         obs.reason shouldBe "navigate_waiting_stable"
         obs.eosConfirmed.shouldBeFalse()
-        val commit = StableCompletePartialTracker.onTimer(
+        StableCompletePartialTracker.onTimer(
             1L,
             StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+        ).decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        val commit = StableCompletePartialTracker.onTimer(
+            1L,
+            NavigationCommitPolicy.noEosCommitAt(0L),
         )
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.reason shouldBe "semantic_navigate_stable"
         commit.eosConfirmed.shouldBeFalse()
+        NavigationCommitPolicy.noEosCommitAt(0L) shouldBe 1_500L
     }
 
     "ENTITY 23-24. OpenApp/PlayMedia semantic-commit on first complete partial" {

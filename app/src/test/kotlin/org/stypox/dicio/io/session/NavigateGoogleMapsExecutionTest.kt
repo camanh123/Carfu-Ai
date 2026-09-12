@@ -10,6 +10,7 @@ import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 import org.stypox.dicio.skills.carfu.CarfuDialer
+import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
 import org.stypox.dicio.youtubeplayauto.FakeYouTubeResolverClient
 import org.stypox.dicio.youtubeplayauto.FakeYouTubeRuntime
 import org.stypox.dicio.youtubeplayauto.YouTubeResolveResult
@@ -88,7 +89,7 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
             obs.eosConfirmed.shouldBeFalse()
             StableCompletePartialTracker.onTimer(
                 1L,
-                StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+                NavigationCommitPolicy.noEosCommitAt(0L),
             ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
             val p = platform()
             val trace = executor(p).executeTraced(understood.command!!)
@@ -248,7 +249,7 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
             obs.fingerprint shouldBe "NAVIGATE|$destination"
             StableCompletePartialTracker.onTimer(
                 sid,
-                StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+                NavigationCommitPolicy.noEosCommitAt(0L),
             ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
             val trace = exec.executeTraced(understood.command!!)
             trace.actionTaken.shouldBeTrue()
@@ -284,7 +285,7 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
         biaCommit.fingerprint shouldBe "NAVIGATE|bia bà"
         StableCompletePartialTracker.onTimer(
             1L,
-            10L + StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+            NavigationCommitPolicy.noEosCommitAt(10L),
         ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         NavigatePayload.navigationUri("bia bà") shouldBe "google.navigation:q=bia%20b%C3%A0"
 
@@ -307,7 +308,7 @@ class NavigateGoogleMapsExecutionTest : StringSpec({
         airportWait.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"
         val airportCommit = StableCompletePartialTracker.onTimer(
             2L,
-            20L + StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+            NavigationCommitPolicy.noEosCommitAt(20L),
         )
         airportCommit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         airportCommit.fingerprint shouldBe "NAVIGATE|sân bay Nội Bài"

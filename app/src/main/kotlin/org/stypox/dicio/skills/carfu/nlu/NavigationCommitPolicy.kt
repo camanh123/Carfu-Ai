@@ -20,6 +20,37 @@ internal object NavigationCommitPolicy {
     const val NAV_STABILIZATION_MS: Long = 800L
 
     /**
+     * NAV-only extra wait after [NAV_STABILIZATION_MS] when speech may still be
+     * active (no EOS, no Android Final). Device-proven: Google may pause partial
+     * delivery mid-utterance for ~800ms ("hồ Linh" then "Đàm"). This is not a
+     * global STT change and does not apply to OpenApp / PlayMedia.
+     */
+    const val NAV_CONTINUATION_GRACE_MS: Long = 700L
+
+    fun remainingUntilCommit(stableForMs: Long, speechMayStillBeActive: Boolean): Long {
+        val stabilizeLeft = (NAV_STABILIZATION_MS - stableForMs).coerceAtLeast(0L)
+        if (stabilizeLeft > 0L) return stabilizeLeft
+        if (speechMayStillBeActive) {
+            return (NAV_STABILIZATION_MS + NAV_CONTINUATION_GRACE_MS - stableForMs)
+                .coerceAtLeast(0L)
+        }
+        return 0L
+    }
+
+    fun commitBlockReason(stableForMs: Long, speechMayStillBeActive: Boolean): String {
+        val remaining = remainingUntilCommit(stableForMs, speechMayStillBeActive)
+        if (remaining <= 0L) return ""
+        return if (stableForMs < NAV_STABILIZATION_MS) {
+            "waiting_stable"
+        } else {
+            "speech_may_still_be_active"
+        }
+    }
+
+    fun noEosCommitAt(changedAtMs: Long): Long =
+        changedAtMs + NAV_STABILIZATION_MS + NAV_CONTINUATION_GRACE_MS
+
+    /**
      * Last-token incompleteness applies only to structural address particles that
      * almost always need a following number/name ("số 25 phố" waits for the street).
      *

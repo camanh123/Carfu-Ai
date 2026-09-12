@@ -5,6 +5,7 @@ import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.ints.shouldBeExactly
+import io.kotest.matchers.longs.shouldBeLessThan
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.string.shouldContain
@@ -30,6 +31,8 @@ class NavigationNaturalAddressTest : StringSpec({
     }
 
     val window = NavigationCommitPolicy.NAV_STABILIZATION_MS
+    val grace = NavigationCommitPolicy.NAV_CONTINUATION_GRACE_MS
+    val noEos = window + grace
 
     fun u(raw: String, sid: Long = 1L) =
         VietnameseCommandUnderstanding.understand(raw, sessionId = sid)
@@ -45,6 +48,7 @@ class NavigationNaturalAddressTest : StringSpec({
 
     "NAV_STABILIZATION_MS is 800ms in the 700-1000 band" {
         window shouldBe 800L
+        grace shouldBe 700L
         StableCompletePartialPolicy.NAV_STABILIZATION_MS shouldBe 800L
         VoiceToActionLatencyPolicy.navStabilizationMs() shouldBe 800L
     }
@@ -67,7 +71,7 @@ class NavigationNaturalAddressTest : StringSpec({
         observed[2].decision shouldBe StableCompletePartialTracker.Decision.WAIT
         observed[3].decision shouldBe StableCompletePartialTracker.Decision.WAIT
         observed[4].decision shouldBe StableCompletePartialTracker.Decision.WAIT
-        val commit = StableCompletePartialTracker.onTimer(1L, 1000L + window)
+        val commit = StableCompletePartialTracker.onTimer(1L, 1000L + noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
             dest("chỉ đường đến ngõ 112 trung kính")
@@ -77,7 +81,7 @@ class NavigationNaturalAddressTest : StringSpec({
         StableCompletePartialTracker.onPartial(
             1L,
             u("chỉ đường đến ngõ 112 trung kính hà nội"),
-            1000L + window + 10L,
+            1000L + noEos + 10L,
             1L,
         ).decision shouldBe StableCompletePartialTracker.Decision.IGNORE
     }
@@ -95,7 +99,7 @@ class NavigationNaturalAddressTest : StringSpec({
         feed(2L, "đi đến số 25 phố Huế", 750L).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
         NavigationCandidateTracker.isBlockedByIncompleteGrowth().shouldBeFalse()
-        val commit = StableCompletePartialTracker.onTimer(2L, 750L + window)
+        val commit = StableCompletePartialTracker.onTimer(2L, 750L + noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "số 25 phố Huế"
     }
@@ -109,7 +113,7 @@ class NavigationNaturalAddressTest : StringSpec({
             StableCompletePartialTracker.Decision.WAIT
         feed(3L, "dẫn đường đến bệnh viện Bạch Mai", 600L).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
-        val commit = StableCompletePartialTracker.onTimer(3L, 600L + window)
+        val commit = StableCompletePartialTracker.onTimer(3L, 600L + noEos)
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
             "bệnh viện Bạch Mai"
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
@@ -123,7 +127,7 @@ class NavigationNaturalAddressTest : StringSpec({
             StableCompletePartialTracker.Decision.IGNORE
         feed(4L, "chỉ đường tới cây xăng gần Mỹ Đình", 500L).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
-        val commit = StableCompletePartialTracker.onTimer(4L, 500L + window)
+        val commit = StableCompletePartialTracker.onTimer(4L, 500L + noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
             "cây xăng gần Mỹ Đình"
@@ -136,7 +140,7 @@ class NavigationNaturalAddressTest : StringSpec({
         result.command shouldBe CanonicalCommand.Navigate("trường Đại học Quốc Gia Hà Nội")
         StableCompletePartialTracker.bind(5L)
         feed(5L, raw, 0L).decision shouldBe StableCompletePartialTracker.Decision.WAIT
-        val commit = StableCompletePartialTracker.onTimer(5L, window)
+        val commit = StableCompletePartialTracker.onTimer(5L, noEos)
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
             "trường Đại học Quốc Gia Hà Nội"
     }
@@ -162,7 +166,7 @@ class NavigationNaturalAddressTest : StringSpec({
         shrunk.decision shouldBe StableCompletePartialTracker.Decision.WAIT
         shrunk.fingerprint shouldBe "NAVIGATE|ngõ 112 Trung Kính"
         NavigationCandidateTracker.lastRelation() shouldBe NavigationCandidateRelation.SHRUNK
-        val commit = StableCompletePartialTracker.onTimer(7L, window)
+        val commit = StableCompletePartialTracker.onTimer(7L, noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
             "ngõ 112 Trung Kính"
@@ -176,7 +180,7 @@ class NavigationNaturalAddressTest : StringSpec({
         StableCompletePartialTracker.hasPendingStabilityWork().shouldBeFalse()
         val second = feed(9L, "dẫn đường đến Hồ Gươm", 0L)
         second.fingerprint shouldBe "NAVIGATE|Hồ Gươm"
-        val commit = StableCompletePartialTracker.onTimer(9L, window)
+        val commit = StableCompletePartialTracker.onTimer(9L, noEos)
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "Hồ Gươm"
     }
 
@@ -198,14 +202,14 @@ class NavigationNaturalAddressTest : StringSpec({
         feed(11L, "chỉ đường tới Mỹ Đình", 0L)
         val locked = SessionCommandDecision.lockFinal(
             11L,
-            StableCompletePartialTracker.onTimer(11L, window).result!!.copy(executable = true),
+            StableCompletePartialTracker.onTimer(11L, noEos).result!!.copy(executable = true),
         )
         locked!!.command shouldBe CanonicalCommand.Navigate("Mỹ Đình")
         CanonicalActionGate.tryClaim(11L).shouldBeTrue()
         CanonicalActionGate.tryClaim(11L).shouldBeFalse()
-        StableCompletePartialTracker.onTimer(11L, window + 50L).decision shouldBe
+        StableCompletePartialTracker.onTimer(11L, noEos + 50L).decision shouldBe
             StableCompletePartialTracker.Decision.IGNORE
-        feed(11L, "chỉ đường tới Hồ Gươm", window + 80L).decision shouldBe
+        feed(11L, "chỉ đường tới Hồ Gươm", noEos + 80L).decision shouldBe
             StableCompletePartialTracker.Decision.IGNORE
     }
 
@@ -311,7 +315,7 @@ class NavigationNaturalAddressTest : StringSpec({
         stabilize shouldContain "NORMALIZED_DESTINATION=Hồ Gươm"
         stabilize shouldContain "TIMER_SOURCE=PARTIAL"
         stabilize shouldContain "CANDIDATE_RELATION="
-        StableCompletePartialTracker.onTimer(12L, 10L + window)
+        StableCompletePartialTracker.onTimer(12L, 10L + noEos)
         val timerLine = CarfuDiag.recent(CarfuDiag.TAG_VOICE).last { it.contains("TIMER_SOURCE=STABILITY_TIMER") }
         timerLine shouldContain "CANDIDATE_CHANGED=false"
         val committed = CarfuDiag.recent(CarfuDiag.TAG_VOICE).last { it.contains("NAV_COMMIT") }
@@ -345,7 +349,12 @@ class NavigationNaturalAddressTest : StringSpec({
         mid.remainingMs shouldBe 400L
         NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
         NavigationCandidateTracker.stableForMs(400L) shouldBe 400L
-        val commit = StableCompletePartialTracker.onTimer(21L, window)
+        val atWindow = StableCompletePartialTracker.onTimer(21L, window)
+        atWindow.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        atWindow.remainingMs shouldBe grace
+        NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
+        NavigationCandidateTracker.stableForMs(window) shouldBe window
+        val commit = StableCompletePartialTracker.onTimer(21L, noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         commit.reason shouldBe "semantic_navigate_stable"
         NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
@@ -366,7 +375,7 @@ class NavigationNaturalAddressTest : StringSpec({
         (afterQuan > afterVan).shouldBeTrue()
         NavigationCandidateTracker.preferredResult()!!.command shouldBe
             CanonicalCommand.Navigate("Hồ Văn Quán")
-        val commit = StableCompletePartialTracker.onTimer(22L, 500L + window)
+        val commit = StableCompletePartialTracker.onTimer(22L, 500L + noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "Hồ Văn Quán"
         NavigationCandidateTracker.candidateChangedAt() shouldBe afterQuan
@@ -380,7 +389,7 @@ class NavigationNaturalAddressTest : StringSpec({
         NavigationCandidateTracker.candidateChangedAt() shouldBe 0L
         NavigationCandidateTracker.lastRelation() shouldBe NavigationCandidateRelation.UNCHANGED
         NavigationCandidateTracker.stableForMs(300L) shouldBe 300L
-        val commit = StableCompletePartialTracker.onTimer(23L, window)
+        val commit = StableCompletePartialTracker.onTimer(23L, noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "Hồ Văn Quán"
     }
@@ -394,10 +403,74 @@ class NavigationNaturalAddressTest : StringSpec({
         NavigationCandidateTracker.lastRelation() shouldBe NavigationCandidateRelation.UNCHANGED
         feed(24L, "đi đến Smart", 240L)
         NavigationCandidateTracker.candidateChangedAt() shouldBe changedAt
-        val commit = StableCompletePartialTracker.onTimer(24L, window)
+        val commit = StableCompletePartialTracker.onTimer(24L, noEos)
         commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
         VietnameseTranscript.foldForMatch(
             (commit.result?.command as CanonicalCommand.Navigate).destination,
         ) shouldBe "smart"
+    }
+
+    "R3. hồ Linh gap while speech active does not commit before Đàm" {
+        StableCompletePartialTracker.bind(31L)
+        feed(31L, "Chỉ đường đến hồ", 0L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        feed(31L, "Chỉ đường đến hồ Linh", 300L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        val gap = StableCompletePartialTracker.onTimer(31L, 300L + window)
+        gap.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        gap.reason shouldBe "navigate_waiting_stable"
+        (gap.result?.command as CanonicalCommand.Navigate).destination shouldBe "hồ Linh"
+        StableCompletePartialTracker.committedForTests().shouldBeFalse()
+        val stillOpen = StableCompletePartialTracker.onTimer(31L, 300L + 808L)
+        stillOpen.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        feed(31L, "Chỉ đường đến hồ Linh Đàm", 1_200L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        NavigationCandidateTracker.preferredResult()!!.command shouldBe
+            CanonicalCommand.Navigate("hồ Linh Đàm")
+        StableCompletePartialTracker.onEndOfSpeech(31L, 1_250L, 31L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        val commit = StableCompletePartialTracker.onTimer(31L, 1_200L + window)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        commit.reason shouldBe "semantic_navigate_stable"
+        (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "hồ Linh Đàm"
+        commitCount(listOf(gap, stillOpen, commit)) shouldBeExactly 1
+    }
+
+    "R3. Mỹ Đình with EOS stays responsive (no multi-second wait)" {
+        StableCompletePartialTracker.bind(32L)
+        feed(32L, "Chỉ đường đến Mỹ Đình", 0L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        StableCompletePartialTracker.onEndOfSpeech(32L, 50L, 32L).decision shouldBe
+            StableCompletePartialTracker.Decision.WAIT
+        val commit = StableCompletePartialTracker.onTimer(32L, window)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        commit.reason shouldBe "semantic_navigate_stable"
+        (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe "Mỹ Đình"
+        (window < 2_000L).shouldBeTrue()
+        noEos.shouldBeLessThan(2_000L)
+    }
+
+    "R3. long address số 2 ngõ 84 Trần Thái Tông commits once" {
+        StableCompletePartialTracker.bind(33L)
+        val steps = listOf(
+            "Chỉ đường đến số 2",
+            "Chỉ đường đến số 2 ngõ",
+            "Chỉ đường đến số 2 ngõ 84",
+            "Chỉ đường đến số 2 ngõ 84 Trần",
+            "Chỉ đường đến số 2 ngõ 84 Trần Thái",
+            "Chỉ đường đến số 2 ngõ 84 Trần Thái Tông",
+        )
+        val observed = steps.mapIndexed { index, raw ->
+            feed(33L, raw, index * 200L)
+        }
+        commitCount(observed) shouldBeExactly 0
+        val lastAt = (steps.size - 1) * 200L
+        StableCompletePartialTracker.onEndOfSpeech(33L, lastAt + 20L, 33L)
+        val commit = StableCompletePartialTracker.onTimer(33L, lastAt + window)
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        (commit.result?.command as CanonicalCommand.Navigate).destination shouldBe
+            "số 2 ngõ 84 Trần Thái Tông"
+        StableCompletePartialTracker.onTimer(33L, lastAt + window + 50L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
     }
 })

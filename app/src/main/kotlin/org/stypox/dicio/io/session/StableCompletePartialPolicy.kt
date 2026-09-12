@@ -21,8 +21,10 @@ import org.stypox.dicio.skills.carfu.nlu.NavTimerSource
  * - NAVIGATE: complete destination (`nav_complete`) is only a **candidate**.
  *   Device-proven: first-token commit executed `Navigate("ngõ")` while the user
  *   was still saying `"ngõ 112 Trung Kính"`. NAV waits [NAV_STABILIZATION_MS]
- *   of unchanged destination (no EOS, no SR_HARD_CEILING). OPEN_APP / PLAY_MEDIA
- *   still commit on the first semantically complete partial.
+ *   of unchanged destination, then commits on EOS / Final **or** a NAV-only
+ *   continuation grace if speech may still be active (OEM partial gaps).
+ *   OPEN_APP / PLAY_MEDIA still commit on the first semantically complete
+ *   partial. The 800ms window itself is unchanged.
  *
  * Incomplete Navigate (`"Chỉ đường tới…"`) is never eligible.
  *
@@ -43,12 +45,13 @@ object StableCompletePartialPolicy {
     const val STABILITY_MS: Long = 0L
 
     /**
-     * NAV-only: wait this long after the last destination change before commit.
-     * OEM partials for a new token typically arrive every ~200–400ms
-     * ([org.stypox.dicio.io.input.CommandRecognitionPolicy.ANDROID_PARTIAL_STABILITY_MS]
-     * is 150ms). Delegates to [NavigationCommitPolicy.NAV_STABILIZATION_MS] (800ms).
+     * NAV-only: wait this long after the last destination change before commit
+     * *may* begin. Delegates to [NavigationCommitPolicy.NAV_STABILIZATION_MS]
+     * (800ms). An 800ms partial gap is not by itself proof of end-of-utterance.
      */
     const val NAV_STABILIZATION_MS: Long = NavigationCommitPolicy.NAV_STABILIZATION_MS
+
+    const val NAV_CONTINUATION_GRACE_MS: Long = NavigationCommitPolicy.NAV_CONTINUATION_GRACE_MS
 
     fun callsStopListeningAfterEndOfSpeech(): Boolean = false
 
@@ -60,7 +63,7 @@ object StableCompletePartialPolicy {
      * Arbitrary first COMPLETE of any intent still must not execute.
      * OPEN_APP / PLAY_MEDIA use [isSemanticEarlyCommitSafe] for immediate commit.
      * NAVIGATE uses [isSemanticEarlyCommitSafe] only as a candidate gate; commit
-     * waits for [NAV_STABILIZATION_MS].
+     * waits for [NAV_STABILIZATION_MS] plus EOS/Final or the NAV continuation grace.
      */
     fun firstCompletePartialExecutesImmediately(): Boolean = false
 
@@ -261,6 +264,7 @@ object StableCompletePartialTracker {
     private var committed: Boolean = false
     private var cancelled: Boolean = false
     private var eosConfirmed: Boolean = false
+    private var finalResultSeen: Boolean = false
     /**
      * True once this session observed PLAY_MEDIA (complete or incomplete with a query).
      * Exact catalog OpenApp("YouTube") must not steal that in-progress media command
@@ -279,6 +283,7 @@ object StableCompletePartialTracker {
             committed = false
             cancelled = false
             eosConfirmed = false
+            finalResultSeen = false
             sawPlayMediaIntent = false
             NavigationCandidateTracker.bind(newSessionId)
         }
@@ -294,6 +299,7 @@ object StableCompletePartialTracker {
             lastGeneration = 0L
             firstSeenMs = -1L
             eosConfirmed = false
+            finalResultSeen = false
             sawPlayMediaIntent = false
             NavigationCandidateTracker.markCancelled()
         }
@@ -318,6 +324,14 @@ object StableCompletePartialTracker {
     fun lastGenerationForTests(): Long = synchronized(lock) { lastGeneration }
 
     fun eosConfirmedForTests(): Boolean = synchronized(lock) { eosConfirmed }
+
+    fun finalResultSeenForTests(): Boolean = synchronized(lock) { finalResultSeen }
+
+    fun markFinalResult() {
+        synchronized(lock) {
+            finalResultSeen = true
+        }
+    }
 
     fun committedForTests(): Boolean = synchronized(lock) { committed }
 
@@ -358,6 +372,9 @@ object StableCompletePartialTracker {
                 eosConfirmed = eosConfirmed,
             )
         }
+        // A new live partial means the utterance may still be growing, even if the
+        // OEM already fired onEndOfSpeech (common mid-utterance pause).
+        eosConfirmed = false
         notePlayMediaIntent(result)
         if (NavigationCandidateTracker.isNavigateRelated(result)) {
             if (generation != 0L) {
@@ -581,7 +598,17 @@ object StableCompletePartialTracker {
         }
         if (NavigationCandidateTracker.isBlockedByIncompleteGrowth()) {
             val remaining = NavigationCommitPolicy.NAV_STABILIZATION_MS
-            logNavStabilize(dest, 0L, remaining, commit = false, nowMs = nowMs, timerSource = timerSource)
+            logNavStabilize(
+                dest = dest,
+                elapsed = 0L,
+                remaining = remaining,
+                commit = false,
+                nowMs = nowMs,
+                timerSource = timerSource,
+                speechActive = !eosConfirmed && !finalResultSeen,
+                commitAllowed = false,
+                blockReason = "incomplete_growth",
+            )
             return Observe(
                 decision = Decision.WAIT,
                 remainingMs = remaining,
@@ -595,10 +622,22 @@ object StableCompletePartialTracker {
             )
         }
         val elapsed = NavigationCandidateTracker.stableForMs(nowMs)
-        val remaining = (NavigationCommitPolicy.NAV_STABILIZATION_MS - elapsed)
-            .coerceAtLeast(0L)
-        logNavStabilize(dest, elapsed, remaining, commit = remaining == 0L, nowMs = nowMs, timerSource = timerSource)
-        if (remaining > 0L) {
+        val speechActive = !eosConfirmed && !finalResultSeen
+        val remaining = NavigationCommitPolicy.remainingUntilCommit(elapsed, speechActive)
+        val commitAllowed = remaining == 0L
+        val blockReason = NavigationCommitPolicy.commitBlockReason(elapsed, speechActive)
+        logNavStabilize(
+            dest = dest,
+            elapsed = elapsed,
+            remaining = remaining,
+            commit = commitAllowed,
+            nowMs = nowMs,
+            timerSource = timerSource,
+            speechActive = speechActive,
+            commitAllowed = commitAllowed,
+            blockReason = blockReason,
+        )
+        if (!commitAllowed) {
             return Observe(
                 decision = Decision.WAIT,
                 remainingMs = remaining,
@@ -678,6 +717,9 @@ object StableCompletePartialTracker {
         commit: Boolean,
         nowMs: Long,
         timerSource: NavTimerSource,
+        speechActive: Boolean,
+        commitAllowed: Boolean,
+        blockReason: String,
     ) {
         val reason = if (commit) "semantic_navigate_stable" else "navigate_waiting_stable"
         val completeness = NavigationCommitPolicy.completenessOf(dest)
@@ -685,10 +727,15 @@ object StableCompletePartialTracker {
         val line =
             "NAV_STABILIZE SESSION_ID=$sessionId SR_RAW_PARTIAL=${lastResult?.rawTranscript.orEmpty()} " +
                 "NORMALIZED_DESTINATION=$dest PREFERRED_DESTINATION=$dest " +
+                "SPEECH_ACTIVE=$speechActive SR_END_OF_SPEECH_SEEN=$eosConfirmed " +
+                "FINAL_RESULT_SEEN=$finalResultSeen LAST_MEANINGFUL_PARTIAL_AT=$changedAt " +
                 "CANDIDATE_RELATION=${NavigationCandidateTracker.lastRelation()} " +
                 "CANDIDATE_CHANGED=false CANDIDATE_CHANGED_AT=$changedAt NOW_MS=$nowMs " +
                 "NAV_FINGERPRINT=$fingerprint " +
-                "NAV_STABLE_FOR_MS=$elapsed NAV_COMPLETENESS=$completeness " +
+                "NAV_STABLE_FOR_MS=$elapsed NAV_CONTINUATION_GRACE_MS=" +
+                "${NavigationCommitPolicy.NAV_CONTINUATION_GRACE_MS} " +
+                "NAV_COMMIT_ALLOWED=$commitAllowed NAV_COMMIT_BLOCK_REASON=$blockReason " +
+                "NAV_COMPLETENESS=$completeness " +
                 "TIMER_SOURCE=$timerSource NAV_COMMIT_REASON=$reason remaining_ms=$remaining"
         CarfuLog.i(VoiceLifecycleLog.TAG, line)
         CarfuDiag.voice(line)

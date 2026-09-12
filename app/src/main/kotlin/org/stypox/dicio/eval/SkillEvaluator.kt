@@ -42,6 +42,7 @@ import org.stypox.dicio.io.session.CommandSessionOutcome
 import org.stypox.dicio.io.session.CommandPcmStats
 import org.stypox.dicio.io.session.CommandSession
 import org.stypox.dicio.io.session.CommandSessionPhase
+import org.stypox.dicio.io.session.HardCeilingRescuePolicy
 import org.stypox.dicio.io.session.RecordAudioPermission
 import org.stypox.dicio.io.session.CanonicalActionGate
 import org.stypox.dicio.io.session.CanonicalCommand
@@ -1173,6 +1174,7 @@ class SkillEvaluatorImpl(
                 commandSession.onSpeechBegin()
                 commandSession.onFinalText(original)
                 sessionHadTranscript.set(true)
+                StableCompletePartialTracker.markFinalResult()
                 StableCompletePartialTracker.markCommitted()
                 sttInputDevice.stopListening("final_transcript")
                 VoiceToActionLatency.mark(
@@ -1192,7 +1194,17 @@ class SkillEvaluatorImpl(
                 }
                 if (VoiceSessionGuard.dropIfStale(sessionId, "none")) return
                 StableCompletePartialTracker.markCancelled()
-                if (tryRescueFromBestCandidates()) return
+                val rescued = tryRescueFromBestCandidates()
+                if (rescued) return
+                val locked = SessionCommandDecision.locked(sessionId)
+                HardCeilingRescuePolicy.log(
+                    sessionId = sessionId,
+                    rescue = locked,
+                    terminalTriggered = true,
+                    terminalReason = "hard_ceiling_unknown",
+                    srDestroyed = true,
+                    audioFocusReleased = true,
+                )
                 _state.value = _state.value.copy(pendingQuestion = null)
                 handleEmptyOrUnclear("hard_timeout_or_silence", sessionId)
             }
@@ -1283,17 +1295,38 @@ class SkillEvaluatorImpl(
             return true
         }
         if (SessionCommandDecision.locked(sid) != null) {
-            CarfuLatencyLog.logSessionEvent(
-                "TRANSCRIPT_RESCUE_SKIPPED",
-                "already_locked",
+            val locked = SessionCommandDecision.locked(sid)
+            if (HardCeilingRescuePolicy.shouldTreatLockedAsSuccessfulRescue(locked)) {
+                CarfuLatencyLog.logSessionEvent(
+                    "TRANSCRIPT_RESCUE_SKIPPED",
+                    "already_locked",
+                )
+                return true
+            }
+            HardCeilingRescuePolicy.log(
+                sessionId = sid,
+                rescue = locked,
+                terminalTriggered = false,
+                terminalReason = "hard_ceiling_unknown",
+                srDestroyed = false,
+                audioFocusReleased = false,
             )
-            return true
+            return false
         }
         val candidates = sessionBestCandidates.get().distinctBy { it.first }
         if (candidates.isEmpty()) return false
         val decision = SessionCommandDecision.decideFinal(sid, candidates) ?: return false
-        if (decision.completeness != SemanticCompleteness.COMPLETE) return false
-        if (decision.confidence < 0.85f && decision.recognizerConfidence < 0.85f) return false
+        if (!HardCeilingRescuePolicy.isExecutableCanonical(decision)) {
+            HardCeilingRescuePolicy.log(
+                sessionId = sid,
+                rescue = decision,
+                terminalTriggered = false,
+                terminalReason = "hard_ceiling_unknown",
+                srDestroyed = false,
+                audioFocusReleased = false,
+            )
+            return false
+        }
         if (CommandSessionOutcome.peek() != CommandSessionOutcome.Kind.OPEN) return true
         CarfuLatencyLog.logSessionEvent(
             "TRANSCRIPT_RESCUED",
