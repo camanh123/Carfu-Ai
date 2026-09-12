@@ -131,6 +131,10 @@ object SessionCommandDecision {
         s.sessionId == sessionId && s.cancelled
     }
 
+    fun boundSessionIdForTests(): Long = synchronized(lock) { slot?.sessionId ?: 0L }
+
+    fun hasLockedCommandForTests(): Boolean = synchronized(lock) { slot?.locked != null }
+
     fun resetForTests() {
         synchronized(lock) { slot = null }
     }

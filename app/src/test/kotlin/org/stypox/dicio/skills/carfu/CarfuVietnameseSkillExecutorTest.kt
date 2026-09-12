@@ -88,6 +88,7 @@ private class FakeCarfuPlatform : CarfuSkillPlatform {
             packageName = pkg,
             className = spec.className,
             data = spec.data,
+            flags = spec.flags,
         )
         return true
     }

@@ -70,6 +70,10 @@ object CanonicalActionGate {
         s.sessionId == sessionId && s.cancelled
     }
 
+    fun boundSessionIdForTests(): Long = synchronized(lock) { slot?.sessionId ?: 0L }
+
+    fun claimedForTests(): Boolean = synchronized(lock) { slot?.claimed == true }
+
     fun resetForTests() {
         synchronized(lock) { slot = null }
     }

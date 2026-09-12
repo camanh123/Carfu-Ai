@@ -18,6 +18,8 @@ data class CarfuLaunchSpec(
     val className: String? = null,
     val data: String? = null,
     val extraQuery: String? = null,
+    /** Android Intent flags. 0 = platform default NEW_TASK only. */
+    val flags: Int = 0,
 )
 
 data class StartedActivity(
@@ -25,6 +27,7 @@ data class StartedActivity(
     val packageName: String?,
     val className: String?,
     val data: String?,
+    val flags: Int = 0,
 )
 
 /**

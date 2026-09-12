@@ -12,10 +12,14 @@ import org.stypox.dicio.io.input.CommandRecognitionPolicy
  * the delay (`action_to_intent` ≈ 7ms).
  *
  * Source-proven answers (this policy + call sites):
- * - OPEN_APP / PLAY_MEDIA may semantic-commit from a COMPLETE unique catalog
- *   / complete query+provider partial. No EOS. No stability timer.
- * - NAVIGATE still requires two consecutive identical fingerprints **and** EOS.
- * - First COMPLETE Navigate partial never executes immediately.
+ * - OPEN_APP / PLAY_MEDIA may semantic-commit from a COMPLETE unique
+ *   catalog / complete query+provider partial. No EOS. No stability timer.
+ * - NAVIGATE candidates wait [StableCompletePartialPolicy.NAV_STABILIZATION_MS]
+ *   after the last destination change, then EOS/Final or a NAV-only continuation
+ *   grace if speech may still be active (`semantic_navigate_stable`). OpenApp /
+ *   PlayMedia latency is unchanged.
+ * - Incomplete Navigate never executes.
+ * - First COMPLETE of an arbitrary ineligible intent never executes immediately.
  * - A 350ms hold timer must not commit.
  * - SR_HARD_CEILING remains a failsafe, not the normal OpenApp path.
  * - Execution **does not** wait for the 5s product timeout after speech.
@@ -52,6 +56,8 @@ object VoiceToActionLatencyPolicy {
 
     fun holdTimerMayCommit(): Boolean = StableCompletePartialPolicy.holdTimerMayCommit()
 
+    fun navStabilizationMs(): Long = StableCompletePartialPolicy.NAV_STABILIZATION_MS
+
     fun requiresEndOfSpeechForStablePartial(): Boolean =
         StableCompletePartialPolicy.requiresEndOfSpeech()
 
@@ -60,6 +66,9 @@ object VoiceToActionLatencyPolicy {
 
     fun requiresEndOfSpeechForPlayMediaSemanticCommit(): Boolean =
         StableCompletePartialPolicy.requiresEndOfSpeechForPlayMedia()
+
+    fun requiresEndOfSpeechForNavigateSemanticCommit(): Boolean =
+        StableCompletePartialPolicy.requiresEndOfSpeechForNavigate()
 
     /**
      * RecognizerIntent extras that **are** currently put on the listening Intent.

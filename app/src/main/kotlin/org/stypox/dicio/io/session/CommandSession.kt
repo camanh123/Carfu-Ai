@@ -21,7 +21,34 @@ data class CommandUiState(
     val elapsedMs: Long = 0,
     val captureRateHz: Int = AudioCaptureConfig.MODEL_RATE_HZ,
     val modelPath: String? = null,
-)
+) {
+    /** Live listening/processing of the current VoiceSession — not idle history. */
+    val isLiveSessionUi: Boolean
+        get() = phase == CommandSessionPhase.WAKE_DETECTED ||
+            phase == CommandSessionPhase.ACKNOWLEDGING ||
+            phase == CommandSessionPhase.COMMAND_LISTENING ||
+            phase == CommandSessionPhase.PROCESSING
+
+    /** Current transcript only. Never the previous session's confirmation. */
+    fun activeTranscript(): String? =
+        partial?.takeIf { it.isNotBlank() } ?: lastHeard?.takeIf { it.isNotBlank() }
+
+    /**
+     * Action/result text for the current session. Hidden while a new session is
+     * listening so a previous confirmation cannot look like it belongs to it.
+     */
+    fun activeResult(): String? = if (isLiveSessionUi) null else lastReply
+
+    fun forNewSession(newSessionId: Long, newPhase: CommandSessionPhase): CommandUiState = copy(
+        phase = newPhase,
+        sessionId = newSessionId,
+        lastHeard = null,
+        lastReply = null,
+        partial = null,
+        unclear = false,
+        elapsedMs = 0,
+    )
+}
 
 /**
  * Coordinates wake-word vs command STT, audio focus, and driving-screen UI state.
@@ -51,7 +78,7 @@ class CommandSession @Inject constructor(
             log("COMMAND_SESSION_OVERLAP ignored elapsed=${machine.elapsedMs}")
             return false
         }
-        publish()
+        _ui.value = _ui.value.forNewSession(machine.sessionId, machine.phase)
         log("COMMAND_SESSION_START id=${machine.sessionId} origin=$origin")
         log("WAKE_PCM_ROUTE=discard recorder_held=true")
         return true

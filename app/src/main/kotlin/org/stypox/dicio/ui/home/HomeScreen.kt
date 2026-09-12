@@ -67,12 +67,17 @@ fun HomeScreen(
     val sttState = viewModel.sttInputDevice.uiState.collectAsState()
     val commandUi = viewModel.commandSession.ui.collectAsState()
 
-    val lastQa = interactionsState.value.interactions.lastOrNull()
-        ?.questionsAnswers?.lastOrNull()
-    val lastCommand = commandUi.value.lastHeard
-        ?: interactionsState.value.pendingQuestion?.userInput
-        ?: lastQa?.question
-    val lastReply = commandUi.value.lastReply
+        val lastQa = interactionsState.value.interactions.lastOrNull()
+            ?.questionsAnswers?.lastOrNull()
+        val liveUi = commandUi.value.isLiveSessionUi
+        val lastCommand = if (liveUi) {
+            commandUi.value.activeTranscript()
+        } else {
+            commandUi.value.lastHeard
+                ?: interactionsState.value.pendingQuestion?.userInput
+                ?: lastQa?.question
+        }
+        val lastReply = if (liveUi) null else commandUi.value.activeResult()
 
     DrivingScreen(
         commandUi = commandUi.value,

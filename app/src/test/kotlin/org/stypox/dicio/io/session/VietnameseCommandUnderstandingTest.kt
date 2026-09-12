@@ -6,6 +6,7 @@ import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.nulls.shouldNotBeNull
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 
@@ -232,5 +233,30 @@ class VietnameseCommandUnderstandingTest : StringSpec({
         val u = nav("Mở")
         u.completeness shouldBe SemanticCompleteness.INCOMPLETE
         u.executable.shouldBeFalse()
+    }
+
+    "nearby cafe query is unsupported place-search, not PlayMedia" {
+        val u = nav("Tìm cho tôi quán cà phê nào gần nhất")
+        u.command.shouldBeNull()
+        u.intent shouldBe VoiceIntent.UNKNOWN
+        u.reason shouldBe "unsupported_place_search"
+        u.executable.shouldBeFalse()
+        VietnameseCommandUnderstanding.isUnsupportedPlaceOrNearbyQuery(
+            "Tìm cho tôi quán cà phê nào gần nhất",
+        ).shouldBeTrue()
+    }
+
+    "nearby fishing-lake query is unsupported place-search, not PlayMedia" {
+        val u = nav("Tìm cho tôi hồ câu nào gần nhất")
+        u.command.shouldBeNull()
+        u.intent shouldBe VoiceIntent.UNKNOWN
+        u.reason shouldBe "unsupported_place_search"
+        u.executable.shouldBeFalse()
+    }
+
+    "tìm bài on YouTube remains PlayMedia" {
+        val u = nav("Tìm bài Đừng Xa Em Đêm Nay trên YouTube")
+        u.intent shouldBe VoiceIntent.PLAY_MEDIA
+        u.reason shouldNotBe "unsupported_place_search"
     }
 })

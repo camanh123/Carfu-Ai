@@ -70,7 +70,11 @@ class AndroidCarfuSkillPlatform(
         if (spec.extraQuery != null) {
             intent.putExtra("query", spec.extraQuery)
         }
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (spec.flags != 0) {
+            intent.flags = spec.flags
+        } else {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         return intent
     }
 
@@ -87,6 +91,7 @@ class AndroidCarfuSkillPlatform(
                 packageName = intent.component?.packageName ?: intent.`package`,
                 className = intent.component?.className,
                 data = intent.dataString,
+                flags = intent.flags,
             )
             true
         } catch (_: Exception) {

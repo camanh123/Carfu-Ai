@@ -10,6 +10,7 @@ import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.string.shouldNotContain
 import org.stypox.dicio.skills.carfu.CarfuAlarmKind
 import org.stypox.dicio.skills.carfu.CarfuContact
+import org.stypox.dicio.skills.carfu.CarfuDialer
 import org.stypox.dicio.skills.carfu.CarfuLaunchSpec
 import org.stypox.dicio.skills.carfu.CarfuPersistedAlarm
 import org.stypox.dicio.skills.carfu.CarfuSkillPlatform
@@ -70,7 +71,7 @@ class CanonicalCommandExecutionTest : StringSpec({
 
     // --- NAVIGATE ---
 
-    "1. Navigate Mỹ Đình TTS + Maps payload from same command" {
+    "1. Navigate Mỹ Đình TTS + Maps navigation payload from same command" {
         val p = platform()
         val cmd = CanonicalCommand.Navigate("Mỹ Đình")
         val speech = VietnameseCommandUnderstanding.confirmationSpeechVi(cmd)!!
@@ -80,10 +81,16 @@ class CanonicalCommandExecutionTest : StringSpec({
         trace.speechVi shouldBe speech
         trace.actionTaken.shouldBeTrue()
         trace.geoUri.shouldNotBeNull()
+        NavigatePayload.isNavigationUri(trace.geoUri).shouldBeTrue()
+        NavigatePayload.isGeoSearchUri(trace.geoUri).shouldBeFalse()
         NavigatePayload.decodeQuery(trace.geoUri!!) shouldBe "Mỹ Đình"
-        p.activities.single().data shouldContain "geo:0,0?q="
-        // Destination not re-parsed from a transcript string inside executor.
+        p.activities.single().action shouldBe CarfuDialer.ACTION_VIEW
+        p.activities.single().packageName shouldBe NavigatePayload.GOOGLE_MAPS_PACKAGE
+        p.activities.single().data shouldBe "google.navigation:q=M%E1%BB%B9%20%C4%90%C3%ACnh"
+        p.activities.single().flags shouldBe NavigatePayload.NAVIGATION_INTENT_FLAGS
+        trace.packageName shouldBe NavigatePayload.GOOGLE_MAPS_PACKAGE
         trace.reason shouldBe "navigate_ok"
+        p.activities.size shouldBe 1
     }
 
     "2. Navigate Hồ Gươm same object for TTS and action" {
@@ -92,19 +99,22 @@ class CanonicalCommandExecutionTest : StringSpec({
         val trace = executor(p).executeTraced(cmd)
         trace.speechVi shouldContain "Hồ Gươm"
         NavigatePayload.decodeQuery(trace.geoUri!!) shouldBe "Hồ Gươm"
+        NavigatePayload.isNavigationUri(trace.geoUri).shouldBeTrue()
+        p.activities.single().data!!.shouldNotContain("geo:0,0")
     }
 
     "3. Navigate sân bay Nội Bài preserves full entity" {
         val cmd = CanonicalCommand.Navigate("sân bay Nội Bài")
-        val trace = executor().executeTraced(cmd)
+        val p = platform()
+        val trace = executor(p).executeTraced(cmd)
         NavigatePayload.decodeQuery(trace.geoUri!!) shouldBe "sân bay Nội Bài"
         trace.speechVi shouldContain "sân bay Nội Bài"
+        p.activities.single().packageName shouldBe NavigatePayload.GOOGLE_MAPS_PACKAGE
     }
 
     "4. Navigate payload builder does not read raw transcript" {
-        val uri = NavigatePayload.geoUri("Mỹ Đình")
+        val uri = NavigatePayload.navigationUri("Mỹ Đình")!!
         NavigatePayload.decodeQuery(uri) shouldBe "Mỹ Đình"
-        // Incomplete understanding never becomes Navigate executable.
         val incomplete = VietnameseCommandUnderstanding.understand("Chỉ đường đến")
         incomplete.executable.shouldBeFalse()
         incomplete.command.shouldBeNull()
@@ -250,7 +260,8 @@ class CanonicalCommandExecutionTest : StringSpec({
 
     "geo URI encoding round-trip for Vietnamese destinations" {
         listOf("Mỹ Đình", "Hồ Gươm", "sân bay Nội Bài", "Big C Thăng Long").forEach { d ->
-            NavigatePayload.decodeQuery(NavigatePayload.geoUri(d)) shouldBe d
+            NavigatePayload.decodeQuery(NavigatePayload.navigationUri(d)!!) shouldBe d
+            NavigatePayload.isGeoSearchUri(NavigatePayload.navigationUri(d)).shouldBeFalse()
         }
     }
 })
@@ -278,6 +289,8 @@ class Phase3FakePlatform : CarfuSkillPlatform {
             return spec.packageName
         }
         return when {
+            spec.data?.startsWith("google.navigation:") == true ->
+                "com.google.android.apps.maps"
             spec.data?.startsWith("geo:") == true -> "com.google.android.apps.maps"
             spec.data?.contains("youtube.com") == true -> "com.google.android.youtube"
             else -> spec.packageName
@@ -286,7 +299,7 @@ class Phase3FakePlatform : CarfuSkillPlatform {
 
     override fun startLaunch(spec: CarfuLaunchSpec): Boolean {
         val pkg = resolveLaunch(spec) ?: return false
-        activities += StartedActivity(spec.action, pkg, spec.className, spec.data)
+        activities += StartedActivity(spec.action, pkg, spec.className, spec.data, spec.flags)
         return true
     }
 

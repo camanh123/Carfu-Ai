@@ -33,8 +33,11 @@ object VoiceLifecycleLog {
     fun sessionCreated(session: VoiceSessionManager.Session) {
         CarfuLog.i(
             TAG,
-            "SESSION_CREATED sessionId=${session.sessionId} triggerId=${session.triggerId} " +
-                "origin=${session.origin}",
+            "SESSION_CREATED SESSION_ID=${session.sessionId} STATE=LISTENING " +
+                "EVENT_SOURCE=create CALLBACK_SESSION_ID=${session.sessionId} " +
+                "ACTIVE_SESSION_ID=${session.sessionId} STALE_CALLBACK_DROPPED=false " +
+                "COMMAND= ACTION_CLAIMED=false TERMINAL_REASON= PENDING_NAV_TIMER_COUNT=0 " +
+                "triggerId=${session.triggerId} origin=${session.origin}",
         )
     }
 
@@ -103,7 +106,11 @@ object VoiceLifecycleLog {
     }
 
     fun sessionTerminal(session: VoiceSessionManager.Session, reason: String) {
-        event("SESSION_TERMINAL", session, "reason=$reason")
+        event(
+            "SESSION_TERMINAL",
+            session,
+            "TERMINAL_REASON=$reason PENDING_NAV_TIMER_COUNT=${VoiceSessionGuard.pendingNavTimerCount()}",
+        )
     }
 
     fun sessionIdle(session: VoiceSessionManager.Session) {

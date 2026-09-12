@@ -1,5 +1,9 @@
 package org.stypox.dicio.io.session
 
+import org.stypox.dicio.skills.carfu.nlu.NavigationCandidateTracker
+import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
+import org.stypox.dicio.skills.carfu.nlu.NavTimerSource
+
 /**
  * Phase 4.4 — semantic COMPLETE partial commit for OPEN_APP / PLAY_MEDIA.
  *
@@ -14,14 +18,20 @@ package org.stypox.dicio.io.session
  *   a higher-priority supported canonical command (Navigate `"mở bản đồ đến …"`).
  * - PLAY_MEDIA: complete query + known provider (compositional Vietnamese media
  *   grammar; not a hardcoded utterance list).
+ * - NAVIGATE: complete destination (`nav_complete`) is only a **candidate**.
+ *   Device-proven: first-token commit executed `Navigate("ngõ")` while the user
+ *   was still saying `"ngõ 112 Trung Kính"`. NAV waits [NAV_STABILIZATION_MS]
+ *   of unchanged destination, then commits on EOS / Final **or** a NAV-only
+ *   continuation grace if speech may still be active (OEM partial gaps).
+ *   OPEN_APP / PLAY_MEDIA still commit on the first semantically complete
+ *   partial. The 800ms window itself is unchanged.
  *
- * NAVIGATE stays on the conservative 4.3B.1 rule: two consecutive identical
- * COMPLETE fingerprints **and** onEndOfSpeech, plus a multi-token destination.
+ * Incomplete Navigate (`"Chỉ đường tới…"`) is never eligible.
  *
  * Not used:
- * - arbitrary stability / 350ms / 500ms hold timers ([holdTimerMayCommit] = false)
- * - requiring two identical OPEN_APP partials (device showed one COMPLETE)
- * - requiring EOS for OPEN_APP / PLAY_MEDIA on this OEM
+ * - global 350ms / 500ms hold timers ([holdTimerMayCommit] = false)
+ * - requiring two identical OPEN_APP / PLAY_MEDIA partials
+ * - requiring EOS for OPEN_APP / PLAY_MEDIA / NAVIGATE on this OEM
  *
  * [android.speech.SpeechRecognizer.stopListening] is still not used. A successful
  * current-session commit [SessionCommandDecision.lockFinal]s then takes the
@@ -31,8 +41,17 @@ package org.stypox.dicio.io.session
 object StableCompletePartialPolicy {
     const val CONSECUTIVE_IDENTICAL_TO_COMMIT: Int = 2
 
-    /** Hold-timer commit is retired. Kept as 0 so tests can prove it cannot fire. */
+    /** Retired global hold-timer commit. Kept as 0 so tests can prove it cannot fire. */
     const val STABILITY_MS: Long = 0L
+
+    /**
+     * NAV-only: wait this long after the last destination change before commit
+     * *may* begin. Delegates to [NavigationCommitPolicy.NAV_STABILIZATION_MS]
+     * (800ms). An 800ms partial gap is not by itself proof of end-of-utterance.
+     */
+    const val NAV_STABILIZATION_MS: Long = NavigationCommitPolicy.NAV_STABILIZATION_MS
+
+    const val NAV_CONTINUATION_GRACE_MS: Long = NavigationCommitPolicy.NAV_CONTINUATION_GRACE_MS
 
     fun callsStopListeningAfterEndOfSpeech(): Boolean = false
 
@@ -41,19 +60,23 @@ object StableCompletePartialPolicy {
     fun retireRecognizerUsesCancelThenDestroy(): Boolean = true
 
     /**
-     * Arbitrary first COMPLETE of any intent still must not execute (Navigate).
-     * OPEN_APP / PLAY_MEDIA use [isSemanticEarlyCommitSafe] instead.
+     * Arbitrary first COMPLETE of any intent still must not execute.
+     * OPEN_APP / PLAY_MEDIA use [isSemanticEarlyCommitSafe] for immediate commit.
+     * NAVIGATE uses [isSemanticEarlyCommitSafe] only as a candidate gate; commit
+     * waits for [NAV_STABILIZATION_MS] plus EOS/Final or the NAV continuation grace.
      */
     fun firstCompletePartialExecutesImmediately(): Boolean = false
 
     fun holdTimerMayCommit(): Boolean = false
 
-    /** Conservative Navigate / non-semantic path still requires EOS. */
+    /** Conservative non-semantic path still requires EOS. */
     fun requiresEndOfSpeech(): Boolean = true
 
     fun requiresEndOfSpeechForOpenApp(): Boolean = false
 
     fun requiresEndOfSpeechForPlayMedia(): Boolean = false
+
+    fun requiresEndOfSpeechForNavigate(): Boolean = false
 
     fun requiresConsecutiveIdenticalFingerprints(): Boolean = true
 
@@ -61,12 +84,32 @@ object StableCompletePartialPolicy {
 
     fun semanticPlayMediaMayCommitWithoutEos(): Boolean = true
 
+    fun semanticNavigateMayCommitWithoutEos(): Boolean = true
+
     fun isEnabled(): Boolean = true
 
     fun shouldObservePartial(text: String): Boolean = text.isNotBlank()
 
+    /**
+     * Category nouns that are prefixes of a longer spoken place. Early-commit of
+     * `"sân bay"` must not lock before `"sân bay Nội Bài"`.
+     * These are grammar heads, not hardcoded destinations.
+     */
+    private val NAV_CATEGORY_HEADS = setOf(
+        "san bay",
+        "ben xe",
+        "ben tau",
+        "benh vien",
+    )
+
     fun navigateDestinationIsFastPathSafe(destination: String): Boolean {
-        return tokenCount(destination) >= 2
+        if (tokenCount(destination) < 2) return false
+        val folded = VietnameseTranscript.foldForMatch(destination)
+        for (head in NAV_CATEGORY_HEADS) {
+            if (folded == head) return false
+            if (folded.startsWith("$head ") && tokenCount(destination) < 4) return false
+        }
+        return true
     }
 
     fun tokenCount(text: String): Int =
@@ -79,9 +122,14 @@ object StableCompletePartialPolicy {
         if (result.completeness != SemanticCompleteness.COMPLETE) return false
         val command = result.command ?: return false
         return when (command) {
-            is CanonicalCommand.Navigate ->
-                command.destination.trim().length >= 2 &&
-                    navigateDestinationIsFastPathSafe(command.destination)
+            is CanonicalCommand.Navigate -> {
+                val dest = command.destination.trim()
+                dest.isNotEmpty() &&
+                    !VietnameseCommandUnderstanding.isNavParticleOnly(
+                        VietnameseTranscript.foldForMatch(dest),
+                    ) &&
+                    !NavigationCommitPolicy.isIncompleteDestination(dest)
+            }
             is CanonicalCommand.PlayMedia -> command.query.trim().length >= 2
             is CanonicalCommand.OpenApp -> {
                 command.appName.trim().isNotEmpty() &&
@@ -95,14 +143,16 @@ object StableCompletePartialPolicy {
     }
 
     /**
-     * Semantic early commit: complete unique OPEN_APP catalog entity, or
-     * complete PLAY_MEDIA query+known provider. No EOS. No stability timer.
+     * Semantic early commit: complete unique OPEN_APP catalog entity or
+     * complete PLAY_MEDIA query+known provider may commit immediately.
+     * Complete NAVIGATE is a candidate only — see [NAV_STABILIZATION_MS].
      */
     fun isSemanticEarlyCommitSafe(result: UnderstandingResult): Boolean {
         if (!isEligible(result)) return false
         return when (result.command) {
             is CanonicalCommand.OpenApp -> isOpenAppSemanticCommitSafe(result)
             is CanonicalCommand.PlayMedia -> isPlayMediaSemanticCommitSafe(result)
+            is CanonicalCommand.Navigate -> isNavigateSemanticCommitSafe(result)
             else -> false
         }
     }
@@ -127,6 +177,23 @@ object StableCompletePartialPolicy {
         if (!VietnameseCommandUnderstanding.isKnownPlayMediaProvider(command.provider)) {
             return false
         }
+        return true
+    }
+
+    fun isNavigateSemanticCommitSafe(result: UnderstandingResult): Boolean {
+        val command = result.command as? CanonicalCommand.Navigate ?: return false
+        if (result.intent != VoiceIntent.NAVIGATE) return false
+        if (result.completeness != SemanticCompleteness.COMPLETE) return false
+        if (result.reason != "nav_complete") return false
+        val destination = command.destination.trim()
+        if (destination.isEmpty()) return false
+        if (VietnameseCommandUnderstanding.isNavParticleOnly(
+                VietnameseTranscript.foldForMatch(destination),
+            )
+        ) {
+            return false
+        }
+        if (NavigationCommitPolicy.isIncompleteDestination(destination)) return false
         return true
     }
 
@@ -190,13 +257,14 @@ object StableCompletePartialTracker {
     private val lock = Any()
     private var sessionId: Long = 0L
     private var fingerprint: String = ""
-    private var firstSeenMs: Long = 0L
+    private var firstSeenMs: Long = -1L
     private var consecutive: Int = 0
     private var lastResult: UnderstandingResult? = null
     private var lastGeneration: Long = 0L
     private var committed: Boolean = false
     private var cancelled: Boolean = false
     private var eosConfirmed: Boolean = false
+    private var finalResultSeen: Boolean = false
     /**
      * True once this session observed PLAY_MEDIA (complete or incomplete with a query).
      * Exact catalog OpenApp("YouTube") must not steal that in-progress media command
@@ -208,14 +276,16 @@ object StableCompletePartialTracker {
         synchronized(lock) {
             sessionId = newSessionId
             fingerprint = ""
-            firstSeenMs = 0L
+            firstSeenMs = -1L
             consecutive = 0
             lastResult = null
             lastGeneration = 0L
             committed = false
             cancelled = false
             eosConfirmed = false
+            finalResultSeen = false
             sawPlayMediaIntent = false
+            NavigationCandidateTracker.bind(newSessionId)
         }
     }
 
@@ -227,9 +297,11 @@ object StableCompletePartialTracker {
             consecutive = 0
             lastResult = null
             lastGeneration = 0L
-            firstSeenMs = 0L
+            firstSeenMs = -1L
             eosConfirmed = false
+            finalResultSeen = false
             sawPlayMediaIntent = false
+            NavigationCandidateTracker.markCancelled()
         }
     }
 
@@ -252,6 +324,14 @@ object StableCompletePartialTracker {
     fun lastGenerationForTests(): Long = synchronized(lock) { lastGeneration }
 
     fun eosConfirmedForTests(): Boolean = synchronized(lock) { eosConfirmed }
+
+    fun finalResultSeenForTests(): Boolean = synchronized(lock) { finalResultSeen }
+
+    fun markFinalResult() {
+        synchronized(lock) {
+            finalResultSeen = true
+        }
+    }
 
     fun committedForTests(): Boolean = synchronized(lock) { committed }
 
@@ -292,10 +372,19 @@ object StableCompletePartialTracker {
                 eosConfirmed = eosConfirmed,
             )
         }
+        // A new live partial means the utterance may still be growing, even if the
+        // OEM already fired onEndOfSpeech (common mid-utterance pause).
+        eosConfirmed = false
         notePlayMediaIntent(result)
+        if (NavigationCandidateTracker.isNavigateRelated(result)) {
+            if (generation != 0L) {
+                lastGeneration = generation
+            }
+            return@synchronized observeNavigateLocked(result, lastGeneration, nowMs)
+        }
         if (!StableCompletePartialPolicy.isEligible(result)) {
             fingerprint = ""
-            firstSeenMs = 0L
+            firstSeenMs = -1L
             consecutive = 0
             lastResult = null
             return@synchronized Observe(
@@ -318,12 +407,12 @@ object StableCompletePartialTracker {
         if (generation != 0L) {
             lastGeneration = generation
         }
-        decideLocked(result, generation = lastGeneration)
+        decideLocked(result, generation = lastGeneration, nowMs = nowMs)
     }
 
     fun onEndOfSpeech(
         forSessionId: Long,
-        @Suppress("UNUSED_PARAMETER") nowMs: Long,
+        nowMs: Long,
         generation: Long = 0L,
     ): Observe = synchronized(lock) {
         if (cancelled || committed || forSessionId == 0L || forSessionId != sessionId) {
@@ -362,31 +451,55 @@ object StableCompletePartialTracker {
                 eosConfirmed = true,
             )
         }
-        decideLocked(result, generation = lastGeneration)
+        decideLocked(result, generation = lastGeneration, nowMs = nowMs)
     }
 
     /**
-     * Retired 350ms hold path. A leftover Handler tick must never commit.
-     * Always IGNORE so pre-speech / in-flight speech cannot be terminated by a timer.
+     * Retired global hold path is IGNORE. NAV-only: commit a stable destination
+     * after [StableCompletePartialPolicy.NAV_STABILIZATION_MS] with no change.
      */
     fun onTimer(
         forSessionId: Long,
-        @Suppress("UNUSED_PARAMETER") nowMs: Long,
+        nowMs: Long,
     ): Observe = synchronized(lock) {
-        Observe(
-            decision = Decision.IGNORE,
-            remainingMs = 0L,
-            result = lastResult,
-            reason = "hold_timer_disabled",
-            consecutive = consecutive,
-            fingerprint = fingerprint,
-            sessionId = forSessionId,
+        if (cancelled || committed || forSessionId == 0L || forSessionId != sessionId) {
+            return@synchronized Observe(
+                decision = Decision.IGNORE,
+                reason = "stale_or_cancelled",
+                sessionId = sessionId,
+                generation = lastGeneration,
+                eosConfirmed = eosConfirmed,
+            )
+        }
+        val result = lastResult
+        if (result == null || result.command !is CanonicalCommand.Navigate) {
+            return@synchronized Observe(
+                decision = Decision.IGNORE,
+                remainingMs = 0L,
+                result = lastResult,
+                reason = "hold_timer_disabled",
+                consecutive = consecutive,
+                fingerprint = fingerprint,
+                sessionId = forSessionId,
+                generation = lastGeneration,
+                eosConfirmed = eosConfirmed,
+            )
+        }
+        NavigationCandidateTracker.peekForTimer(nowMs)
+        decideLocked(
+            result,
             generation = lastGeneration,
-            eosConfirmed = eosConfirmed,
+            nowMs = nowMs,
+            timerSource = NavTimerSource.STABILITY_TIMER,
         )
     }
 
-    private fun decideLocked(result: UnderstandingResult, generation: Long): Observe {
+    private fun decideLocked(
+        result: UnderstandingResult,
+        generation: Long,
+        nowMs: Long,
+        timerSource: NavTimerSource = NavTimerSource.PARTIAL,
+    ): Observe {
         notePlayMediaIntent(result)
         if (StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result)) {
             if (openAppYouTubeBlockedByPlayMedia(result)) {
@@ -400,6 +513,9 @@ object StableCompletePartialTracker {
                     generation = generation,
                     eosConfirmed = eosConfirmed,
                 )
+            }
+            if (result.command is CanonicalCommand.Navigate) {
+                return decideNavigateStableLocked(result, generation, nowMs, timerSource)
             }
             committed = true
             val why = when (result.command) {
@@ -458,6 +574,171 @@ object StableCompletePartialTracker {
             generation = generation,
             eosConfirmed = eosConfirmed,
         )
+    }
+
+    private fun decideNavigateStableLocked(
+        result: UnderstandingResult,
+        generation: Long,
+        nowMs: Long,
+        timerSource: NavTimerSource = NavTimerSource.PARTIAL,
+    ): Observe {
+        val dest = (result.command as CanonicalCommand.Navigate).destination.trim()
+        if (NavigationCommitPolicy.isIncompleteDestination(dest)) {
+            return Observe(
+                decision = Decision.IGNORE,
+                remainingMs = 0L,
+                result = result,
+                reason = "nav_incomplete_head",
+                consecutive = consecutive,
+                fingerprint = fingerprint,
+                sessionId = sessionId,
+                generation = generation,
+                eosConfirmed = eosConfirmed,
+            )
+        }
+        if (NavigationCandidateTracker.isBlockedByIncompleteGrowth()) {
+            val remaining = NavigationCommitPolicy.NAV_STABILIZATION_MS
+            logNavStabilize(
+                dest = dest,
+                elapsed = 0L,
+                remaining = remaining,
+                commit = false,
+                nowMs = nowMs,
+                timerSource = timerSource,
+                speechActive = !eosConfirmed && !finalResultSeen,
+                commitAllowed = false,
+                blockReason = "incomplete_growth",
+            )
+            return Observe(
+                decision = Decision.WAIT,
+                remainingMs = remaining,
+                result = result,
+                reason = "navigate_waiting_stable",
+                consecutive = consecutive,
+                fingerprint = fingerprint,
+                sessionId = sessionId,
+                generation = generation,
+                eosConfirmed = eosConfirmed,
+            )
+        }
+        val elapsed = NavigationCandidateTracker.stableForMs(nowMs)
+        val speechActive = !eosConfirmed && !finalResultSeen
+        val remaining = NavigationCommitPolicy.remainingUntilCommit(elapsed, speechActive)
+        val commitAllowed = remaining == 0L
+        val blockReason = NavigationCommitPolicy.commitBlockReason(elapsed, speechActive)
+        logNavStabilize(
+            dest = dest,
+            elapsed = elapsed,
+            remaining = remaining,
+            commit = commitAllowed,
+            nowMs = nowMs,
+            timerSource = timerSource,
+            speechActive = speechActive,
+            commitAllowed = commitAllowed,
+            blockReason = blockReason,
+        )
+        if (!commitAllowed) {
+            return Observe(
+                decision = Decision.WAIT,
+                remainingMs = remaining,
+                result = result,
+                reason = "navigate_waiting_stable",
+                consecutive = consecutive,
+                fingerprint = fingerprint,
+                sessionId = sessionId,
+                generation = generation,
+                eosConfirmed = eosConfirmed,
+            )
+        }
+        committed = true
+        NavigationCandidateTracker.logCommit(nowMs, "semantic_navigate_stable", dest)
+        val uri = NavigatePayload.navigationUri(dest).orEmpty()
+        val commitLine =
+            "NAV_COMMIT SESSION_ID=$sessionId RAW_PARTIAL=${result.rawTranscript} " +
+                "NAV_CANDIDATE=$dest CANDIDATE_RELATION=${NavigationCandidateTracker.lastRelation()} " +
+                "NAV_STABLE_FOR_MS=$elapsed NAV_COMPLETENESS=COMPLETE " +
+                "NAV_COMMIT_REASON=semantic_navigate_stable FINAL_DESTINATION=$dest " +
+                "FINAL_URI=$uri ACTION_COUNT=1"
+        CarfuLog.i(VoiceLifecycleLog.TAG, commitLine)
+        CarfuDiag.voice(commitLine)
+        return Observe(
+            decision = Decision.COMMIT,
+            remainingMs = 0L,
+            result = result,
+            reason = "semantic_navigate_stable",
+            consecutive = consecutive,
+            fingerprint = fingerprint,
+            sessionId = sessionId,
+            generation = generation,
+            eosConfirmed = eosConfirmed,
+        )
+    }
+
+    private fun observeNavigateLocked(
+        incoming: UnderstandingResult,
+        generation: Long,
+        nowMs: Long,
+    ): Observe {
+        val snapshot = NavigationCandidateTracker.observe(sessionId, nowMs, incoming)
+        val preferred = snapshot?.preferred
+        val use = when {
+            preferred != null && StableCompletePartialPolicy.isNavigateSemanticCommitSafe(preferred) ->
+                preferred
+            StableCompletePartialPolicy.isNavigateSemanticCommitSafe(incoming) -> incoming
+            else -> null
+        }
+        if (use == null) {
+            return Observe(
+                decision = Decision.IGNORE,
+                remainingMs = 0L,
+                result = incoming,
+                reason = incoming.reason.ifBlank { "nav_incomplete_head" },
+                consecutive = consecutive,
+                fingerprint = fingerprint,
+                sessionId = sessionId,
+                generation = generation,
+                eosConfirmed = eosConfirmed,
+            )
+        }
+        fingerprint = StableCompletePartialPolicy.fingerprint(use)
+        lastResult = use
+        consecutive = 1
+        val changedAt = snapshot?.candidateChangedAt ?: -1L
+        if (changedAt >= 0L) {
+            firstSeenMs = changedAt
+        }
+        return decideNavigateStableLocked(use, generation, nowMs, NavTimerSource.PARTIAL)
+    }
+
+    private fun logNavStabilize(
+        dest: String,
+        elapsed: Long,
+        remaining: Long,
+        commit: Boolean,
+        nowMs: Long,
+        timerSource: NavTimerSource,
+        speechActive: Boolean,
+        commitAllowed: Boolean,
+        blockReason: String,
+    ) {
+        val reason = if (commit) "semantic_navigate_stable" else "navigate_waiting_stable"
+        val completeness = NavigationCommitPolicy.completenessOf(dest)
+        val changedAt = NavigationCandidateTracker.candidateChangedAt()
+        val line =
+            "NAV_STABILIZE SESSION_ID=$sessionId SR_RAW_PARTIAL=${lastResult?.rawTranscript.orEmpty()} " +
+                "NORMALIZED_DESTINATION=$dest PREFERRED_DESTINATION=$dest " +
+                "SPEECH_ACTIVE=$speechActive SR_END_OF_SPEECH_SEEN=$eosConfirmed " +
+                "FINAL_RESULT_SEEN=$finalResultSeen LAST_MEANINGFUL_PARTIAL_AT=$changedAt " +
+                "CANDIDATE_RELATION=${NavigationCandidateTracker.lastRelation()} " +
+                "CANDIDATE_CHANGED=false CANDIDATE_CHANGED_AT=$changedAt NOW_MS=$nowMs " +
+                "NAV_FINGERPRINT=$fingerprint " +
+                "NAV_STABLE_FOR_MS=$elapsed NAV_CONTINUATION_GRACE_MS=" +
+                "${NavigationCommitPolicy.NAV_CONTINUATION_GRACE_MS} " +
+                "NAV_COMMIT_ALLOWED=$commitAllowed NAV_COMMIT_BLOCK_REASON=$blockReason " +
+                "NAV_COMPLETENESS=$completeness " +
+                "TIMER_SOURCE=$timerSource NAV_COMMIT_REASON=$reason remaining_ms=$remaining"
+        CarfuLog.i(VoiceLifecycleLog.TAG, line)
+        CarfuDiag.voice(line)
     }
 
     private fun notePlayMediaIntent(result: UnderstandingResult) {

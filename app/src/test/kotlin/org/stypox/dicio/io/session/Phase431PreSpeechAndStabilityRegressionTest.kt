@@ -7,6 +7,7 @@ import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
+import org.stypox.dicio.skills.carfu.nlu.NavigationCommitPolicy
 
 /**
  * Phase 4.3B.1 required regression matrix. Each case is JVM-source-proven against
@@ -138,26 +139,37 @@ class Phase431PreSpeechAndStabilityRegressionTest : StringSpec({
             StableCompletePartialTracker.Decision.IGNORE
     }
 
-    "PARTIAL 13. first COMPLETE alone follows consecutive+EOS rule" {
+    "PARTIAL 13. first COMPLETE Navigate waits for NAV stabilization without EOS" {
         StableCompletePartialTracker.bind(1L)
         val nav = u("Chỉ đường đến Mỹ Đình")
-        StableCompletePartialTracker.onPartial(1L, nav, 0L, 2L).decision shouldBe
-            StableCompletePartialTracker.Decision.WAIT
+        val first = StableCompletePartialTracker.onPartial(1L, nav, 0L, 2L)
+        first.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        first.reason shouldBe "navigate_waiting_stable"
         StableCompletePartialTracker.onEndOfSpeech(1L, 5L, 2L).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
+        StableCompletePartialTracker.onTimer(
+            1L,
+            StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+        ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        StableCompletePartialTracker.onEndOfSpeech(1L, 800L, 2L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
     }
 
-    "PARTIAL 14. changing COMPLETE resets consecutive count" {
+    "PARTIAL 14. later destination cannot replace a committed Navigate" {
         StableCompletePartialTracker.bind(1L)
         val a = u("Chỉ đường đến Mỹ Đình")
         val b = u("Chỉ đường đến Hồ Gươm")
-        StableCompletePartialTracker.onPartial(1L, a, 0L, 2L)
-        StableCompletePartialTracker.onPartial(1L, a, 10L, 2L)
-        val changed = StableCompletePartialTracker.onPartial(1L, b, 20L, 2L)
-        changed.consecutive shouldBe 1
-        changed.fingerprint shouldBe "NAVIGATE|Hồ Gươm"
-        StableCompletePartialTracker.onEndOfSpeech(1L, 30L, 2L).decision shouldBe
+        StableCompletePartialTracker.onPartial(1L, a, 0L, 2L).decision shouldBe
             StableCompletePartialTracker.Decision.WAIT
+        StableCompletePartialTracker.onTimer(
+            1L,
+            NavigationCommitPolicy.noEosCommitAt(0L),
+        ).decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        StableCompletePartialTracker.onPartial(1L, a, 10L, 2L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
+        StableCompletePartialTracker.onPartial(1L, b, 20L, 2L).decision shouldBe
+            StableCompletePartialTracker.Decision.IGNORE
+        StableCompletePartialPolicy.fingerprint(b) shouldBe "NAVIGATE|Hồ Gươm"
     }
 
     "PARTIAL 15. old stability state cannot affect a new session" {
@@ -240,33 +252,44 @@ class Phase431PreSpeechAndStabilityRegressionTest : StringSpec({
         val my = u("chỉ đường đến Mỹ")
         val full = u("chỉ đường đến Mỹ Đình")
         my.command shouldBe CanonicalCommand.Navigate("Mỹ")
-        StableCompletePartialPolicy.isEligible(my).shouldBeFalse()
         StableCompletePartialPolicy.navigateDestinationIsFastPathSafe("Mỹ").shouldBeFalse()
         StableCompletePartialPolicy.navigateDestinationIsFastPathSafe("Mỹ Đình").shouldBeTrue()
         StableCompletePartialTracker.bind(1L)
         StableCompletePartialTracker.onPartial(1L, my, 0L, 1L).decision shouldBe
-            StableCompletePartialTracker.Decision.IGNORE
+            StableCompletePartialTracker.Decision.WAIT
         StableCompletePartialTracker.onPartial(1L, my, 10L, 1L).decision shouldBe
-            StableCompletePartialTracker.Decision.IGNORE
+            StableCompletePartialTracker.Decision.WAIT
         StableCompletePartialTracker.onEndOfSpeech(1L, 400L, 1L).decision shouldBe
-            StableCompletePartialTracker.Decision.IGNORE
-        StableCompletePartialTracker.onPartial(1L, full, 500L, 1L).consecutive shouldBe 1
+            StableCompletePartialTracker.Decision.WAIT
+        val grown = StableCompletePartialTracker.onPartial(1L, full, 500L, 1L)
+        grown.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        grown.fingerprint shouldBe "NAVIGATE|Mỹ Đình"
         SessionCommandDecision.bindSession(1L)
         SessionCommandDecision.locked(1L).shouldBeNull()
     }
 
-    "ENTITY 22. Navigate fast path still requires consecutive+EOS" {
+    "ENTITY 22. Navigate complete destination commits after NAV stabilization without EOS" {
         StableCompletePartialTracker.bind(1L)
         val result = u("Chỉ đường đến Mỹ Đình")
         result.command shouldBe CanonicalCommand.Navigate("Mỹ Đình")
         StableCompletePartialPolicy.isEligible(result).shouldBeTrue()
-        StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result).shouldBeFalse()
-        StableCompletePartialTracker.onPartial(1L, result, 0L, 1L).decision shouldBe
-            StableCompletePartialTracker.Decision.WAIT
-        StableCompletePartialTracker.onPartial(1L, result, 10L, 1L).decision shouldBe
-            StableCompletePartialTracker.Decision.WAIT
-        StableCompletePartialTracker.onEndOfSpeech(1L, 20L, 1L).decision shouldBe
-            StableCompletePartialTracker.Decision.COMMIT
+        StableCompletePartialPolicy.isSemanticEarlyCommitSafe(result).shouldBeTrue()
+        val obs = StableCompletePartialTracker.onPartial(1L, result, 0L, 1L)
+        obs.decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        obs.reason shouldBe "navigate_waiting_stable"
+        obs.eosConfirmed.shouldBeFalse()
+        StableCompletePartialTracker.onTimer(
+            1L,
+            StableCompletePartialPolicy.NAV_STABILIZATION_MS,
+        ).decision shouldBe StableCompletePartialTracker.Decision.WAIT
+        val commit = StableCompletePartialTracker.onTimer(
+            1L,
+            NavigationCommitPolicy.noEosCommitAt(0L),
+        )
+        commit.decision shouldBe StableCompletePartialTracker.Decision.COMMIT
+        commit.reason shouldBe "semantic_navigate_stable"
+        commit.eosConfirmed.shouldBeFalse()
+        NavigationCommitPolicy.noEosCommitAt(0L) shouldBe 1_500L
     }
 
     "ENTITY 23-24. OpenApp/PlayMedia semantic-commit on first complete partial" {
