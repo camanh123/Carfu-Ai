@@ -7,9 +7,9 @@ import org.stypox.dicio.settings.datastore.UserSettings
 /**
  * JVM-testable decisions for CARFU background wake.
  *
- * CARFU acceptance default: background wake is **off** unless the user explicitly
- * sets [BackgroundWake.BACKGROUND_WAKE_ENABLED]. UNSET is OFF so this build does
- * not keep a false-wake session. Manual MODE still works.
+ * MODE-only device-test phase: background wake is **forced OFF**, including a
+ * previously persisted ENABLED value. Wake-word code stays in the tree; idle
+ * must not open AudioRecord or run wake scoring. Manual MODE/UI still works.
  *
  * MainActivity may start or observe the foreground WakeService, but it must not own the
  * service lifetime or the wake AudioRecord.
@@ -20,14 +20,30 @@ object BackgroundWakePolicy {
     const val STALE_READ_MS = 2_000L
 
     /**
-     * True only when the user explicitly enabled background wake.
-     * UNSET and DISABLED are both off.
+     * Temporary production policy for MODE/UI-only device testing.
+     * Not a removal of the wake architecture.
+     */
+    const val MODE_ONLY_FORCE_BACKGROUND_WAKE_OFF = true
+
+    fun modeOnlyForceBackgroundWakeOff(): Boolean = MODE_ONLY_FORCE_BACKGROUND_WAKE_OFF
+
+    /**
+     * Runtime enablement. For this MODE-only build this is always false, even when
+     * datastore still says ENABLED, until migration persists DISABLED.
      */
     fun isBackgroundWakeEnabled(settings: UserSettings): Boolean =
         isBackgroundWakeEnabled(settings.backgroundWake)
 
-    fun isBackgroundWakeEnabled(value: BackgroundWake): Boolean =
-        value == BackgroundWake.BACKGROUND_WAKE_ENABLED
+    fun isBackgroundWakeEnabled(value: BackgroundWake): Boolean {
+        if (modeOnlyForceBackgroundWakeOff()) return false
+        return value == BackgroundWake.BACKGROUND_WAKE_ENABLED
+    }
+
+    fun persistedEnabledMustBeOverridden(value: BackgroundWake): Boolean =
+        modeOnlyForceBackgroundWakeOff() &&
+            value == BackgroundWake.BACKGROUND_WAKE_ENABLED
+
+    fun mayOpenIdleWakeAudioRecord(): Boolean = !modeOnlyForceBackgroundWakeOff()
 
     fun activityOnStopShouldStopWakeService(): Boolean = false
 
@@ -40,7 +56,8 @@ object BackgroundWakePolicy {
         recordAudioGranted: Boolean,
         wakeDeviceEnabled: Boolean,
         wakeModelReadyOrPending: Boolean,
-    ): Boolean = backgroundWakeEnabled &&
+    ): Boolean = !modeOnlyForceBackgroundWakeOff() &&
+        backgroundWakeEnabled &&
         recordAudioGranted &&
         wakeDeviceEnabled &&
         wakeModelReadyOrPending

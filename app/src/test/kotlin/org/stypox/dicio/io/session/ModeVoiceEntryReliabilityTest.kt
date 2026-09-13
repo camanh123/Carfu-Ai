@@ -210,13 +210,14 @@ class ModeVoiceEntryReliabilityTest : StringSpec({
         count("SR_START_REQUEST") shouldBe 1
     }
 
-    "4. BACKGROUND_WAKE enabled before MODE releases hub then starts SR" {
-        CarfuSessionGate.setBackgroundWakeEnabled(true)
+    "4. leftover hub still recording is released before SR (failsafe)" {
+        CarfuSessionGate.setBackgroundWakeEnabled(false)
         BackgroundWakePolicy.isBackgroundWakeEnabled(
             UserSettings.getDefaultInstance().toBuilder()
                 .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
                 .build(),
-        ).shouldBeTrue()
+        ).shouldBeFalse()
+        BackgroundWakePolicy.mayOpenIdleWakeAudioRecord().shouldBeFalse()
         CarfuPcmHub.markRecording(true)
         WakeHubReleasePolicy.shouldStartSpeechRecognizer(true).shouldBeFalse()
 
@@ -240,6 +241,25 @@ class ModeVoiceEntryReliabilityTest : StringSpec({
         val releaseIdx = events().indexOfFirst { it.contains("WAKE_HUB_RELEASED") }
         val startIdx = events().indexOfFirst { it.contains("SR_START_REQUEST") }
         (releaseIdx in 0 until startIdx).shouldBeTrue()
+    }
+
+    "MODE-only forced-off idle skips wake capture and still arms SR" {
+        BackgroundWakePolicy.modeOnlyForceBackgroundWakeOff().shouldBeTrue()
+        BackgroundWakePolicy.mayOpenIdleWakeAudioRecord().shouldBeFalse()
+        CarfuPcmHub.isRecording().shouldBeFalse()
+        val session = simulateModeEntry(
+            sessionId = 44L,
+            hubRecording = false,
+        )
+        session.shouldNotBeNull()
+        count("VOICESESSION_CREATED") shouldBe 1
+        count("SR_START_REQUEST") shouldBe 1
+        count("SR_START_ACCEPTED") shouldBe 1
+        CarfuPcmHub.isRecording().shouldBeFalse()
+        CommandRecognitionPolicy.microphoneOwnersOverlap(
+            hubRecording = false,
+            speechRecognizerActive = true,
+        ).shouldBeFalse()
     }
 
     "5. hub fails to release → SR not started, one refusal/terminal, no retry loop" {
