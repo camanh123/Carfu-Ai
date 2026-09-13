@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.stypox.dicio.di.WakeDeviceWrapper
+import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.io.wake.oww.OpenWakeWordDevice
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.io.session.CarfuSessionGate
@@ -84,17 +85,18 @@ class MainSettingsViewModel @Inject constructor(
 
     fun setBackgroundWake(enabled: Boolean) {
         viewModelScope.launch {
-            CarfuSessionGate.setBackgroundWakeEnabled(enabled)
+            val effective = enabled && !BackgroundWakePolicy.modeOnlyForceBackgroundWakeOff()
+            CarfuSessionGate.setBackgroundWakeEnabled(effective)
             dataStore.updateData {
                 it.toBuilder()
                     .setBackgroundWake(
-                        if (enabled) BackgroundWake.BACKGROUND_WAKE_ENABLED
+                        if (effective) BackgroundWake.BACKGROUND_WAKE_ENABLED
                         else BackgroundWake.BACKGROUND_WAKE_DISABLED
                     )
                     .build()
             }
             val app = getApplication<Application>()
-            if (enabled) {
+            if (effective) {
                 WakeService.start(app)
             } else {
                 WakeService.disableAndStop(app)

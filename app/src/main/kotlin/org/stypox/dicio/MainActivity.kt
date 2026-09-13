@@ -240,8 +240,13 @@ class MainActivity : BaseActivity() {
                 )
             }
                 .distinctUntilChanged()
-                .filter { it }
-                .collect { WakeService.start(this@MainActivity) }
+                .collect { shouldStart ->
+                    if (shouldStart) {
+                        WakeService.start(this@MainActivity)
+                    } else if (BackgroundWakePolicy.modeOnlyForceBackgroundWakeOff()) {
+                        WakeService.disableAndStop(this@MainActivity)
+                    }
+                }
         }
 
         sttPermissionJob?.cancel()

@@ -170,6 +170,17 @@ class WakeService : Service() {
             return START_NOT_STICKY
         }
 
+        if (BackgroundWakePolicy.modeOnlyForceBackgroundWakeOff()) {
+            listening.set(false)
+            CarfuSessionGate.setBackgroundWakeEnabled(false)
+            holdIdleWithoutWake()
+            scope.launch {
+                persistBackgroundWakeEnabled(false)
+                stopWithMessage()
+            }
+            return START_NOT_STICKY
+        }
+
         if (intent?.action == ACTION_STOP_WAKE_SERVICE ||
             intent?.action == ACTION_DISABLE_BACKGROUND_WAKE
         ) {
@@ -234,6 +245,11 @@ class WakeService : Service() {
     }
 
     private fun startListeningIfNeeded() {
+        if (!BackgroundWakePolicy.mayOpenIdleWakeAudioRecord()) {
+            listening.set(false)
+            holdIdleWithoutWake()
+            return
+        }
         if (listening.getAndSet(true)) {
             return
         }
@@ -822,6 +838,11 @@ class WakeService : Service() {
          * Start is idempotent: a second call does not open a second AudioRecord.
          */
         fun start(context: Context) {
+            if (BackgroundWakePolicy.modeOnlyForceBackgroundWakeOff()) {
+                Log.d(TAG, "WakeService.start() ignored MODE_ONLY_FORCE_BACKGROUND_WAKE_OFF")
+                disableAndStop(context)
+                return
+            }
             Log.d(TAG, "WakeService.start() called from ${Throwable().stackTrace[1]}")
             val intent = Intent(context, WakeService::class.java)
             ContextCompat.startForegroundService(context, intent)
@@ -938,7 +959,10 @@ class WakeService : Service() {
             resumeHandler.removeCallbacks(autoResumeRunnable)
             interactionPaused.set(true)
             acceptancePolicy.closeGate()
-            CarfuDiag.wake("WAKE_HELD_IDLE background_wake=false")
+            releaseHubForOnlineCommand()
+            CarfuDiag.wake(
+                "WAKE_HELD_IDLE background_wake=false recording=${CarfuPcmHub.isRecording()}",
+            )
         }
 
         fun resumeAfterInteraction(automaticFalseWake: Boolean = false) {

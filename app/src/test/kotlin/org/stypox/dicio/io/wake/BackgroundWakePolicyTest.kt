@@ -47,20 +47,23 @@ class BackgroundWakePolicyTest : StringSpec({
         ) shouldBe CommandSessionPhase.IDLE_WAKE
     }
 
-    "6 boot starts the service only when background wake is enabled" {
+    "6 MODE-only force-off prevents boot start even if persisted ENABLED" {
         val enabled = UserSettings.getDefaultInstance().toBuilder()
             .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
             .build()
-        BackgroundWakePolicy.isBackgroundWakeEnabled(enabled).shouldBeTrue()
+        BackgroundWakePolicy.modeOnlyForceBackgroundWakeOff().shouldBeTrue()
+        BackgroundWakePolicy.isBackgroundWakeEnabled(enabled).shouldBeFalse()
+        BackgroundWakePolicy.persistedEnabledMustBeOverridden(enabled.backgroundWake).shouldBeTrue()
+        BackgroundWakePolicy.mayOpenIdleWakeAudioRecord().shouldBeFalse()
         BackgroundWakePolicy.shouldStartOnBoot(
             backgroundWakeEnabled = true,
             recordAudioGranted = true,
             wakeDeviceEnabled = true,
             wakeModelReadyOrPending = true,
-        ).shouldBeTrue()
-        BackgroundWakePolicy.shouldStartOnBoot(
+        ).shouldBeFalse()
+        BackgroundWakePolicy.shouldStartWakeService(
             backgroundWakeEnabled = true,
-            recordAudioGranted = false,
+            recordAudioGranted = true,
             wakeDeviceEnabled = true,
             wakeModelReadyOrPending = true,
         ).shouldBeFalse()
@@ -84,7 +87,8 @@ class BackgroundWakePolicyTest : StringSpec({
         val enabled = unset.toBuilder()
             .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
             .build()
-        BackgroundWakePolicy.isBackgroundWakeEnabled(enabled).shouldBeTrue()
+        BackgroundWakePolicy.isBackgroundWakeEnabled(enabled).shouldBeFalse()
+        BackgroundWakePolicy.persistedEnabledMustBeOverridden(enabled.backgroundWake).shouldBeTrue()
     }
 
     "8 screen wake repairs a lost capture without duplication" {

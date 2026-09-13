@@ -5,6 +5,7 @@ import io.kotest.matchers.booleans.shouldBeFalse
 import io.kotest.matchers.booleans.shouldBeTrue
 import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
+import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.CommandRecognitionEngine
 import org.stypox.dicio.settings.datastore.UserSettings
@@ -135,16 +136,19 @@ class CommandRecognitionPolicyTest : StringSpec({
         CommandRecognitionPolicy.needsAcceptanceProfileMigration(migrated).shouldBeFalse()
     }
 
-    "explicit BACKGROUND_WAKE_ENABLED is kept after engine already migrated" {
+    "explicit BACKGROUND_WAKE_ENABLED is overridden OFF for MODE-only" {
         val kept = UserSettings.getDefaultInstance().toBuilder()
             .setCommandRecognitionEngine(
                 CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
             )
             .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
             .build()
-        CommandRecognitionPolicy.needsAcceptanceProfileMigration(kept).shouldBeFalse()
-        CommandRecognitionPolicy.applyAcceptanceProfile(kept).backgroundWake shouldBe
-            BackgroundWake.BACKGROUND_WAKE_ENABLED
+        CommandRecognitionPolicy.needsAcceptanceProfileMigration(kept).shouldBeTrue()
+        val migrated = CommandRecognitionPolicy.applyAcceptanceProfile(kept)
+        migrated.backgroundWake shouldBe BackgroundWake.BACKGROUND_WAKE_DISABLED
+        CommandRecognitionPolicy.needsAcceptanceProfileMigration(migrated).shouldBeFalse()
+        BackgroundWakePolicy.isBackgroundWakeEnabled(kept).shouldBeFalse()
+        BackgroundWakePolicy.isBackgroundWakeEnabled(migrated).shouldBeFalse()
     }
 
     "UNSET wake on a migrated engine persists OFF" {

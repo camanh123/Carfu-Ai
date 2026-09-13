@@ -1,5 +1,6 @@
 package org.stypox.dicio.io.input
 
+import org.stypox.dicio.io.wake.BackgroundWakePolicy
 import org.stypox.dicio.settings.datastore.BackgroundWake
 import org.stypox.dicio.settings.datastore.CommandRecognitionEngine
 import org.stypox.dicio.settings.datastore.UserSettings
@@ -104,13 +105,15 @@ object CommandRecognitionPolicy {
             CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_UNSET ||
             settings.commandRecognitionEngine == CommandRecognitionEngine.UNRECOGNIZED
         val wakeUnset = settings.backgroundWake == BackgroundWake.BACKGROUND_WAKE_UNSET
-        return engineUnset || wakeUnset
+        val modeOnlyWakeOn = BackgroundWakePolicy.persistedEnabledMustBeOverridden(
+            settings.backgroundWake,
+        )
+        return engineUnset || wakeUnset || modeOnlyWakeOn
     }
 
     /**
-     * First-run / UNSET: Android online STT and background wake OFF.
-     * An already-migrated install that explicitly set BACKGROUND_WAKE_ENABLED
-     * is left alone — MODE still releases the hub before SpeechRecognizer.
+     * MODE-only device-test profile: Android online STT and background wake OFF.
+     * Previously persisted BACKGROUND_WAKE_ENABLED is overridden to DISABLED.
      */
     fun applyAcceptanceProfile(settings: UserSettings): UserSettings {
         val engineUnset = settings.commandRecognitionEngine ==
@@ -120,7 +123,10 @@ object CommandRecognitionPolicy {
             .setCommandRecognitionEngine(
                 CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
             )
-        if (engineUnset || settings.backgroundWake == BackgroundWake.BACKGROUND_WAKE_UNSET) {
+        if (engineUnset ||
+            settings.backgroundWake == BackgroundWake.BACKGROUND_WAKE_UNSET ||
+            BackgroundWakePolicy.modeOnlyForceBackgroundWakeOff()
+        ) {
             builder.setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_DISABLED)
         }
         return builder.build()
