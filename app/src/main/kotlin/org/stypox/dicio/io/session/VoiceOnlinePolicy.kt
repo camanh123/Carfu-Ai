@@ -5,8 +5,12 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 
 /**
- * Online-first gate for V2 voice sessions.
- * Internet recovery alone must never create a session — user must press MODE again.
+ * Connectivity snapshot for V2 voice sessions.
+ *
+ * A deliberate MODE/UI press must not be abandoned because ConnectivityManager
+ * briefly reports no usable internet. Real SpeechRecognizer / network failures
+ * are handled inside the created session. Internet recovery alone must never
+ * create a later session — the user must press MODE again.
  */
 object VoiceOnlinePolicy {
     const val OFFLINE_TTS_VI = "Vui lòng kết nối Internet để sử dụng dịch vụ."
@@ -28,7 +32,15 @@ object VoiceOnlinePolicy {
         }
     }
 
-    fun mayEnterOnlineVoiceSession(online: Boolean): Boolean = online
+    /**
+     * MODE/UI fail-open: a false ConnectivityManager snapshot does not block
+     * VoiceSession creation. [online] is retained for callers/tests.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun mayEnterOnlineVoiceSession(online: Boolean): Boolean = true
+
+    fun autoRetryOnNetworkRecovery(): Boolean =
+        ModeVoiceEntryPolicy.autoRetryOnNetworkRecovery()
 
     fun resetForTests() {
         onlineOverride = null

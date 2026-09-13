@@ -26,7 +26,7 @@ class CarfuVoiceTraceTest : StringSpec({
         CarfuVoiceTrace.sessionEnd("complete")
 
         val events = CarfuVoiceTrace.eventsForTests()
-        events.size shouldBe 12
+        events.size shouldBe 13
         events[0] shouldBe "session=42 TRIGGER source=UI_MODE"
         events[1] shouldBe "session=42 SESSION_START origin=UI_MODE"
         events[2].shouldStartWith("session=42 SR_CREATE")
@@ -38,7 +38,8 @@ class CarfuVoiceTraceTest : StringSpec({
         events[8].shouldStartWith("session=42 SR_FINAL text=mấy giờ rồi")
         events[9] shouldBe "session=42 STOP_REQUEST source=final_transcript"
         events[10] shouldBe "session=42 TERMINAL reason=complete"
-        events[11] shouldBe "session=42 SESSION_END reason=complete"
+        events[11] shouldBe "session=42 SESSION_TERMINAL reason=complete"
+        events[12] shouldBe "session=42 SESSION_END reason=complete"
         events.shouldContain("session=42 SR_START_LISTENING")
     }
 

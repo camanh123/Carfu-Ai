@@ -99,18 +99,32 @@ object CommandRecognitionPolicy {
     fun shouldInitializeVoskAtStartup(engine: CommandRecognitionEngine): Boolean =
         shouldConstructVosk(engine)
 
-    fun needsAcceptanceProfileMigration(settings: UserSettings): Boolean =
-        settings.commandRecognitionEngine ==
+    fun needsAcceptanceProfileMigration(settings: UserSettings): Boolean {
+        val engineUnset = settings.commandRecognitionEngine ==
             CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_UNSET ||
             settings.commandRecognitionEngine == CommandRecognitionEngine.UNRECOGNIZED
+        val wakeUnset = settings.backgroundWake == BackgroundWake.BACKGROUND_WAKE_UNSET
+        return engineUnset || wakeUnset
+    }
 
-    fun applyAcceptanceProfile(settings: UserSettings): UserSettings =
-        settings.toBuilder()
+    /**
+     * First-run / UNSET: Android online STT and background wake OFF.
+     * An already-migrated install that explicitly set BACKGROUND_WAKE_ENABLED
+     * is left alone — MODE still releases the hub before SpeechRecognizer.
+     */
+    fun applyAcceptanceProfile(settings: UserSettings): UserSettings {
+        val engineUnset = settings.commandRecognitionEngine ==
+            CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_UNSET ||
+            settings.commandRecognitionEngine == CommandRecognitionEngine.UNRECOGNIZED
+        val builder = settings.toBuilder()
             .setCommandRecognitionEngine(
                 CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
             )
-            .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_DISABLED)
-            .build()
+        if (engineUnset || settings.backgroundWake == BackgroundWake.BACKGROUND_WAKE_UNSET) {
+            builder.setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_DISABLED)
+        }
+        return builder.build()
+    }
 
     fun recognizerIntentConfig(): AndroidRecognizerIntentConfig = AndroidRecognizerIntentConfig()
 

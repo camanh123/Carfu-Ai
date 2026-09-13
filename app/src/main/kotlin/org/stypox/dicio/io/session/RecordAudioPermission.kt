@@ -102,7 +102,11 @@ object RecordAudioPermission {
                 "shouldShowRationale=${snap.shouldShowRationale} " +
                 "previouslyRequested=${snap.previouslyRequested}",
         )
-        CarfuVoiceTrace.permissionOrAvailability(snap.runtimeLabel())
+        CarfuVoiceTrace.recordAudioState(origin, snap.runtimeLabel())
+        ModeVoiceEntryPolicy.srRefusedReasonForPermission(
+            granted = snap.mayStartSpeechRecognizer(),
+            runtimeLabel = snap.runtimeLabel(),
+        )?.let { CarfuVoiceTrace.srStartRefused(it) }
         return snap
     }
 

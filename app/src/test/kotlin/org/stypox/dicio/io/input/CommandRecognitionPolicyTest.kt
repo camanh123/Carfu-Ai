@@ -134,6 +134,31 @@ class CommandRecognitionPolicyTest : StringSpec({
         migrated.backgroundWake shouldBe BackgroundWake.BACKGROUND_WAKE_DISABLED
         CommandRecognitionPolicy.needsAcceptanceProfileMigration(migrated).shouldBeFalse()
     }
+
+    "explicit BACKGROUND_WAKE_ENABLED is kept after engine already migrated" {
+        val kept = UserSettings.getDefaultInstance().toBuilder()
+            .setCommandRecognitionEngine(
+                CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
+            )
+            .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_ENABLED)
+            .build()
+        CommandRecognitionPolicy.needsAcceptanceProfileMigration(kept).shouldBeFalse()
+        CommandRecognitionPolicy.applyAcceptanceProfile(kept).backgroundWake shouldBe
+            BackgroundWake.BACKGROUND_WAKE_ENABLED
+    }
+
+    "UNSET wake on a migrated engine persists OFF" {
+        val unset = UserSettings.getDefaultInstance().toBuilder()
+            .setCommandRecognitionEngine(
+                CommandRecognitionEngine.COMMAND_RECOGNITION_ENGINE_ANDROID_ONLINE,
+            )
+            .setBackgroundWake(BackgroundWake.BACKGROUND_WAKE_UNSET)
+            .build()
+        CommandRecognitionPolicy.needsAcceptanceProfileMigration(unset).shouldBeTrue()
+        CommandRecognitionPolicy.applyAcceptanceProfile(unset).backgroundWake shouldBe
+            BackgroundWake.BACKGROUND_WAKE_DISABLED
+    }
+
     "recognizer intent config has no Google silence extras" {
         val cfg = CommandRecognitionPolicy.recognizerIntentConfig()
         cfg.maxResults shouldBe CommandRecognitionPolicy.MAX_RESULTS

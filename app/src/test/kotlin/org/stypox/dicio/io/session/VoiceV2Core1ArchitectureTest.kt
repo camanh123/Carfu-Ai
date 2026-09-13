@@ -236,12 +236,22 @@ class VoiceV2Core1ArchitectureTest : StringSpec({
         understood.confirmationSpeechVi().shouldContain("Mỹ Đình")
     }
 
-    "internet unavailable blocks online voice session entry" {
+    "internet unavailable does not block MODE voice session entry" {
         VoiceOnlinePolicy.onlineOverride = false
-        VoiceOnlinePolicy.mayEnterOnlineVoiceSession(false).shouldBeFalse()
+        VoiceOnlinePolicy.mayEnterOnlineVoiceSession(false).shouldBeTrue()
+        ModeVoiceEntryPolicy.connectivitySnapshotBlocksDeliberateMode(false).shouldBeFalse()
+        ModeVoiceEntryPolicy.mayCreateVoiceSession(
+            recordAudioGranted = true,
+            recognizerAvailable = true,
+        ).shouldBeTrue()
         VoiceOnlinePolicy.OFFLINE_TTS_VI shouldContain "Internet"
+        val session = acceptMode(sessionId = 99L)
+        VoiceSessionManager.requestListen(session.sessionId).shouldBeTrue()
+        VoiceSessionManager.counters().listenStarts shouldBe 1
+        VoiceSessionManager.terminate(session.sessionId, "sr_error")
         // Recovery alone is not a trigger
         VoiceOnlinePolicy.onlineOverride = true
+        ModeVoiceEntryPolicy.autoRetryOnNetworkRecovery().shouldBeFalse()
         VoiceTriggerManager.hasOpenTrigger().shouldBeFalse()
         VoiceSessionManager.hasLiveSession().shouldBeFalse()
     }

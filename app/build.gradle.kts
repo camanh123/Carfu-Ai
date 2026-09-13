@@ -33,8 +33,8 @@ android {
         applicationId = "org.stypox.dicio"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 34
-        versionName = "4.9.3-nav-r3"
+        versionCode = 35
+        versionName = "4.9.3-mode-entry"
         testInstrumentationRunner = "org.stypox.dicio.CustomTestRunner"
 
         vectorDrawables.useSupportLibrary = true
@@ -46,7 +46,8 @@ android {
 
     buildTypes {
         debug {
-            var normalizedGitBranch = gitBranch().replaceFirst("^[^A-Za-z]+", "").replace(Regex("[^0-9A-Za-z]+"), "")
+            // Pin to the Maps Navigate debug id so MODE-entry APKs upgrade in place.
+            val normalizedGitBranch = "cursorgooglemapsnavigateintent5693"
             applicationIdSuffix = ".$normalizedGitBranch"
             versionNameSuffix = "-$normalizedGitBranch"
 
