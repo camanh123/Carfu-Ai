@@ -32,12 +32,49 @@ object CarfuVoiceTrace {
         }
     }
 
+    fun voiceTriggerRequest(source: String) {
+        event("VOICE_TRIGGER_REQUEST source=$source")
+    }
+
     fun trigger(source: String) {
         event("TRIGGER source=$source")
     }
 
+    fun voiceSessionCreated() {
+        event("VOICESESSION_CREATED origin=$origin")
+    }
+
     fun sessionStart() {
         event("SESSION_START origin=$origin")
+    }
+
+    fun recordAudioState(origin: String, runtimeLabel: String) {
+        event("RECORD_AUDIO_STATE origin=$origin runtime=$runtimeLabel")
+    }
+
+    fun wakeHubReleaseRequest() {
+        event("WAKE_HUB_RELEASE_REQUEST")
+    }
+
+    fun wakeHubReleased() {
+        event("WAKE_HUB_RELEASED")
+    }
+
+    fun wakeHubReleaseMs(elapsedMs: Long) {
+        event("WAKE_HUB_RELEASE_MS ms=$elapsedMs")
+    }
+
+    fun srStartRequest() {
+        event("SR_START_REQUEST")
+    }
+
+    fun srStartAccepted() {
+        event("SR_START_ACCEPTED")
+    }
+
+    fun srStartRefused(reason: String) {
+        event("SR_START_REFUSED reason=$reason")
+        event("SR_REFUSED reason=$reason")
     }
 
     fun srCreate(packageName: String = "", className: String = "") {
@@ -88,6 +125,7 @@ object CarfuVoiceTrace {
 
     fun terminal(reason: String) {
         event("TERMINAL reason=$reason")
+        event("SESSION_TERMINAL reason=$reason")
     }
 
     fun sessionEnd(reason: String) {
@@ -103,7 +141,7 @@ object CarfuVoiceTrace {
     }
 
     fun permissionOrAvailability(reason: String) {
-        event("SR_REFUSED reason=$reason")
+        srStartRefused(reason)
     }
 
     fun coroutineCancelled(where: String) {

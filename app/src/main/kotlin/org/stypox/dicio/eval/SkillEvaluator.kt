@@ -2,6 +2,7 @@ package org.stypox.dicio.eval
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import dagger.Module
 import dagger.Provides
@@ -62,10 +63,10 @@ import org.stypox.dicio.io.session.StableCompletePartialTracker
 import org.stypox.dicio.io.session.VoiceLifecycleLog
 import org.stypox.dicio.io.session.VoiceToActionLatency
 import org.stypox.dicio.io.session.VoiceToActionStage
-import org.stypox.dicio.io.session.VoiceOnlinePolicy
 import org.stypox.dicio.io.session.VoiceSessionGuard
 import org.stypox.dicio.io.session.VoiceSessionManager
 import org.stypox.dicio.io.session.VoiceTriggerManager
+import org.stypox.dicio.io.session.WakeHubReleasePolicy
 import org.stypox.dicio.io.session.toCommandUnderstanding
 import org.stypox.dicio.io.wake.WakeService
 import org.stypox.dicio.settings.datastore.UserSettings
@@ -349,16 +350,8 @@ class SkillEvaluatorImpl(
             )
             return
         }
-        // Online-first: do not enter a broken listen loop without Internet.
-        if (androidOnline &&
-            !VoiceOnlinePolicy.mayEnterOnlineVoiceSession(
-                VoiceOnlinePolicy.isUsableInternet(skillContext.android),
-            )
-        ) {
-            VoiceTriggerManager.abandonOpenTrigger(trigger.triggerId, "offline")
-            speakOfflineNeedInternet()
-            return
-        }
+        // MODE/UI fail-open: do not abandon on a transient ConnectivityManager snapshot.
+        // Real SpeechRecognizer / network errors terminate inside the created session.
         if (!androidOnline) {
             sttInputDevice.ensureModelPipeline()
         }
@@ -418,6 +411,7 @@ class SkillEvaluatorImpl(
         CarfuVoiceTrace.bind(result.sessionId, trigger.origin)
         CarfuVoiceTrace.trigger(CarfuVoiceTrace.origin)
         CarfuVoiceTrace.sessionStart()
+        CarfuVoiceTrace.voiceSessionCreated()
         VoiceToActionLatency.begin(
             result.sessionId.toString(),
             "origin=$gateOrigin triggerId=${trigger.triggerId}",
@@ -503,17 +497,6 @@ class SkillEvaluatorImpl(
                 CarfuVoiceTrace.coroutineCancelled("startCommandListening_vosk")
                 throw c
             }
-        }
-    }
-
-    private fun speakOfflineNeedInternet() {
-        runOnMain {
-            skillContext.speechOutputDevice.stopSpeaking()
-            skillContext.speechOutputDevice.speak(
-                skillContext.android.getString(R.string.carfu_need_internet_service),
-            )
-            CarfuLatencyLog.logSessionEvent("OFFLINE_GATE", "no_session")
-            CarfuLog.i(CommandSession.TAG, "OFFLINE_GATE tts=need_internet no_command_session")
         }
     }
 
@@ -613,6 +596,54 @@ class SkillEvaluatorImpl(
         return sttInputDevice.isRecognizerReady()
     }
 
+    private suspend fun waitForWakeHubReleased(sessionId: Long): Boolean {
+        val startedAt = SystemClock.elapsedRealtime()
+        CarfuVoiceTrace.wakeHubReleaseRequest()
+        var polls = 0
+        while (true) {
+            if (!CarfuSessionGate.isCurrent(sessionId) ||
+                !wakeSessionActive.get() ||
+                VoiceSessionManager.shouldIgnoreCallback(sessionId)
+            ) {
+                CarfuVoiceTrace.wakeHubReleaseMs(SystemClock.elapsedRealtime() - startedAt)
+                return false
+            }
+            val elapsed = SystemClock.elapsedRealtime() - startedAt
+            val recording = CarfuPcmHub.isRecording()
+            when (WakeHubReleasePolicy.decision(recording, elapsed)) {
+                WakeHubReleasePolicy.Decision.START_SPEECH_RECOGNIZER -> {
+                    CarfuVoiceTrace.wakeHubReleaseMs(elapsed)
+                    CarfuVoiceTrace.wakeHubReleased()
+                    return true
+                }
+                WakeHubReleasePolicy.Decision.WAIT -> {
+                    WakeService.releaseHubForOnlineCommand()
+                    polls++
+                    if (polls > WakeHubReleasePolicy.MAX_POLLS) {
+                        val finalElapsed = SystemClock.elapsedRealtime() - startedAt
+                        CarfuVoiceTrace.wakeHubReleaseMs(finalElapsed)
+                        if (!CarfuPcmHub.isRecording()) {
+                            CarfuVoiceTrace.wakeHubReleased()
+                            return true
+                        }
+                        return false
+                    }
+                    delay(WakeHubReleasePolicy.POLL_MS)
+                }
+                WakeHubReleasePolicy.Decision.REFUSE_STILL_RECORDING -> {
+                    WakeService.releaseHubForOnlineCommand()
+                    val finalElapsed = SystemClock.elapsedRealtime() - startedAt
+                    CarfuVoiceTrace.wakeHubReleaseMs(finalElapsed)
+                    if (!CarfuPcmHub.isRecording()) {
+                        CarfuVoiceTrace.wakeHubReleased()
+                        return true
+                    }
+                    return false
+                }
+            }
+        }
+    }
+
     private suspend fun startCommandListening(
         reason: String,
         sessionId: Long,
@@ -650,12 +681,22 @@ class SkillEvaluatorImpl(
             return
         }
         if (androidOnline) {
-            if (CarfuPcmHub.isRecording()) {
-                WakeService.releaseHubForOnlineCommand()
-            }
-            if (!CommandRecognitionPolicy.canStartAndroidRecognizer(CarfuPcmHub.isRecording())) {
+            if (!waitForWakeHubReleased(sessionId)) {
+                if (!CarfuSessionGate.isCurrent(sessionId) ||
+                    !wakeSessionActive.get() ||
+                    VoiceSessionManager.shouldIgnoreCallback(sessionId)
+                ) {
+                    if (wakeSessionActive.get()) {
+                        endWakeSession("stale_session_$reason", originatingSessionId = sessionId)
+                    }
+                    return
+                }
+                CarfuVoiceTrace.srStartRefused(WakeHubReleasePolicy.REFUSE_REASON)
                 CarfuLog.e(CommandSession.TAG, "ANDROID_SR_BLOCKED hub_recording=true")
-                endWakeSession("hub_not_released", originatingSessionId = sessionId)
+                endWakeSession(
+                    WakeHubReleasePolicy.REFUSE_REASON,
+                    originatingSessionId = sessionId,
+                )
                 return
             }
             val started = withContext(Dispatchers.Main) {

@@ -135,12 +135,13 @@ class AndroidSpeechInputDevice(
                 CommandSession.TAG,
                 "ANDROID_SR_REFUSED hub_recording=${CarfuPcmHub.isRecording()}",
             )
-            CarfuVoiceTrace.permissionOrAvailability("hub_recording")
+            CarfuVoiceTrace.srStartRefused("hub_recording")
             return false
         }
         val component = pickExternalService()
         if (component == null) {
             _uiState.value = SttState.NotAvailable
+            CarfuVoiceTrace.srStartRefused("recognition_unavailable")
             return false
         }
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -179,13 +180,13 @@ class AndroidSpeechInputDevice(
         }
         if (!recognitionAvailable) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED recognition_unavailable")
-            CarfuVoiceTrace.permissionOrAvailability("recognition_unavailable")
+            CarfuVoiceTrace.srStartRefused("recognition_unavailable")
             _uiState.value = SttState.NotAvailable
             return false
         }
         if (CarfuPcmHub.isRecording()) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_REFUSED hub_still_recording=true")
-            CarfuVoiceTrace.permissionOrAvailability("hub_still_recording")
+            CarfuVoiceTrace.srStartRefused("hub_still_recording")
             return false
         }
         stopListeningInternal()
@@ -201,7 +202,7 @@ class AndroidSpeechInputDevice(
             )
         } catch (t: Throwable) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_CREATE_FAILED ${t.javaClass.simpleName}")
-            CarfuVoiceTrace.permissionOrAvailability("create_failed_${t.javaClass.simpleName}")
+            CarfuVoiceTrace.srStartRefused("create_failed_${t.javaClass.simpleName}")
             _uiState.value = SttState.NotAvailable
             listenerRef.set(null)
             return false
@@ -218,6 +219,7 @@ class AndroidSpeechInputDevice(
         CarfuLatencyLog.nowMs = { SystemClock.elapsedRealtime() }
         CarfuLatencyLog.mark(CarfuLatencyLog.Mark.SR_START_LISTENING)
         CarfuLatencyLog.logPipelineStage("SR_START_LISTENING")
+        CarfuVoiceTrace.srStartRequest()
         CarfuVoiceTrace.srStartListening()
         armStartedAtMs.set(SystemClock.elapsedRealtime())
         CarfuLog.i(
@@ -230,13 +232,14 @@ class AndroidSpeechInputDevice(
             sr.startListening(intent)
         } catch (t: Throwable) {
             CarfuLog.e(CommandSession.TAG, "ANDROID_SR_START_FAILED ${t.javaClass.simpleName}")
-            CarfuVoiceTrace.permissionOrAvailability("start_failed_${t.javaClass.simpleName}")
+            CarfuVoiceTrace.srStartRefused("start_failed_${t.javaClass.simpleName}")
             listenerGeneration.incrementAndGet()
             destroyRecognizer(sr)
             recognizer.set(null)
             listenerRef.set(null)
             return false
         }
+        CarfuVoiceTrace.srStartAccepted()
         _uiState.value = SttState.Listening
         mainHandler.postDelayed(
             hardListenTimeoutRunnable,

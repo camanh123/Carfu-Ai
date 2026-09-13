@@ -85,6 +85,9 @@ object VoiceTriggerManager {
         reason: String = origin.name,
     ): Result {
         VoiceLifecycleLog.triggerRequest(origin, reason)
+        if (isAuthorized(origin)) {
+            CarfuVoiceTrace.voiceTriggerRequest(origin.name)
+        }
         val result = synchronized(lock) {
             val ts = nowMs()
             if (staleAssist || origin == Origin.STALE_ASSIST) {
