@@ -9,6 +9,7 @@ include(":skill")
 include(":playauto")
 include(":youtube-playauto")
 include(":youtube-playauto-android")
+include(":smarttube-playauto-android")
 include(":carfu-resolver-service")
 // we use includeBuild here since the plugins are compile-time dependencies
 includeBuild("sentences-compiler-plugin")

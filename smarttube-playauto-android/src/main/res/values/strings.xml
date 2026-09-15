@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="harness_app_name">CARFU SmartTube P1</string>
+    <string name="harness_title">Phase 4.9.4 SmartTube PlayAuto diagnostic</string>
+    <string name="harness_subtitle">Standalone only. Not production Voice. Reuses frozen CARFU resolver. SmartTube Intent forms are UNPROVEN in source — PlayAuto does not guess a launch. Each probe button is exactly one candidate, no fallback chain, never YouTube.</string>
+    <string name="harness_query_label">Query</string>
+    <string name="harness_base_url_label">CARFU_RESOLVER_BASE_URL</string>
+    <string name="harness_base_url_hint">https://carfu-ai-beryl.vercel.app</string>
+    <string name="harness_default_query">Đừng Xa Em Đêm Nay</string>
+    <string name="harness_mode_dry">Dry run (no launch)</string>
+    <string name="harness_mode_device">Device test (one probe launch)</string>
+    <string name="harness_resolve">Resolve</string>
+    <string name="harness_scan">Scan packages</string>
+    <string name="harness_playauto">PlayAuto (resolve only)</string>
+    <string name="harness_probe_label">Probe one candidate (one tap = one Intent; no fallback)</string>
+    <string name="harness_probe_watch_pinned">Probe watch URL pinned</string>
+    <string name="harness_probe_watch_unpinned">Probe watch URL unpinned</string>
+    <string name="harness_probe_youtu_be">Probe youtu.be pinned</string>
+    <string name="harness_probe_vnd">Probe vnd.youtube pinned</string>
+    <string name="harness_probe_main">Probe MAIN launcher</string>
+    <string name="harness_export">Export diagnostic</string>
+</resources>
