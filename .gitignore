@@ -14,6 +14,7 @@
 /smarttube-playauto/build
 /smarttube-playauto-android/build
 /mixed-language-alias-normalizer/build
+/mixed-language-normalizer-android/build
 /carfu-resolver-service/build
 .env
 /checkouts

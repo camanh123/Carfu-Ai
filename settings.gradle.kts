@@ -12,6 +12,7 @@ include(":youtube-playauto-android")
 include(":smarttube-playauto")
 include(":smarttube-playauto-android")
 include(":mixed-language-alias-normalizer")
+include(":mixed-language-normalizer-android")
 include(":carfu-resolver-service")
 // we use includeBuild here since the plugins are compile-time dependencies
 includeBuild("sentences-compiler-plugin")
