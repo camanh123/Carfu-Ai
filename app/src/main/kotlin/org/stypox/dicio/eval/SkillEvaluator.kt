@@ -48,6 +48,7 @@ import org.stypox.dicio.io.session.RecordAudioPermission
 import org.stypox.dicio.io.session.CanonicalActionGate
 import org.stypox.dicio.io.session.CanonicalCommand
 import org.stypox.dicio.io.session.CanonicalCommandExecutor
+import org.stypox.dicio.io.session.InstalledAppResolver
 import org.stypox.dicio.io.session.CommandTranscriptNormalizer
 import org.stypox.dicio.io.session.RoutedCommand
 import org.stypox.dicio.io.session.RoutedMatch
@@ -58,6 +59,7 @@ import org.stypox.dicio.io.session.VietnameseCommandUnderstanding
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.YouTubeProductionJack
+import org.stypox.dicio.io.session.SmartTubeProductionJack
 import org.stypox.dicio.io.session.StableCompletePartialPolicy
 import org.stypox.dicio.io.session.StableCompletePartialTracker
 import org.stypox.dicio.io.session.VoiceLifecycleLog
@@ -128,7 +130,12 @@ class SkillEvaluatorImpl(
     private val skillExecutor = CarfuVietnameseSkillExecutor(platform)
     private val canonicalExecutor = CanonicalCommandExecutor(
         platform = platform,
+        appResolver = InstalledAppResolver(
+            listLaunchable = { platform.listLaunchableApps() },
+            isLaunchable = { platform.isPackageLaunchable(it) },
+        ),
         youtubePlayAuto = YouTubeProductionJack.create(skillContext.android),
+        smartTubePlayAuto = SmartTubeProductionJack.create(skillContext.android),
     )
     private val mainHandler = Handler(Looper.getMainLooper())
     private var silenceWatchSessionId: Long = 0L

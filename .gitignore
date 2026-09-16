@@ -11,6 +11,7 @@
 /playauto/build
 /youtube-playauto/build
 /youtube-playauto-android/build
+/smarttube-playauto/build
 /smarttube-playauto-android/build
 /carfu-resolver-service/build
 .env

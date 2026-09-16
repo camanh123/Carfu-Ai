@@ -72,5 +72,11 @@ class SmartTubeIntentBuilderTest : StringSpec({
         SmartTubePackageNames.isSafeSmartTubeTarget(SmartTubeHarnessIdentity.PACKAGE) shouldBe false
         SmartTubePackageNames.looksLikeSmartTube(SmartTubeHarnessIdentity.PACKAGE) shouldBe false
         SmartTubeLaunchAudit.SOURCE_PROVEN shouldBe false
+        SmartTubeProductionPolicy.PACKAGE shouldBe SmartTubeCatalog.ORG_SMARTTUBE_STABLE
+        SmartTubeProductionPolicy.isApprovedTarget(SmartTubeCatalog.ORG_SMARTTUBE_STABLE) shouldBe true
+        SmartTubeProductionPolicy.isForbiddenTarget(SmartTubeCatalog.ORG_SMARTTUBE_BETA) shouldBe true
+        SmartTubeProductionPolicy.isForbiddenTarget(SmartTubeHarnessIdentity.PACKAGE) shouldBe true
+        SmartTubeProductionPolicy.options().launchForm shouldBe SmartTubeLaunchForm.VIEW_WATCH_URL_PINNED
+        SmartTubeProductionPolicy.options().selectedPackage shouldBe SmartTubeCatalog.ORG_SMARTTUBE_STABLE
     }
 })
