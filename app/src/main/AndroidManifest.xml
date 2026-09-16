@@ -39,6 +39,7 @@
         </intent>
         <package android:name="com.google.android.youtube" />
         <package android:name="com.google.android.youtube.tv" />
+        <package android:name="org.smarttube.stable" />
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="https" android:host="www.youtube.com" />

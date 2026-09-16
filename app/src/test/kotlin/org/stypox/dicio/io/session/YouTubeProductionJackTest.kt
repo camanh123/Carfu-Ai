@@ -214,7 +214,6 @@ class YouTubeProductionJackTest : StringSpec({
         val p = platform()
         val exec = executor(p, port)
         listOf(
-            "SmartTube" to "unknown_provider",
             "MusicLoop" to "unknown_provider",
             "SpotifyX" to "unknown_provider",
             null to "missing_provider",
@@ -223,6 +222,9 @@ class YouTubeProductionJackTest : StringSpec({
             trace.actionTaken.shouldBeFalse()
             trace.reason shouldContain reason
         }
+        val smartTube = exec.executeTraced(CanonicalCommand.PlayMedia(song, "SmartTube"))
+        smartTube.actionTaken.shouldBeFalse()
+        smartTube.reason shouldBe "smarttube_playauto_unconfigured"
         client.resolveCount shouldBe 0
         runtime.dispatchCount shouldBe 0
         MediaProviderExecutor.legacyYoutubeSearchCount shouldBe 0

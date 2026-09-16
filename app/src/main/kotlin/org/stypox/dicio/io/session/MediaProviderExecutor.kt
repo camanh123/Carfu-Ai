@@ -8,9 +8,10 @@ import java.nio.charset.StandardCharsets
 /**
  * Lightweight media-provider boundary. Unknown providers fail safely.
  *
- * YouTube PlayMedia is owned by [YouTubePlayAutoPort] (Phase 4.9.3). The legacy
- * search ACTION_VIEW helpers remain for audit/tests and must not run on the
- * production YouTube route.
+ * YouTube PlayMedia is owned by [YouTubePlayAutoPort] (Phase 4.9.3).
+ * SmartTube PlayMedia is owned by [SmartTubePlayAutoPort] (Phase 4.9.4).
+ * The legacy search ACTION_VIEW helpers remain for audit/tests and must not
+ * run on the production YouTube or SmartTube routes.
  */
 object MediaProviderExecutor {
     @Volatile
@@ -34,12 +35,18 @@ object MediaProviderExecutor {
         return folded == "youtube" || folded == "you tube" || folded == "yt"
     }
 
+    fun isSmartTubeProvider(provider: String?): Boolean {
+        val folded = VietnameseTranscript.foldForMatch(provider?.trim().orEmpty())
+        return folded == "smarttube" || folded == "smart tube"
+    }
+
     fun build(query: String, provider: String?): Result {
         val q = query.trim()
         if (q.isEmpty()) return Result.Unsupported("empty_query")
         val p = provider?.trim().orEmpty()
         if (p.isEmpty()) return Result.Unsupported("missing_provider")
         if (isYouTubeProvider(p)) return Result.YouTubePlayAuto(q)
+        if (isSmartTubeProvider(p)) return Result.SmartTubePlayAuto(q)
         return Result.Unsupported("unknown_provider:$p")
     }
 
@@ -71,6 +78,7 @@ object MediaProviderExecutor {
     sealed class Result {
         data class Ok(val launch: MediaLaunch) : Result()
         data class YouTubePlayAuto(val query: String) : Result()
+        data class SmartTubePlayAuto(val query: String) : Result()
         data class Unsupported(val reason: String) : Result()
     }
 }

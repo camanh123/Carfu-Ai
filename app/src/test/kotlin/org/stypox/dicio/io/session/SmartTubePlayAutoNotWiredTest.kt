@@ -2,12 +2,11 @@ package org.stypox.dicio.io.session
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.shouldBe
-import io.kotest.matchers.string.shouldContain
 import io.kotest.matchers.types.shouldBeInstanceOf
 
 /**
- * Phase 1 SmartTube PlayAuto is standalone. Production Voice stays unwired.
- * Additive freeze check — does not change NLU, MediaProviderExecutor, or YouTube.
+ * Phase 4.5 NLU already labels SmartTube PlayMedia. Production now jacks that
+ * command onto SmartTube PlayAuto without changing YouTube routing.
  */
 class SmartTubePlayAutoNotWiredTest : StringSpec({
     beforeTest {
@@ -31,10 +30,10 @@ class SmartTubePlayAutoNotWiredTest : StringSpec({
             CanonicalCommand.PlayMedia("See You Again", "SmartTube")
     }
 
-    "production executor does not wire SmartTube PlayAuto" {
-        val built = MediaProviderExecutor.build(song, "SmartTube")
-        built.shouldBeInstanceOf<MediaProviderExecutor.Result.Unsupported>()
-        built.reason shouldContain "unknown_provider"
+    "production executor routes SmartTube to the SmartTube PlayAuto jack" {
+        MediaProviderExecutor.build(song, "SmartTube")
+            .shouldBeInstanceOf<MediaProviderExecutor.Result.SmartTubePlayAuto>()
+            .query shouldBe song
     }
 
     "YouTube PlayMedia remains the frozen YouTube PlayAuto route" {

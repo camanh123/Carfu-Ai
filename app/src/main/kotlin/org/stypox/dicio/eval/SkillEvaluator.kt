@@ -58,6 +58,7 @@ import org.stypox.dicio.io.session.VietnameseCommandUnderstanding
 import org.stypox.dicio.io.session.VietnameseTranscript
 import org.stypox.dicio.io.session.CarfuVoiceTrace
 import org.stypox.dicio.io.session.YouTubeProductionJack
+import org.stypox.dicio.io.session.SmartTubeProductionJack
 import org.stypox.dicio.io.session.StableCompletePartialPolicy
 import org.stypox.dicio.io.session.StableCompletePartialTracker
 import org.stypox.dicio.io.session.VoiceLifecycleLog
@@ -129,6 +130,7 @@ class SkillEvaluatorImpl(
     private val canonicalExecutor = CanonicalCommandExecutor(
         platform = platform,
         youtubePlayAuto = YouTubeProductionJack.create(skillContext.android),
+        smartTubePlayAuto = SmartTubeProductionJack.create(skillContext.android),
     )
     private val mainHandler = Handler(Looper.getMainLooper())
     private var silenceWatchSessionId: Long = 0L

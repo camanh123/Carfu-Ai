@@ -17,6 +17,7 @@ class CanonicalCommandExecutor(
         isLaunchable = { platform.isPackageLaunchable(it) },
     ),
     private val youtubePlayAuto: YouTubePlayAutoPort? = null,
+    private val smartTubePlayAuto: SmartTubePlayAutoPort? = null,
 ) {
     data class ExecutionTrace(
         val speechVi: String,
@@ -224,6 +225,8 @@ class CanonicalCommandExecutor(
             )
             is MediaProviderExecutor.Result.YouTubePlayAuto ->
                 executeYouTubePlayAuto(command, speech, built.query)
+            is MediaProviderExecutor.Result.SmartTubePlayAuto ->
+                executeSmartTubePlayAuto(command, speech, built.query)
             is MediaProviderExecutor.Result.Ok -> {
                 var launch = built.launch
                 if (launch.spec.packageName != null &&
@@ -303,6 +306,69 @@ class CanonicalCommandExecutor(
             mediaData = null,
             reason = result.failure ?: result.resolverStatus ?: "youtube_playauto_failed",
         )
+    }
+
+    private fun executeSmartTubePlayAuto(
+        command: CanonicalCommand.PlayMedia,
+        speech: String,
+        query: String,
+    ): ExecutionTrace {
+        val port = smartTubePlayAuto
+        if (port == null) {
+            return ExecutionTrace(
+                speechVi = "Không phát được bài trên SmartTube.",
+                actionTaken = false,
+                mediaQuery = query,
+                mediaProvider = "SmartTube",
+                reason = "smarttube_playauto_unconfigured",
+            )
+        }
+        val result = port.play(query)
+        val youtubeLeak = result.youtubeFallbackUsed ||
+            result.targetPackage?.let { pkg ->
+                pkg == "com.google.android.youtube" ||
+                    pkg == "com.google.android.youtube.tv"
+            } == true
+        val approved = result.launched &&
+            result.launchCount == 1 &&
+            result.playAutoRequestCount == 1 &&
+            result.targetPackage == org.stypox.dicio.smarttubeplayauto.SmartTubeProductionPolicy.PACKAGE &&
+            result.intentAction == "android.intent.action.VIEW" &&
+            !result.watchUrl.isNullOrBlank() &&
+            result.watchUrl!!.contains("watch?v=") &&
+            !result.watchUrl!!.contains("search_query=") &&
+            !result.accessibilityUsed &&
+            !youtubeLeak
+        if (approved) {
+            return ExecutionTrace(
+                speechVi = speech.ifBlank {
+                    VietnameseCommandUnderstanding.confirmationSpeechVi(command).orEmpty()
+                },
+                actionTaken = true,
+                mediaQuery = result.query,
+                mediaProvider = "SmartTube",
+                mediaData = result.watchUrl,
+                packageName = org.stypox.dicio.smarttubeplayauto.SmartTubeProductionPolicy.PACKAGE,
+                reason = "smarttube_playauto_direct_target",
+            )
+        }
+        return ExecutionTrace(
+            speechVi = smartTubeFailureSpeech(result.failure ?: result.resolverStatus),
+            actionTaken = false,
+            mediaQuery = result.query.ifBlank { query },
+            mediaProvider = "SmartTube",
+            mediaData = null,
+            packageName = result.targetPackage,
+            reason = result.failure ?: result.resolverStatus ?: "smarttube_playauto_failed",
+        )
+    }
+
+    private fun smartTubeFailureSpeech(status: String?): String = when (status) {
+        "NO_RESULTS" -> "Không tìm thấy bài trên SmartTube."
+        "NETWORK_UNAVAILABLE", "TIMEOUT" -> "Không kết nối được SmartTube."
+        "QUOTA_EXCEEDED" -> "SmartTube tạm thời quá tải."
+        "smarttube_unavailable" -> "Không tìm thấy SmartTube."
+        else -> "Không phát được bài trên SmartTube."
     }
 
     private fun youtubeFailureSpeech(status: String?): String = when (status) {
