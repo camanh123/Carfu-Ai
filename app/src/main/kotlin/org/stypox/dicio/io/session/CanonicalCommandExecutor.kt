@@ -215,18 +215,35 @@ class CanonicalCommandExecutor(
         command: CanonicalCommand.PlayMedia,
         speech: String,
     ): ExecutionTrace {
+        MediaPlayRouting.onCanonicalPlayMedia(command)
+        // SmartTube has exactly one owner. Select the production jack BEFORE
+        // MediaProviderExecutor.build() can terminate as Unsupported.
+        if (MediaProviderExecutor.isSmartTubeProvider(command.provider)) {
+            MediaPlayRouting.onExecutorSelected("SmartTubeProductionJack")
+            return executeSmartTubePlayAuto(command, speech, command.query)
+        }
         return when (val built = MediaProviderExecutor.build(command.query, command.provider)) {
-            is MediaProviderExecutor.Result.Unsupported -> ExecutionTrace(
-                speechVi = "Chưa hỗ trợ phát nhạc trên ${command.provider ?: "nhà cung cấp này"}.",
-                actionTaken = false,
-                mediaQuery = command.query,
-                mediaProvider = command.provider,
-                reason = built.reason,
-            )
-            is MediaProviderExecutor.Result.YouTubePlayAuto ->
+            is MediaProviderExecutor.Result.Unsupported -> {
+                MediaPlayRouting.onLegacyUnsupported(command, built.reason)
+                val spoken =
+                    "Chưa hỗ trợ phát nhạc trên ${command.provider ?: "nhà cung cấp này"}."
+                MediaPlayRouting.onSpoken(spoken)
+                ExecutionTrace(
+                    speechVi = spoken,
+                    actionTaken = false,
+                    mediaQuery = command.query,
+                    mediaProvider = command.provider,
+                    reason = built.reason,
+                )
+            }
+            is MediaProviderExecutor.Result.YouTubePlayAuto -> {
+                MediaPlayRouting.onExecutorSelected("YouTubeProductionJack")
                 executeYouTubePlayAuto(command, speech, built.query)
-            is MediaProviderExecutor.Result.SmartTubePlayAuto ->
+            }
+            is MediaProviderExecutor.Result.SmartTubePlayAuto -> {
+                MediaPlayRouting.onExecutorSelected("SmartTubeProductionJack")
                 executeSmartTubePlayAuto(command, speech, built.query)
+            }
             is MediaProviderExecutor.Result.Ok -> {
                 var launch = built.launch
                 if (launch.spec.packageName != null &&
@@ -313,10 +330,19 @@ class CanonicalCommandExecutor(
         speech: String,
         query: String,
     ): ExecutionTrace {
+        MediaPlayRouting.onSmartTubeJackEntered()
         val port = smartTubePlayAuto
         if (port == null) {
+            val spoken = "Không phát được bài trên SmartTube."
+            MediaPlayRouting.onSmartTubeResult(
+                packageName = null,
+                action = null,
+                executionResult = "smarttube_playauto_unconfigured",
+                spokenResult = spoken,
+                resolverRequest = query,
+            )
             return ExecutionTrace(
-                speechVi = "Không phát được bài trên SmartTube.",
+                speechVi = spoken,
                 actionTaken = false,
                 mediaQuery = query,
                 mediaProvider = "SmartTube",
@@ -340,10 +366,18 @@ class CanonicalCommandExecutor(
             !result.accessibilityUsed &&
             !youtubeLeak
         if (approved) {
+            val spoken = speech.ifBlank {
+                VietnameseCommandUnderstanding.confirmationSpeechVi(command).orEmpty()
+            }
+            MediaPlayRouting.onSmartTubeResult(
+                packageName = org.stypox.dicio.smarttubeplayauto.SmartTubeProductionPolicy.PACKAGE,
+                action = result.intentAction,
+                executionResult = "smarttube_playauto_direct_target",
+                spokenResult = spoken,
+                resolverRequest = result.query,
+            )
             return ExecutionTrace(
-                speechVi = speech.ifBlank {
-                    VietnameseCommandUnderstanding.confirmationSpeechVi(command).orEmpty()
-                },
+                speechVi = spoken,
                 actionTaken = true,
                 mediaQuery = result.query,
                 mediaProvider = "SmartTube",
@@ -352,14 +386,23 @@ class CanonicalCommandExecutor(
                 reason = "smarttube_playauto_direct_target",
             )
         }
+        val reason = result.failure ?: result.resolverStatus ?: "smarttube_playauto_failed"
+        val spoken = smartTubeFailureSpeech(reason)
+        MediaPlayRouting.onSmartTubeResult(
+            packageName = result.targetPackage,
+            action = result.intentAction,
+            executionResult = reason,
+            spokenResult = spoken,
+            resolverRequest = result.query.ifBlank { query },
+        )
         return ExecutionTrace(
-            speechVi = smartTubeFailureSpeech(result.failure ?: result.resolverStatus),
+            speechVi = spoken,
             actionTaken = false,
             mediaQuery = result.query.ifBlank { query },
             mediaProvider = "SmartTube",
             mediaData = null,
             packageName = result.targetPackage,
-            reason = result.failure ?: result.resolverStatus ?: "smarttube_playauto_failed",
+            reason = reason,
         )
     }
 

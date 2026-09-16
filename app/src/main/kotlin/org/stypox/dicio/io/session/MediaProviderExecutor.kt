@@ -20,6 +20,7 @@ object MediaProviderExecutor {
 
     fun resetForTests() {
         legacyYoutubeSearchCount = 0
+        MediaPlayRouting.resetForTests()
     }
 
     data class MediaLaunch(
@@ -36,8 +37,13 @@ object MediaProviderExecutor {
     }
 
     fun isSmartTubeProvider(provider: String?): Boolean {
-        val folded = VietnameseTranscript.foldForMatch(provider?.trim().orEmpty())
-        return folded == "smarttube" || folded == "smart tube"
+        val raw = provider?.trim().orEmpty()
+        if (raw.isEmpty()) return false
+        if (raw.equals("SmartTube", ignoreCase = true)) return true
+        val folded = VietnameseTranscript.foldForMatch(raw)
+        if (folded == "smarttube" || folded == "smart tube") return true
+        if (VietnameseMediaCommandGrammar.resolveProviderLabel(folded) == "SmartTube") return true
+        return folded.startsWith("smarttube") || folded.startsWith("smart tube")
     }
 
     fun build(query: String, provider: String?): Result {
