@@ -3,9 +3,15 @@ package org.stypox.dicio.aliasnormalizer
 /**
  * Deterministic provider-alias rewrite. Not a spell checker.
  *
- * Replaces a provider slot only when it sits after a media-provider
- * preposition used by production Media NLU (`trên` / `bằng` / `qua` /
- * `với` / `từ`) and the entire slot matches a registry alias.
+ * Replaces a provider slot only when ALL of:
+ *  1. the prefix is a media-command construction (action + query, not
+ *     a bare YouTube / Maps open-app phrase)
+ *  2. a media-provider preposition (`trên` / `bằng` / `qua` / `với` /
+ *     `từ`) introduces the slot
+ *  3. the entire remaining slot matches a registry alias
+ *
+ * Ambiguous forms such as "smartphone" / "smart YouTube" / "cùng một
+ * chút" are never globally replaced.
  */
 fun interface ProviderAliasNormalizer {
     fun normalize(transcript: String): NormalizationResult
@@ -24,6 +30,10 @@ class DefaultProviderAliasNormalizer(
             TranscriptFolder.foldToken(tokens[index].text) in PROVIDER_PREPOSITIONS
         } ?: return unchanged(transcript)
         if (prepIndex == tokens.lastIndex) {
+            return unchanged(transcript)
+        }
+        val prefixTokens = tokens.subList(0, prepIndex)
+        if (!MediaCommandContext.hasMediaCommand(prefixTokens.map { it.text })) {
             return unchanged(transcript)
         }
         val slot = tokens.subList(prepIndex + 1, tokens.size)

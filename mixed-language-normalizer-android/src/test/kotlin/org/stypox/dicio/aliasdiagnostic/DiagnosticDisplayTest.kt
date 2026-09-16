@@ -69,4 +69,22 @@ class DiagnosticDisplayTest : StringSpec({
         snap.normalized shouldBe raw
         snap.provider shouldBe ""
     }
+
+    "P1.2 device-observed smart YouTube displays RAW vs NORMALIZED" {
+        val raw = "Mở bài Đừng Xa Em Đêm Nay trên smart YouTube"
+        val snap = DiagnosticDisplay.of(normalizer, raw, status = "final")
+        snap.rawStt shouldBe raw
+        snap.normalized shouldBe "Mở bài Đừng Xa Em Đêm Nay trên SmartTube"
+        snap.provider shouldBe "SmartTube"
+        snap.aliasMatched shouldBe "smart YouTube"
+        snap.changed.shouldBeTrue()
+    }
+
+    "P1.2 Mở YouTube trên smartphone stays unchanged in the diagnostic fields" {
+        val raw = "Mở YouTube trên smartphone"
+        val snap = DiagnosticDisplay.of(normalizer, raw, status = "final")
+        snap.normalized shouldBe raw
+        snap.changed.shouldBeFalse()
+        snap.provider shouldBe ""
+    }
 })
