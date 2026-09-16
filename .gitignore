@@ -13,6 +13,7 @@
 /youtube-playauto-android/build
 /smarttube-playauto/build
 /smarttube-playauto-android/build
+/mixed-language-alias-normalizer/build
 /carfu-resolver-service/build
 .env
 /checkouts
