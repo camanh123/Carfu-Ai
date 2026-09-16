@@ -2,7 +2,6 @@ package org.stypox.dicio.smarttubeplayauto
 
 import io.kotest.core.spec.style.StringSpec
 import io.kotest.matchers.ints.shouldBeLessThanOrEqual
-import io.kotest.matchers.nulls.shouldBeNull
 import io.kotest.matchers.shouldBe
 import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.string.shouldContain
@@ -39,11 +38,15 @@ class SmartTubePlayAutoDriverTest : StringSpec({
         client: FakeYouTubeResolverClient = resolvedClient(),
         launcher: FakeSmartTubeLauncher = FakeSmartTubeLauncher(),
         form: SmartTubeLaunchForm? = SmartTubeLaunchForm.VIEW_WATCH_URL_PINNED,
+        selectedPackage: String? = null,
     ): Triple<SmartTubePlayAutoDriver, FakeYouTubeResolverClient, FakeSmartTubeLauncher> {
         val playAuto = SmartTubePlayAutoDriver(
             resolverClient = client,
             launcher = launcher,
-            options = SmartTubePlayAutoOptions(launchForm = form),
+            options = SmartTubePlayAutoOptions(
+                launchForm = form,
+                selectedPackage = selectedPackage,
+            ),
         )
         return Triple(playAuto, client, launcher)
     }
@@ -187,5 +190,104 @@ class SmartTubePlayAutoDriverTest : StringSpec({
         result.formatHarness() shouldContain "Accessibility used: NO"
         result.formatHarness() shouldContain "Cast APIs used: NO"
         result.exactVideoTargetRequested shouldBe true
+    }
+
+    "harness package can never become the selected SmartTube target" {
+        val launcher = FakeSmartTubeLauncher(
+            catalogInstalled = emptyList(),
+            extraInstalled = listOf(
+                SmartTubeInstalledPackage(
+                    packageName = SmartTubeHarnessIdentity.PACKAGE,
+                    installed = true,
+                    applicationLabel = "CARFU SmartTube P1.1",
+                    launchActivity = "${SmartTubeHarnessIdentity.PACKAGE}/.SmartTubePlayAutoHarnessActivity",
+                    evidence = setOf(SmartTubeEvidence.DEVICE_INSTALLED),
+                    source = "harness_fixture",
+                ),
+            ),
+        )
+        val (playAuto, _, _) = driver(launcher = launcher)
+        val result = playAuto.execute(request(), YouTubeLaunchMode.DEVICE_TEST)
+        result.launchAttempted shouldBe false
+        result.failure shouldBe "smarttube_unavailable"
+        result.targetPackage shouldBe null
+        launcher.launchCount shouldBe 0
+        launcher.harnessPackageLaunchCount shouldBe 0
+        launcher.preferredInstalledPackage() shouldBe null
+
+        val forced = driver(
+            launcher = launcher,
+            selectedPackage = SmartTubeHarnessIdentity.PACKAGE,
+        ).first.execute(request(), YouTubeLaunchMode.DEVICE_TEST)
+        forced.launchAttempted shouldBe false
+        forced.failure shouldBe "harness_package_forbidden"
+        launcher.launchCount shouldBe 0
+        launcher.harnessPackageLaunchCount shouldBe 0
+    }
+
+    "MAIN that would resolve to the harness is refused without launching" {
+        val launcher = FakeSmartTubeLauncher(
+            resolveActivityOverride = SmartTubeResolveActivity(
+                component = "${SmartTubeHarnessIdentity.PACKAGE}/.SmartTubePlayAutoHarnessActivity",
+                packageName = SmartTubeHarnessIdentity.PACKAGE,
+            ),
+        )
+        val (playAuto, _, _) = driver(
+            launcher = launcher,
+            form = SmartTubeLaunchForm.MAIN_LAUNCHER,
+        )
+        val result = playAuto.execute(request(), YouTubeLaunchMode.DEVICE_TEST)
+        result.launchAttempted shouldBe false
+        result.failure shouldBe "would_launch_harness_not_smarttube"
+        result.resolveActivityPackage shouldBe SmartTubeHarnessIdentity.PACKAGE
+        launcher.launchCount shouldBe 0
+        launcher.harnessPackageLaunchCount shouldBe 0
+    }
+
+    "beta and stable both installed require explicit package selection" {
+        val launcher = FakeSmartTubeLauncher(
+            catalogInstalled = emptyList(),
+            extraInstalled = listOf(
+                SmartTubeInstalledPackage(
+                    packageName = SmartTubeCatalog.ORG_SMARTTUBE_BETA,
+                    installed = true,
+                    applicationLabel = "SmartTube Beta",
+                    evidence = setOf(
+                        SmartTubeEvidence.DEVICE_INSTALLED,
+                        SmartTubeEvidence.DEVICE_LAUNCHABLE,
+                        SmartTubeEvidence.DEVICE_LABEL_MATCH,
+                    ),
+                    source = "device_query",
+                ),
+                SmartTubeInstalledPackage(
+                    packageName = SmartTubeCatalog.ORG_SMARTTUBE_STABLE,
+                    installed = true,
+                    applicationLabel = "SmartTube",
+                    evidence = setOf(
+                        SmartTubeEvidence.DEVICE_INSTALLED,
+                        SmartTubeEvidence.DEVICE_LAUNCHABLE,
+                        SmartTubeEvidence.DEVICE_LABEL_MATCH,
+                    ),
+                    source = "device_query",
+                ),
+            ),
+        )
+        val unspecified = driver(launcher = launcher).first
+            .execute(request(), YouTubeLaunchMode.DEVICE_TEST)
+        unspecified.launchAttempted shouldBe false
+        unspecified.failure shouldBe "package_selection_required"
+        launcher.launchCount shouldBe 0
+
+        val selected = driver(
+            launcher = launcher,
+            selectedPackage = SmartTubeCatalog.ORG_SMARTTUBE_BETA,
+        ).first.execute(request(), YouTubeLaunchMode.DEVICE_TEST)
+        selected.launchAttempted shouldBe true
+        selected.targetPackage shouldBe SmartTubeCatalog.ORG_SMARTTUBE_BETA
+        selected.failure shouldBe null
+        launcher.launchCount shouldBe 1
+        launcher.lastSpec?.packageName shouldBe SmartTubeCatalog.ORG_SMARTTUBE_BETA
+        launcher.harnessPackageLaunchCount shouldBe 0
+        launcher.youtubePackageLaunchCount shouldBe 0
     }
 })

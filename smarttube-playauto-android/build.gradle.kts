@@ -13,8 +13,8 @@ android {
         applicationId = "org.stypox.dicio.smarttubeplayauto"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 496
-        versionName = "4.9.4-smarttube-p1"
+        versionCode = 497
+        versionName = "4.9.4-smarttube-p1.1"
         val defaultPublicHttps = "https://carfu-ai-beryl.vercel.app"
         val resolverBase = (project.findProperty("CARFU_RESOLVER_BASE_URL") as? String)
             ?: System.getenv("CARFU_RESOLVER_BASE_URL")

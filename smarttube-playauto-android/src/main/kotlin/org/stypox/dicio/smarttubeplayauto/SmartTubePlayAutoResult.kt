@@ -17,6 +17,7 @@ data class SmartTubePlayAutoResult(
     val resolverHttps: Boolean? = null,
     val installedPackages: List<String> = emptyList(),
     val launchForm: SmartTubeLaunchForm? = null,
+    val intentAction: String? = null,
     val intentUri: String? = null,
     val targetPackage: String? = null,
     val resolveActivity: String? = null,
@@ -51,13 +52,14 @@ data class SmartTubePlayAutoResult(
         appendLine("Resolver latency: ${resolverLatencyMs?.let { "${it}ms" } ?: "NONE"}")
         appendLine("HTTPS used: ${resolverHttps?.let { yesNo(it) } ?: "NONE"}")
         appendLine("Launch form: ${launchForm?.name ?: "NONE"}")
-        appendLine("Intent URI: ${intentUri ?: "NONE"}")
-        appendLine("Target package: ${targetPackage ?: "NONE"}")
-        appendLine("resolveActivity: ${resolveActivity ?: "NONE"}")
-        appendLine("resolveActivity package: ${resolveActivityPackage ?: "NONE"}")
-        appendLine("Exact video target requested: ${exactVideoTargetRequested?.let { yesNo(it) } ?: "NONE"}")
-        appendLine("Launch attempted: ${yesNo(launchAttempted)}")
-        appendLine("Launch result: ${launchResult ?: "NONE"}")
+        appendLine("SELECTED_PACKAGE: ${targetPackage ?: "NONE"}")
+        appendLine("INTENT_ACTION: ${intentAction ?: "NONE"}")
+        appendLine("INTENT_URI: ${intentUri ?: "NONE"}")
+        appendLine("RESOLVE_ACTIVITY: ${resolveActivity ?: "NONE"}")
+        appendLine("RESOLVE_ACTIVITY_PACKAGE: ${resolveActivityPackage ?: "NONE"}")
+        appendLine("EXACT_VIDEO_TARGET_REQUESTED: ${exactVideoTargetRequested?.let { yesNo(it) } ?: "NONE"}")
+        appendLine("LAUNCH_ATTEMPTED: ${yesNo(launchAttempted)}")
+        appendLine("LAUNCH_RESULT: ${launchResult ?: "NONE"}")
         appendLine("Path: $path")
         appendLine("Failure: ${failure ?: "NONE"}")
         appendLine("Intent evidence: $intentEvidence")
@@ -65,6 +67,9 @@ data class SmartTubePlayAutoResult(
         appendLine("Accessibility used: NO")
         appendLine("Cast APIs used: NO")
         appendLine("Media keys sent: NO")
+        appendLine("OPENED_SMARTTUBE: human device observation only")
+        appendLine("OPENED_EXACT_VIDEO: human device observation only")
+        appendLine("AUTOPLAY_STARTED: human device observation only")
         appendLine("PLAYBACK_CONFIRMED: not claimed")
         appendLine("DEVICE PASS: not claimed")
     }

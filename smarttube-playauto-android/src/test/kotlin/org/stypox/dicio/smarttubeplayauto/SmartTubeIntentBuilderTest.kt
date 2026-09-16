@@ -69,6 +69,8 @@ class SmartTubeIntentBuilderTest : StringSpec({
         SmartTubeCatalog.PACKAGE_EVIDENCE shouldBe "catalog_only_not_device_proven"
         SmartTubePackageNames.isSafeSmartTubeTarget(SmartTubeCatalog.TEAMSMART) shouldBe true
         SmartTubePackageNames.isSafeSmartTubeTarget("com.google.android.youtube") shouldBe false
+        SmartTubePackageNames.isSafeSmartTubeTarget(SmartTubeHarnessIdentity.PACKAGE) shouldBe false
+        SmartTubePackageNames.looksLikeSmartTube(SmartTubeHarnessIdentity.PACKAGE) shouldBe false
         SmartTubeLaunchAudit.SOURCE_PROVEN shouldBe false
     }
 })

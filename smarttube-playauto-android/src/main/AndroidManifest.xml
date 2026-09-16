@@ -12,9 +12,15 @@
         <package android:name="com.teamsmart.videomanager.tv" />
         <package android:name="com.liskovsoft.smarttube.tv" />
         <package android:name="com.liskovsoft.smartyoutubetv2" />
+        <package android:name="org.smarttube.beta" />
+        <package android:name="org.smarttube.stable" />
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
         </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />

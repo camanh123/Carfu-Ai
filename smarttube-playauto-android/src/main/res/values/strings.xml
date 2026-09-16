@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="harness_app_name">CARFU SmartTube P1</string>
-    <string name="harness_title">Phase 4.9.4 SmartTube PlayAuto diagnostic</string>
-    <string name="harness_subtitle">Standalone only. Not production Voice. Reuses frozen CARFU resolver. SmartTube Intent forms are UNPROVEN in source — PlayAuto does not guess a launch. Each probe button is exactly one candidate, no fallback chain, never YouTube.</string>
+    <string name="harness_app_name">CARFU SmartTube P1.1</string>
+    <string name="harness_title">Phase 4.9.4 SmartTube P1.1 package discovery</string>
+    <string name="harness_subtitle">Standalone only. Not production Voice. Harness package is never a SmartTube target. Probe only a DEVICE_INSTALLED package you select. If beta and stable are both installed, you must pick one. One tap = one Intent. No fallback. Never YouTube.</string>
     <string name="harness_query_label">Query</string>
     <string name="harness_base_url_label">CARFU_RESOLVER_BASE_URL</string>
     <string name="harness_base_url_hint">https://carfu-ai-beryl.vercel.app</string>
@@ -11,12 +11,12 @@
     <string name="harness_mode_device">Device test (one probe launch)</string>
     <string name="harness_resolve">Resolve</string>
     <string name="harness_scan">Scan packages</string>
+    <string name="harness_package_label">DEVICE_INSTALLED SmartTube package (required when more than one)</string>
     <string name="harness_playauto">PlayAuto (resolve only)</string>
     <string name="harness_probe_label">Probe one candidate (one tap = one Intent; no fallback)</string>
-    <string name="harness_probe_watch_pinned">Probe watch URL pinned</string>
-    <string name="harness_probe_watch_unpinned">Probe watch URL unpinned</string>
-    <string name="harness_probe_youtu_be">Probe youtu.be pinned</string>
-    <string name="harness_probe_vnd">Probe vnd.youtube pinned</string>
-    <string name="harness_probe_main">Probe MAIN launcher</string>
+    <string name="harness_probe_watch_pinned">A. watch URL pinned</string>
+    <string name="harness_probe_youtu_be">B. youtu.be pinned</string>
+    <string name="harness_probe_vnd">C. vnd.youtube pinned</string>
+    <string name="harness_probe_main">D. MAIN launcher</string>
     <string name="harness_export">Export diagnostic</string>
 </resources>

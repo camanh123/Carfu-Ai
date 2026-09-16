@@ -57,7 +57,7 @@ class SmartTubePlayAutoDriver(
 
         val installed = launcher.installedPackages()
         val installedNames = installed.map { it.packageName }
-        val pinPackage = launcher.preferredInstalledPackage()
+        val pinDecision = SmartTubeTargetSelection.pin(installed, options.selectedPackage)
 
         val outcome = runBlocking { resolverClient.resolve(query) }
         val meta = outcome.meta()
@@ -70,7 +70,7 @@ class SmartTubePlayAutoDriver(
                     resolved = outcome,
                     meta = meta,
                     installedNames = installedNames,
-                    pinPackage = pinPackage,
+                    pinDecision = pinDecision,
                 )
                 else -> reject(
                     targetApp = targetApp,
@@ -92,7 +92,7 @@ class SmartTubePlayAutoDriver(
         resolved: YouTubeResolveResult.Resolved,
         meta: YouTubeResolverMeta,
         installedNames: List<String>,
-        pinPackage: String?,
+        pinDecision: SmartTubePinDecision,
     ): SmartTubePlayAutoResult {
         val id = YouTubeVideoIdParser.parse(resolved.videoId)
         if (id == null) {
@@ -129,14 +129,6 @@ class SmartTubePlayAutoDriver(
             channel = resolved.channelTitle,
             cache = resolved.cache,
         )
-        if (pinPackage == null && installedNames.none { SmartTubePackageNames.isSafeSmartTubeTarget(it) }) {
-            return base.copy(
-                failure = "smarttube_unavailable",
-                launchAttempted = false,
-                launchResult = "NOT_LAUNCHED",
-                path = "RESOLVE_ONLY",
-            )
-        }
         val form = options.launchForm
         if (form == null) {
             return base.copy(
@@ -145,6 +137,35 @@ class SmartTubePlayAutoDriver(
                 launchResult = "NOT_LAUNCHED",
                 path = "RESOLVE_ONLY",
             )
+        }
+        val pinPackage = when (pinDecision) {
+            is SmartTubePinDecision.Selected -> pinDecision.packageName
+            SmartTubePinDecision.None -> {
+                return base.copy(
+                    failure = "smarttube_unavailable",
+                    launchAttempted = false,
+                    launchResult = "NOT_LAUNCHED",
+                    path = "ONE_FORM",
+                )
+            }
+            is SmartTubePinDecision.Ambiguous -> {
+                return base.copy(
+                    failure = "package_selection_required",
+                    installedPackages = pinDecision.packages,
+                    launchAttempted = false,
+                    launchResult = "NOT_LAUNCHED",
+                    path = "ONE_FORM",
+                )
+            }
+            is SmartTubePinDecision.Rejected -> {
+                return base.copy(
+                    failure = pinDecision.reason,
+                    targetPackage = options.selectedPackage,
+                    launchAttempted = false,
+                    launchResult = "NOT_LAUNCHED",
+                    path = "ONE_FORM",
+                )
+            }
         }
         return launchOnce(
             base = base,
@@ -162,10 +183,11 @@ class SmartTubePlayAutoDriver(
         pinPackage: String?,
         mode: YouTubeLaunchMode,
     ): SmartTubePlayAutoResult {
-        if (form != SmartTubeLaunchForm.VIEW_WATCH_URL_UNPINNED && pinPackage == null) {
+        if (SmartTubeHarnessIdentity.isHarness(pinPackage)) {
             return base.copy(
-                failure = "smarttube_unavailable",
+                failure = "harness_package_forbidden",
                 launchForm = form,
+                targetPackage = pinPackage,
                 launchAttempted = false,
                 launchResult = "NOT_LAUNCHED",
                 path = "ONE_FORM",
@@ -194,10 +216,24 @@ class SmartTubePlayAutoDriver(
             }
             is SmartTubeIntentBuild.Ok -> built.spec
         }
+        if (SmartTubeHarnessIdentity.isHarness(spec.packageName)) {
+            return base.copy(
+                failure = "harness_package_forbidden",
+                launchForm = form,
+                intentAction = spec.action,
+                intentUri = spec.uri,
+                targetPackage = spec.packageName,
+                exactVideoTargetRequested = spec.exactVideoTargetRequested,
+                launchAttempted = false,
+                launchResult = "NOT_LAUNCHED",
+                path = "ONE_FORM",
+            )
+        }
         if (ForbiddenYouTubePackages.isYouTube(spec.packageName)) {
             return base.copy(
                 failure = "youtube_package_forbidden",
                 launchForm = form,
+                intentAction = spec.action,
                 intentUri = spec.uri,
                 targetPackage = spec.packageName,
                 exactVideoTargetRequested = spec.exactVideoTargetRequested,
@@ -207,10 +243,26 @@ class SmartTubePlayAutoDriver(
             )
         }
         val resolvedActivity = launcher.resolveActivity(spec)
+        if (SmartTubeHarnessIdentity.isHarness(resolvedActivity?.packageName)) {
+            return base.copy(
+                failure = "would_launch_harness_not_smarttube",
+                launchForm = form,
+                intentAction = spec.action,
+                intentUri = spec.uri,
+                targetPackage = spec.packageName,
+                resolveActivity = resolvedActivity?.component,
+                resolveActivityPackage = resolvedActivity?.packageName,
+                exactVideoTargetRequested = spec.exactVideoTargetRequested,
+                launchAttempted = false,
+                launchResult = "NOT_LAUNCHED",
+                path = "ONE_FORM",
+            )
+        }
         if (ForbiddenYouTubePackages.isYouTube(resolvedActivity?.packageName)) {
             return base.copy(
                 failure = "would_launch_youtube_not_smarttube",
                 launchForm = form,
+                intentAction = spec.action,
                 intentUri = spec.uri,
                 targetPackage = spec.packageName,
                 resolveActivity = resolvedActivity?.component,
@@ -227,6 +279,7 @@ class SmartTubePlayAutoDriver(
             return base.copy(
                 failure = "unpinned_intent_would_not_target_smarttube",
                 launchForm = form,
+                intentAction = spec.action,
                 intentUri = spec.uri,
                 targetPackage = spec.packageName,
                 resolveActivity = resolvedActivity?.component,
@@ -241,6 +294,7 @@ class SmartTubePlayAutoDriver(
         return when (outcome) {
             is SmartTubeLaunchOutcome.DryRun -> base.copy(
                 launchForm = form,
+                intentAction = spec.action,
                 intentUri = spec.uri,
                 targetPackage = spec.packageName,
                 resolveActivity = outcome.resolveActivity?.component,
@@ -253,6 +307,7 @@ class SmartTubePlayAutoDriver(
             )
             is SmartTubeLaunchOutcome.Dispatched -> base.copy(
                 launchForm = form,
+                intentAction = spec.action,
                 intentUri = spec.uri,
                 targetPackage = spec.packageName,
                 resolveActivity = outcome.resolveActivity?.component,
@@ -265,6 +320,7 @@ class SmartTubePlayAutoDriver(
             )
             is SmartTubeLaunchOutcome.Failed -> base.copy(
                 launchForm = form,
+                intentAction = spec.action,
                 intentUri = spec.uri,
                 targetPackage = spec.packageName,
                 resolveActivity = outcome.resolveActivity?.component,
@@ -277,6 +333,7 @@ class SmartTubePlayAutoDriver(
             )
             is SmartTubeLaunchOutcome.Refused -> base.copy(
                 launchForm = form,
+                intentAction = spec.action,
                 intentUri = spec.uri,
                 targetPackage = spec.packageName,
                 resolveActivity = outcome.resolveActivity?.component,

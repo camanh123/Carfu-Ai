@@ -106,6 +106,20 @@
             android:textAllCaps="false" />
     </LinearLayout>
 
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/harness_package_label"
+        android:textColor="#80CBC4"
+        android:textSize="12sp" />
+
+    <RadioGroup
+        android:id="@+id/harness_package_group"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical" />
+
     <Button
         android:id="@+id/btn_playauto"
         android:layout_width="match_parent"
@@ -138,11 +152,11 @@
             android:textSize="11sp" />
 
         <Button
-            android:id="@+id/btn_probe_watch_unpinned"
+            android:id="@+id/btn_probe_youtu_be"
             android:layout_width="0dp"
             android:layout_height="44dp"
             android:layout_weight="1"
-            android:text="@string/harness_probe_watch_unpinned"
+            android:text="@string/harness_probe_youtu_be"
             android:textAllCaps="false"
             android:textSize="11sp" />
     </LinearLayout>
@@ -151,23 +165,23 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/btn_probe_youtu_be"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_marginEnd="4dp"
-            android:layout_weight="1"
-            android:text="@string/harness_probe_youtu_be"
-            android:textAllCaps="false"
-            android:textSize="11sp" />
 
         <Button
             android:id="@+id/btn_probe_vnd"
             android:layout_width="0dp"
             android:layout_height="44dp"
+            android:layout_marginEnd="4dp"
             android:layout_weight="1"
             android:text="@string/harness_probe_vnd"
+            android:textAllCaps="false"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btn_probe_main"
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1"
+            android:text="@string/harness_probe_main"
             android:textAllCaps="false"
             android:textSize="11sp" />
     </LinearLayout>
@@ -176,16 +190,6 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal">
-
-        <Button
-            android:id="@+id/btn_probe_main"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_marginEnd="4dp"
-            android:layout_weight="1"
-            android:text="@string/harness_probe_main"
-            android:textAllCaps="false"
-            android:textSize="11sp" />
 
         <Button
             android:id="@+id/btn_export"
@@ -195,6 +199,11 @@
             android:text="@string/harness_export"
             android:textAllCaps="false"
             android:textSize="11sp" />
+
+        <View
+            android:layout_width="0dp"
+            android:layout_height="44dp"
+            android:layout_weight="1" />
     </LinearLayout>
 
     <ScrollView

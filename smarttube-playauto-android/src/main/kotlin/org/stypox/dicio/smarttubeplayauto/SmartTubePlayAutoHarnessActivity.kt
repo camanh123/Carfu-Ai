@@ -9,9 +9,11 @@ import android.os.Looper
 import android.widget.Button
 import android.widget.EditText
 import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import android.view.View
 import org.stypox.dicio.youtubeplayauto.HttpYouTubeResolverClient
 import org.stypox.dicio.youtubeplayauto.PlayAutoRequest
 import org.stypox.dicio.youtubeplayauto.YouTubeLaunchMode
@@ -22,13 +24,15 @@ import java.util.concurrent.Executors
  * Standalone SmartTube diagnostic. Not production Voice.
  *
  * PlayAuto button: resolver only (Intent form unproven in source).
- * Probe buttons: one candidate Intent, exactly one launch attempt, no fallback.
+ * Probe buttons: one candidate Intent pinned to an explicitly selected
+ * DEVICE_INSTALLED SmartTube package. Never the harness. No fallback.
  */
 class SmartTubePlayAutoHarnessActivity : Activity() {
 
     private lateinit var queryField: EditText
     private lateinit var baseUrlField: EditText
     private lateinit var dryRunRadio: RadioButton
+    private lateinit var packageGroup: RadioGroup
     private lateinit var logView: TextView
     private lateinit var logScroll: ScrollView
 
@@ -36,6 +40,7 @@ class SmartTubePlayAutoHarnessActivity : Activity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
     private var lastResult: SmartTubePlayAutoResult? = null
+    private var lastScan: List<SmartTubeInstalledPackage> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,6 +49,7 @@ class SmartTubePlayAutoHarnessActivity : Activity() {
         queryField = findViewById(R.id.harness_query)
         baseUrlField = findViewById(R.id.harness_base_url)
         dryRunRadio = findViewById(R.id.harness_mode_dry)
+        packageGroup = findViewById(R.id.harness_package_group)
         logView = findViewById(R.id.harness_log)
         logScroll = findViewById(R.id.harness_log_scroll)
 
@@ -56,9 +62,6 @@ class SmartTubePlayAutoHarnessActivity : Activity() {
         findViewById<Button>(R.id.btn_probe_watch_pinned).setOnClickListener {
             probe(SmartTubeLaunchForm.VIEW_WATCH_URL_PINNED)
         }
-        findViewById<Button>(R.id.btn_probe_watch_unpinned).setOnClickListener {
-            probe(SmartTubeLaunchForm.VIEW_WATCH_URL_UNPINNED)
-        }
         findViewById<Button>(R.id.btn_probe_youtu_be).setOnClickListener {
             probe(SmartTubeLaunchForm.VIEW_YOUTU_BE_PINNED)
         }
@@ -70,10 +73,12 @@ class SmartTubePlayAutoHarnessActivity : Activity() {
         }
         findViewById<Button>(R.id.btn_export).setOnClickListener { exportDiagnostic() }
 
-        logView.text = "Ready. Standalone SmartTube diagnostic.\n" +
-            "PlayAuto = existing resolver only (Intent unproven; no guessed launch).\n" +
-            "Each probe tap = one candidate Intent. No fallback. Never YouTube.\n" +
+        logView.text = "Ready. Standalone SmartTube P1.1 diagnostic.\n" +
+            "Harness ${SmartTubeHarnessIdentity.PACKAGE} is excluded from SmartTube targets.\n" +
+            "Scan first. If both beta and stable are installed, select one package.\n" +
+            "Each probe tap = one pinned Intent. No fallback. Never YouTube.\n" +
             "Not production Voice. DEVICE PASS not claimed.\n"
+        scanPackages(showLog = false)
     }
 
     private fun launchMode(): YouTubeLaunchMode =
@@ -88,12 +93,22 @@ class SmartTubePlayAutoHarnessActivity : Activity() {
         baseUrlField.text?.toString().orEmpty(),
     )
 
+    private fun selectedPackage(): String? {
+        val checkedId = packageGroup.checkedRadioButtonId
+        if (checkedId == -1) return null
+        val button = packageGroup.findViewById<RadioButton>(checkedId) ?: return null
+        return button.tag as? String
+    }
+
     private fun driver(form: SmartTubeLaunchForm? = null): SmartTubePlayAutoDriver {
         saveBaseUrl()
         return SmartTubePlayAutoDriver(
             resolverClient = HttpYouTubeResolverClient(baseUrlProvider = { configuredBaseUrl() }),
             launcher = launcher,
-            options = SmartTubePlayAutoOptions(launchForm = form),
+            options = SmartTubePlayAutoOptions(
+                launchForm = form,
+                selectedPackage = selectedPackage(),
+            ),
         )
     }
 
@@ -129,31 +144,77 @@ class SmartTubePlayAutoHarnessActivity : Activity() {
         }
     }
 
-    private fun scanPackages() {
+    private fun scanPackages(showLog: Boolean = true) {
         worker.execute {
-            val installed = launcher.installedPackages()
-            val text = buildString {
-                appendLine("SCAN")
-                appendLine("Catalog candidates (not device-proven): ${SmartTubeCatalog.CATALOG_PACKAGES.joinToString()}")
-                appendLine("Package evidence: ${SmartTubeCatalog.PACKAGE_EVIDENCE}")
-                if (installed.isEmpty()) {
-                    appendLine("Installed SmartTube package(s): NONE")
-                } else {
-                    installed.forEach { pkg ->
-                        appendLine(
-                            "installed: ${pkg.packageName} version=${pkg.versionName ?: "NONE"} " +
-                                "launch=${pkg.launchActivity ?: "NONE"} source=${pkg.source}",
-                        )
-                    }
-                }
-                appendLine("Intent evidence: ${SmartTubeLaunchAudit.EVIDENCE}")
-                appendLine("SOURCE_PROVEN launch form: ${SmartTubeLaunchAudit.SOURCE_PROVEN}")
-            }
+            val scanned = launcher.installedPackages()
+            val selectable = SmartTubeTargetSelection.selectable(scanned)
             main.post {
-                logView.text = text
-                logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+                lastScan = scanned
+                refreshPackageRadios(selectable)
+                if (showLog) {
+                    logView.text = formatScan(scanned, selectable)
+                    logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+                }
             }
         }
+    }
+
+    private fun refreshPackageRadios(selectable: List<SmartTubeInstalledPackage>) {
+        val previous = selectedPackage()
+        packageGroup.removeAllViews()
+        if (selectable.isEmpty()) {
+            val empty = RadioButton(this)
+            empty.isEnabled = false
+            empty.text = "NONE — no DEVICE_INSTALLED SmartTube"
+            empty.setTextColor(0xFF9E9E9E.toInt())
+            packageGroup.addView(empty)
+            return
+        }
+        selectable.forEach { pkg ->
+            val radio = RadioButton(this)
+            radio.id = View.generateViewId()
+            radio.tag = pkg.packageName
+            val label = pkg.applicationLabel?.takeIf { it.isNotBlank() } ?: pkg.packageName
+            radio.text = "$label\n${pkg.packageName}"
+            radio.setTextColor(0xFFEEEEEE.toInt())
+            packageGroup.addView(radio)
+        }
+        val keep = selectable.find { it.packageName == previous }?.packageName
+        val auto = if (selectable.size == 1) selectable[0].packageName else keep
+        if (auto != null) {
+            for (i in 0 until packageGroup.childCount) {
+                val radio = packageGroup.getChildAt(i) as? RadioButton ?: continue
+                if (radio.tag == auto) {
+                    radio.isChecked = true
+                    break
+                }
+            }
+        }
+    }
+
+    private fun formatScan(
+        scanned: List<SmartTubeInstalledPackage>,
+        selectable: List<SmartTubeInstalledPackage>,
+    ): String = buildString {
+        appendLine("SCAN")
+        appendLine("HARNESS_PACKAGE=${SmartTubeHarnessIdentity.PACKAGE}")
+        appendLine("HARNESS_EXCLUDED=true")
+        appendLine("Catalog candidates (not device-proven): ${SmartTubeCatalog.CATALOG_PACKAGES.joinToString()}")
+        appendLine("Device query packages: ${SmartTubeCatalog.DEVICE_QUERY_PACKAGES.joinToString()}")
+        appendLine("DEVICE_INSTALLED selectable: ${
+            selectable.map { it.packageName }.ifEmpty { listOf("NONE") }.joinToString()
+        }")
+        if (selectable.size > 1) {
+            appendLine("PACKAGE_SELECTION=required (do not silently choose)")
+        }
+        appendLine()
+        scanned.forEach { pkg ->
+            append(pkg.formatBlock())
+            appendLine()
+        }
+        appendLine("Intent evidence: ${SmartTubeLaunchAudit.EVIDENCE}")
+        appendLine("SOURCE_PROVEN launch form: ${SmartTubeLaunchAudit.SOURCE_PROVEN}")
+        appendLine("DISPATCHED is not OPENED_SMARTTUBE / OPENED_EXACT_VIDEO / AUTOPLAY_STARTED")
     }
 
     private fun render(action: String, result: SmartTubePlayAutoResult) {
@@ -170,6 +231,6 @@ class SmartTubePlayAutoHarnessActivity : Activity() {
     }
 
     companion object {
-        private const val PREFS_NAME = "carfu_smarttube_playauto_496"
+        private const val PREFS_NAME = "carfu_smarttube_playauto_497"
     }
 }

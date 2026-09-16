@@ -37,10 +37,10 @@ sealed class SmartTubeLaunchOutcome {
 interface SmartTubeLauncher {
     fun installedPackages(): List<SmartTubeInstalledPackage>
 
-    fun preferredInstalledPackage(): String? =
-        installedPackages().map { it.packageName }.firstOrNull { pkg ->
-            SmartTubePackageNames.isSafeSmartTubeTarget(pkg)
-        }
+    fun preferredInstalledPackage(): String? {
+        val selectable = SmartTubeTargetSelection.selectable(installedPackages())
+        return selectable.singleOrNull()?.packageName
+    }
 
     fun resolveActivity(spec: SmartTubeLaunchSpec): SmartTubeResolveActivity?
 
