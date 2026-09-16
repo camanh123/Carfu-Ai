@@ -281,10 +281,7 @@ class AliasDiagnosticActivity : Activity() {
 
         fun firstTranscript(bundle: Bundle?): String {
             val results = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-            val first = results?.firstOrNull()
-            if (!first.isNullOrBlank()) return first
-            val unstable = bundle?.getStringArrayList(RecognizerIntent.EXTRA_UNSTABLE_TEXT)
-            return unstable?.firstOrNull().orEmpty()
+            return results?.firstOrNull().orEmpty()
         }
 
         fun errorName(code: Int): String = when (code) {
