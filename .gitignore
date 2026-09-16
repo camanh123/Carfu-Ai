@@ -9,7 +9,9 @@
 /models
 /aars/build
 /playauto/build
+/youtube-playauto/build
 /youtube-playauto-android/build
+/smarttube-playauto-android/build
 /carfu-resolver-service/build
 .env
 /checkouts
