@@ -4,8 +4,10 @@ package org.stypox.dicio.aliasnormalizer
  * Central, conservative provider-alias table.
  *
  * Add rows from real CARFU transcripts only. Do not grow this into a
- * general spell-checker. YouTube is intentionally absent: production already
- * understands those utterances; this module must not rewrite them.
+ * general spell-checker. Bare YouTube is intentionally absent: production
+ * already understands those utterances; this module must not rewrite
+ * "... trên YouTube". The two-word device form "smart YouTube" is a
+ * SmartTube STT alias, not a YouTube alias.
  */
 data class ProviderAlias(
     val canonicalProvider: String,
@@ -41,6 +43,12 @@ class ProviderAliasRegistry(
             // sờ mat túp / sờ mắt túp fold to the same key.
             alias(SMARTTUBE, "sờ mát túp", "so mat tup"),
             alias(SMARTTUBE, "sờ mát tube", "so mat tube"),
+            // P1.2 — CARFU SpeechRecognizer vi-VN observations of spoken "SmartTube".
+            alias(SMARTTUBE, "smart YouTube", "smart youtube"),
+            alias(SMARTTUBE, "smartphone", "smartphone"),
+            alias(SMARTTUBE, "trần mắt giúp", "tran mat giup"),
+            alias(SMARTTUBE, "cùng một chút", "cung mot chut"),
+            alias(SMARTTUBE, "trần mắt chút", "tran mat chut"),
         )
 
         private fun alias(

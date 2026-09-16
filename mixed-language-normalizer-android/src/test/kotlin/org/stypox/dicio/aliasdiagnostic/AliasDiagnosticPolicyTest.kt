@@ -64,6 +64,7 @@ class AliasDiagnosticPolicyTest : StringSpec({
         src shouldContain "RecognizerIntent.ACTION_RECOGNIZE_SPEECH"
         src shouldContain "AliasDiagnosticPolicy.SPEECH_LOCALE"
         src shouldContain "DiagnosticDisplay.defaultNormalizer"
+        src shouldContain "DiagnosticSession.begin"
         src.shouldNotContain("ACTION_VIEW")
         src.shouldNotContain("startActivity")
         src.shouldNotContain("AccessibilityService")

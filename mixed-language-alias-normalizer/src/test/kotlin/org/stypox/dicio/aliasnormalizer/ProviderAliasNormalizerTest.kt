@@ -111,6 +111,10 @@ class ProviderAliasNormalizerTest : StringSpec({
             "Mở bài X trên SpotifyX",
             "Mở bài Y qua sờ mắt túp",
             "Mở bài Z với sờ mát tube",
+            "Mở bài Đừng Xa Em Đêm Nay trên smart YouTube",
+            "Mở bài Đừng Xa Em Đêm Nay trên smartphone",
+            "Mở YouTube trên smartphone",
+            "Cho âm lượng nhỏ xuống cùng một chút",
         )
         samples.forEach { input ->
             val once = go(input)
@@ -148,5 +152,8 @@ class ProviderAliasNormalizerTest : StringSpec({
         TranscriptFolder.fold("sờ mat túp") shouldBe "so mat tup"
         TranscriptFolder.fold("smart túp") shouldBe "smart tup"
         TranscriptFolder.fold("SmartTube") shouldBe "smarttube"
+        TranscriptFolder.fold("smart YouTube") shouldBe "smart youtube"
+        TranscriptFolder.fold("trần mắt giúp") shouldBe "tran mat giup"
+        TranscriptFolder.fold("cùng một chút") shouldBe "cung mot chut"
     }
 })

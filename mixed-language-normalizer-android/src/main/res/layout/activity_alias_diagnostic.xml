@@ -158,9 +158,25 @@
                 android:id="@+id/field_changed"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
                 android:textColor="#FFFFFF"
                 android:textIsSelectable="true"
                 android:textSize="18sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_history_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_history"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textColor="#9E9E9E"
+                android:textIsSelectable="true"
+                android:textSize="13sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

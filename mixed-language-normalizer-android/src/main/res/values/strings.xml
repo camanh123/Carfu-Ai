@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="diagnostic_app_name">CARFU alias P1.1</string>
-    <string name="diagnostic_title">Mixed-language alias diagnostic</string>
-    <string name="diagnostic_subtitle">Listen only. vi-VN SpeechRecognizer → existing JVM normalizer. Does not execute commands, open SmartTube/YouTube/Maps, or call production NLU. PRODUCTION_WIRED=NO.</string>
+    <string name="diagnostic_app_name">CARFU alias P1.2</string>
+    <string name="diagnostic_title">Mixed-language alias diagnostic P1.2</string>
+    <string name="diagnostic_subtitle">One speech session per START. vi-VN SpeechRecognizer → existing JVM normalizer. Does not execute commands. PRODUCTION_WIRED=NO.</string>
     <string name="diagnostic_start">START LISTENING</string>
     <string name="diagnostic_stop">STOP LISTENING</string>
     <string name="diagnostic_copy">COPY DIAGNOSTIC</string>
@@ -13,4 +13,5 @@
     <string name="diagnostic_provider_label">PROVIDER</string>
     <string name="diagnostic_alias_label">ALIAS MATCHED</string>
     <string name="diagnostic_changed_label">CHANGED</string>
+    <string name="diagnostic_history_label">HISTORY (previous sessions, not concatenated into RAW)</string>
 </resources>
