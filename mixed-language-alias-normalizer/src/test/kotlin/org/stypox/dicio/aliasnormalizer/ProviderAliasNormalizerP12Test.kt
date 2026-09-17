@@ -79,9 +79,17 @@ class ProviderAliasNormalizerP12Test : StringSpec({
     }
 
     "P1.2-8. YouTube as the provider slot stays YouTube" {
-        assertUnchanged("Mở bài Đừng Xa Em Đêm Nay trên YouTube")
-        assertUnchanged("Phát Nơi Này Có Anh bằng YouTube")
-        assertUnchanged("Mở See You Again trên youtube")
+        listOf(
+            "Mở bài Đừng Xa Em Đêm Nay trên YouTube",
+            "Phát Nơi Này Có Anh bằng YouTube",
+            "Mở See You Again trên youtube",
+        ).forEach { input ->
+            val r = go(input)
+            r.changed.shouldBeFalse()
+            r.normalizedTranscript shouldBe input
+            r.providerDetected shouldBe "YouTube"
+            r.normalizedTranscript shouldNotContain "SmartTube"
+        }
     }
 
     "P1.2-9. smart YouTube inside a song title is unchanged" {
@@ -90,7 +98,7 @@ class ProviderAliasNormalizerP12Test : StringSpec({
         r.changed.shouldBeFalse()
         r.normalizedTranscript shouldBe input
         r.normalizedTranscript shouldNotContain "SmartTube"
-        r.providerDetected.shouldBeNull()
+        r.providerDetected shouldBe "YouTube"
     }
 
     "P1.2-10. cùng một chút in ordinary Vietnamese is unchanged" {

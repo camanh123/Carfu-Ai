@@ -8,83 +8,33 @@ package org.stypox.dicio.aliasnormalizer
  *     a bare YouTube / Maps open-app phrase)
  *  2. a media-provider preposition (`trên` / `bằng` / `qua` / `với` /
  *     `từ`) introduces the slot
- *  3. the entire remaining slot matches a registry alias
+ *  3. [ContextualMixedLanguageProviderResolver] returns HIGH confidence
+ *     and shouldRewrite
  *
  * Ambiguous forms such as "smartphone" / "smart YouTube" / "cùng một
- * chút" are never globally replaced.
+ * chút" are never globally replaced. Spotify never becomes SmartTube.
  */
 fun interface ProviderAliasNormalizer {
     fun normalize(transcript: String): NormalizationResult
 }
 
 class DefaultProviderAliasNormalizer(
-    private val registry: ProviderAliasRegistry = ProviderAliasRegistry(),
+    private val resolver: ContextualMixedLanguageProviderResolver =
+        ContextualMixedLanguageProviderResolver(),
 ) : ProviderAliasNormalizer {
 
     override fun normalize(transcript: String): NormalizationResult {
-        val tokens = tokenize(transcript)
-        if (tokens.isEmpty()) {
-            return unchanged(transcript)
-        }
-        val prepIndex = tokens.indices.lastOrNull { index ->
-            TranscriptFolder.foldToken(tokens[index].text) in PROVIDER_PREPOSITIONS
-        } ?: return unchanged(transcript)
-        if (prepIndex == tokens.lastIndex) {
-            return unchanged(transcript)
-        }
-        val prefixTokens = tokens.subList(0, prepIndex)
-        if (!MediaCommandContext.hasMediaCommand(prefixTokens.map { it.text })) {
-            return unchanged(transcript)
-        }
-        val slot = tokens.subList(prepIndex + 1, tokens.size)
-        val foldedSlot = slot.joinToString(" ") { TranscriptFolder.foldToken(it.text) }
-        if (foldedSlot.isEmpty()) {
-            return unchanged(transcript)
-        }
-        val alias = registry.findExact(foldedSlot) ?: return unchanged(transcript)
-        val alreadyCanonical = slot.size == 1 && slot[0].text == alias.canonicalProvider
-        if (alreadyCanonical) {
-            return NormalizationResult(
-                originalTranscript = transcript,
-                normalizedTranscript = transcript,
-                providerDetected = alias.canonicalProvider,
-                aliasMatched = alias.observedForm,
-                changed = false,
-            )
-        }
-        val prefix = transcript.substring(0, tokens[prepIndex].end)
-        val rewritten = "$prefix ${alias.canonicalProvider}"
+        val resolved = resolver.resolve(transcript)
         return NormalizationResult(
             originalTranscript = transcript,
-            normalizedTranscript = rewritten,
-            providerDetected = alias.canonicalProvider,
-            aliasMatched = alias.observedForm,
-            changed = rewritten != transcript,
+            normalizedTranscript = resolved.rewrittenTranscript ?: transcript,
+            providerDetected = resolved.canonicalProvider,
+            aliasMatched = resolved.matchedAlias,
+            changed = resolved.shouldRewrite,
         )
     }
 
-    private fun unchanged(transcript: String) = NormalizationResult(
-        originalTranscript = transcript,
-        normalizedTranscript = transcript,
-        providerDetected = null,
-        aliasMatched = null,
-        changed = false,
-    )
-
-    private data class Token(val text: String, val start: Int, val end: Int)
-
-    private fun tokenize(text: String): List<Token> {
-        val out = ArrayList<Token>()
-        var i = 0
-        while (i < text.length) {
-            while (i < text.length && text[i].isWhitespace()) i++
-            if (i >= text.length) break
-            val start = i
-            while (i < text.length && !text[i].isWhitespace()) i++
-            out += Token(text.substring(start, i), start, i)
-        }
-        return out
-    }
+    fun resolve(transcript: String): ProviderResolution = resolver.resolve(transcript)
 
     companion object {
         /**

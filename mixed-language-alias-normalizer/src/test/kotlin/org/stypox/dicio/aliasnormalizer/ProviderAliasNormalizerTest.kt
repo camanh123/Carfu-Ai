@@ -51,20 +51,24 @@ class ProviderAliasNormalizerTest : StringSpec({
         r.providerDetected shouldBe "SmartTube"
     }
 
-    "5. existing YouTube sentence is unchanged" {
+    "5. existing YouTube sentence is not rewritten to SmartTube" {
         val samples = listOf(
             "Mở bài Đừng Xa Em Đêm Nay trên YouTube",
             "Phát Nơi Này Có Anh bằng YouTube",
             "Mở See You Again trên youtube",
-            "Mở bài X trên iu túp",
         )
         samples.forEach { input ->
             val r = go(input)
             r.changed.shouldBeFalse()
             r.normalizedTranscript shouldBe input
-            r.providerDetected.shouldBeNull()
-            r.aliasMatched.shouldBeNull()
+            r.providerDetected shouldBe "YouTube"
+            r.normalizedTranscript shouldNotContain "SmartTube"
         }
+        val unknown = go("Mở bài X trên iu túp")
+        unknown.changed.shouldBeFalse()
+        unknown.normalizedTranscript shouldBe "Mở bài X trên iu túp"
+        unknown.providerDetected.shouldBeNull()
+        unknown.aliasMatched.shouldBeNull()
     }
 
     "6. ordinary Vietnamese resembling aliases is unchanged" {
@@ -88,7 +92,8 @@ class ProviderAliasNormalizerTest : StringSpec({
         r.normalizedTranscript shouldBe input
         r.normalizedTranscript shouldContain "sờ mát túp"
         r.normalizedTranscript shouldContain "YouTube"
-        r.providerDetected.shouldBeNull()
+        r.providerDetected shouldBe "YouTube"
+        r.normalizedTranscript shouldNotContain "SmartTube"
     }
 
     "8. unknown provider is unchanged" {
