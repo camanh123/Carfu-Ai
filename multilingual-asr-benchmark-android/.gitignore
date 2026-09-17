@@ -1,0 +1,21 @@
+.gradle/
+build/
+.cxx/
+.externalNativeBuild/
+local.properties
+*.iml
+.idea/
+.DS_Store
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Downloaded native source (cloned at pinned tag by scripts/prepare-deps.sh)
+third_party/whisper.cpp/
+
+# Model binaries — never commit to normal git history
+models/*.bin
+models/*.bin.partial
+src/main/assets/models/*.bin
