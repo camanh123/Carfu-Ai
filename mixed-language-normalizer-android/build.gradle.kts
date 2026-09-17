@@ -13,8 +13,8 @@ android {
         applicationId = "org.stypox.dicio.aliasdiagnostic"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
-        versionCode = 512
-        versionName = "p1.2-alias-diagnostic"
+        versionCode = 513
+        versionName = "p2b-contextual-diagnostic"
     }
 
     buildTypes {

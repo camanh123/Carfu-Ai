@@ -118,50 +118,226 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/diagnostic_provider_label"
+                android:text="@string/diagnostic_media_label"
                 android:textColor="#80CBC4"
                 android:textSize="12sp" />
 
             <TextView
-                android:id="@+id/field_provider"
+                android:id="@+id/field_media"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_slot_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_slot"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_candidate_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_candidate"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_canonical_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_canonical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_exact_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_exact"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_alias_match_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_alias_match"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_lexical_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_lexical"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_phonetic_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_phonetic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_final_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_final"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_confidence_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_confidence"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_ambiguous_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_ambiguous"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_match_type_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_match_type"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_rewrite_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_rewrite"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:textColor="#FFFFFF"
+                android:textIsSelectable="true"
+                android:textSize="16sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/diagnostic_reason_label"
+                android:textColor="#80CBC4"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/field_reason"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="8dp"
                 android:textColor="#FFFFFF"
                 android:textIsSelectable="true"
-                android:textSize="18sp" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/diagnostic_alias_label"
-                android:textColor="#80CBC4"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/field_alias"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:textColor="#FFFFFF"
-                android:textIsSelectable="true"
-                android:textSize="18sp" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/diagnostic_changed_label"
-                android:textColor="#80CBC4"
-                android:textSize="12sp" />
-
-            <TextView
-                android:id="@+id/field_changed"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:textColor="#FFFFFF"
-                android:textIsSelectable="true"
-                android:textSize="18sp" />
+                android:textSize="16sp" />
 
             <TextView
                 android:layout_width="match_parent"
@@ -174,9 +350,10 @@
                 android:id="@+id/field_history"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:fontFamily="monospace"
                 android:textColor="#9E9E9E"
                 android:textIsSelectable="true"
-                android:textSize="13sp" />
+                android:textSize="12sp" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

@@ -65,6 +65,7 @@ class AliasDiagnosticPolicyTest : StringSpec({
         src shouldContain "AliasDiagnosticPolicy.SPEECH_LOCALE"
         src shouldContain "DiagnosticDisplay.defaultNormalizer"
         src shouldContain "DiagnosticSession.begin"
+        src shouldContain "DiagnosticDisplay.of"
         src.shouldNotContain("ACTION_VIEW")
         src.shouldNotContain("startActivity")
         src.shouldNotContain("AccessibilityService")
@@ -74,5 +75,17 @@ class AliasDiagnosticPolicyTest : StringSpec({
         src.shouldNotContain("org.stypox.dicio.skills")
         src.shouldNotContain("org.smarttube.stable")
         RecognizerIntent.ACTION_RECOGNIZE_SPEECH shouldBe "android.speech.action.RECOGNIZE_SPEECH"
+    }
+
+    "display layer calls frozen engine resolve and does not special-case providers" {
+        val display = File("src/main/kotlin/org/stypox/dicio/aliasdiagnostic/DiagnosticDisplay.kt")
+            .readText()
+        display shouldContain "normalizer.resolve"
+        display shouldContain "ProviderResolution"
+        display.shouldNotContain("spotify ->")
+        display.shouldNotContain("SmartTube")
+        val activity = File("src/main/kotlin/org/stypox/dicio/aliasdiagnostic/AliasDiagnosticActivity.kt")
+            .readText()
+        activity.shouldNotContain("\"spotify\"")
     }
 })
