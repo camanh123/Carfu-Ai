@@ -14,27 +14,38 @@ import android.speech.SpeechRecognizer
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
-import org.stypox.dicio.aliasnormalizer.ProviderAliasNormalizer
+import org.stypox.dicio.aliasnormalizer.DefaultProviderAliasNormalizer
 
 /**
  * Standalone diagnostic: microphone → SpeechRecognizer vi-VN →
- * [org.stypox.dicio.aliasnormalizer.DefaultProviderAliasNormalizer] → UI.
+ * frozen Phase 2A [DefaultProviderAliasNormalizer.resolve] → UI.
  *
- * One START = one speech session. RAW STT / NORMALIZED are never
- * concatenated across sessions. Does not execute commands.
+ * One START = one speech session. RAW is unaltered STT. NORMALIZED is
+ * engine output only. Does not execute commands.
  */
 class AliasDiagnosticActivity : Activity() {
 
-    private val normalizer: ProviderAliasNormalizer = DiagnosticDisplay.defaultNormalizer()
+    private val normalizer: DefaultProviderAliasNormalizer = DiagnosticDisplay.defaultNormalizer()
 
     private lateinit var listenButton: Button
     private lateinit var statusView: TextView
     private lateinit var partialView: TextView
     private lateinit var rawView: TextView
     private lateinit var normalizedView: TextView
-    private lateinit var providerView: TextView
-    private lateinit var aliasView: TextView
-    private lateinit var changedView: TextView
+    private lateinit var mediaView: TextView
+    private lateinit var slotView: TextView
+    private lateinit var candidateView: TextView
+    private lateinit var canonicalView: TextView
+    private lateinit var exactView: TextView
+    private lateinit var aliasMatchView: TextView
+    private lateinit var lexicalView: TextView
+    private lateinit var phoneticView: TextView
+    private lateinit var finalScoreView: TextView
+    private lateinit var confidenceView: TextView
+    private lateinit var ambiguousView: TextView
+    private lateinit var matchTypeView: TextView
+    private lateinit var rewriteView: TextView
+    private lateinit var reasonView: TextView
     private lateinit var historyView: TextView
 
     private var recognizer: SpeechRecognizer? = null
@@ -50,9 +61,20 @@ class AliasDiagnosticActivity : Activity() {
         partialView = findViewById(R.id.field_partial)
         rawView = findViewById(R.id.field_raw)
         normalizedView = findViewById(R.id.field_normalized)
-        providerView = findViewById(R.id.field_provider)
-        aliasView = findViewById(R.id.field_alias)
-        changedView = findViewById(R.id.field_changed)
+        mediaView = findViewById(R.id.field_media)
+        slotView = findViewById(R.id.field_slot)
+        candidateView = findViewById(R.id.field_candidate)
+        canonicalView = findViewById(R.id.field_canonical)
+        exactView = findViewById(R.id.field_exact)
+        aliasMatchView = findViewById(R.id.field_alias_match)
+        lexicalView = findViewById(R.id.field_lexical)
+        phoneticView = findViewById(R.id.field_phonetic)
+        finalScoreView = findViewById(R.id.field_final)
+        confidenceView = findViewById(R.id.field_confidence)
+        ambiguousView = findViewById(R.id.field_ambiguous)
+        matchTypeView = findViewById(R.id.field_match_type)
+        rewriteView = findViewById(R.id.field_rewrite)
+        reasonView = findViewById(R.id.field_reason)
         historyView = findViewById(R.id.field_history)
 
         listenButton.setOnClickListener {
@@ -60,8 +82,14 @@ class AliasDiagnosticActivity : Activity() {
         }
         findViewById<Button>(R.id.btn_copy).setOnClickListener { copyDump() }
 
-        renderIdle("idle · locale=${AliasDiagnosticPolicy.SPEECH_LOCALE} · " +
-            "app=${AliasDiagnosticPolicy.APPLICATION_ID}")
+        renderSnapshot(
+            DiagnosticDisplay.of(
+                normalizer = normalizer,
+                rawTranscript = "",
+                status = "idle · locale=${AliasDiagnosticPolicy.SPEECH_LOCALE} · " +
+                    "app=${AliasDiagnosticPolicy.APPLICATION_ID}",
+            ),
+        )
     }
 
     override fun onDestroy() {
@@ -79,7 +107,7 @@ class AliasDiagnosticActivity : Activity() {
             startRecognizer()
         } else {
             session = DiagnosticSession.onStop(session, session.sessionId)
-            renderIdle("RECORD_AUDIO denied — cannot start SpeechRecognizer")
+            renderStatusOnly("RECORD_AUDIO denied — cannot start SpeechRecognizer")
         }
     }
 
@@ -87,10 +115,10 @@ class AliasDiagnosticActivity : Activity() {
         if (!hasRecordAudio()) {
             if (Build.VERSION.SDK_INT >= 23) {
                 requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO)
-                renderIdle("requesting RECORD_AUDIO")
+                renderStatusOnly("requesting RECORD_AUDIO")
                 return
             }
-            renderIdle("RECORD_AUDIO missing")
+            renderStatusOnly("RECORD_AUDIO missing")
             return
         }
         startRecognizer()
@@ -98,10 +126,9 @@ class AliasDiagnosticActivity : Activity() {
 
     private fun startRecognizer() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            renderIdle("SpeechRecognizer not available on this device")
+            renderStatusOnly("SpeechRecognizer not available on this device")
             return
         }
-        // Invalidate any in-flight callbacks, then drop the previous recognizer.
         session = DiagnosticSession.begin(session)
         val mySession = session.sessionId
         discardRecognizer()
@@ -109,28 +136,30 @@ class AliasDiagnosticActivity : Activity() {
             SpeechRecognizer.createSpeechRecognizer(this)
         } catch (t: Throwable) {
             session = DiagnosticSession.onStop(session, mySession)
-            renderIdle("createSpeechRecognizer failed: ${t.javaClass.simpleName}: ${t.message}")
+            renderStatusOnly("createSpeechRecognizer failed: ${t.javaClass.simpleName}: ${t.message}")
             return
         }
         if (created == null) {
             session = DiagnosticSession.onStop(session, mySession)
-            renderIdle("createSpeechRecognizer returned null")
+            renderStatusOnly("createSpeechRecognizer returned null")
             return
         }
         recognizer = created
         created.setRecognitionListener(newListener(mySession))
         listenButton.setText(R.string.diagnostic_stop)
-        renderCurrent(
-            status = "listening · ${AliasDiagnosticPolicy.SPEECH_LOCALE} · session $mySession",
-            raw = "",
-            partial = "",
+        renderSnapshot(
+            DiagnosticDisplay.of(
+                normalizer = normalizer,
+                rawTranscript = "",
+                status = "listening · ${AliasDiagnosticPolicy.SPEECH_LOCALE} · session $mySession",
+            ),
         )
         try {
             created.startListening(recognitionIntent())
         } catch (t: Throwable) {
             session = DiagnosticSession.onStop(session, mySession)
             listenButton.setText(R.string.diagnostic_start)
-            renderIdle("startListening failed: ${t.javaClass.simpleName}: ${t.message}")
+            renderStatusOnly("startListening failed: ${t.javaClass.simpleName}: ${t.message}")
             discardRecognizer()
         }
     }
@@ -139,22 +168,7 @@ class AliasDiagnosticActivity : Activity() {
         val id = session.sessionId
         session = DiagnosticSession.onStop(session, id)
         listenButton.setText(R.string.diagnostic_start)
-        val current = recognizer
-        recognizer = null
-        if (current != null) {
-            try {
-                current.stopListening()
-            } catch (_: Throwable) {
-            }
-            try {
-                current.cancel()
-            } catch (_: Throwable) {
-            }
-            try {
-                current.destroy()
-            } catch (_: Throwable) {
-            }
-        }
+        discardRecognizer()
     }
 
     private fun discardRecognizer() {
@@ -205,20 +219,20 @@ class AliasDiagnosticActivity : Activity() {
             if (sessionId != session.sessionId) return
             session = DiagnosticSession.onStop(session, sessionId)
             listenButton.setText(R.string.diagnostic_start)
-            renderIdle("error ${errorName(error)} ($error)")
+            renderStatusOnly("error ${errorName(error)} ($error)")
             discardRecognizer()
         }
 
         override fun onResults(results: Bundle?) {
             if (sessionId != session.sessionId) return
             val raw = firstTranscript(results)
-            session = DiagnosticSession.onFinal(session, sessionId, raw)
             val snapshot = DiagnosticDisplay.of(
                 normalizer = normalizer,
-                rawTranscript = session.rawStt,
+                rawTranscript = raw,
                 partialTranscript = session.partial,
                 status = "final · session $sessionId",
             )
+            session = DiagnosticSession.onFinal(session, sessionId, raw, snapshot)
             renderSnapshot(snapshot)
             listenButton.setText(R.string.diagnostic_start)
             discardRecognizer()
@@ -228,44 +242,23 @@ class AliasDiagnosticActivity : Activity() {
             if (sessionId != session.sessionId) return
             val partial = firstTranscript(partialResults)
             if (partial.isBlank()) return
-            session = DiagnosticSession.onPartial(session, sessionId, partial)
             val snapshot = DiagnosticDisplay.of(
                 normalizer = normalizer,
-                rawTranscript = session.rawStt,
-                partialTranscript = session.partial,
+                rawTranscript = partial,
+                partialTranscript = partial,
                 status = "partial · session $sessionId",
             )
+            session = DiagnosticSession.onPartial(session, sessionId, partial, snapshot)
             renderSnapshot(snapshot)
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
     }
 
-    private fun renderCurrent(status: String, raw: String, partial: String) {
-        val snapshot = DiagnosticDisplay.of(
-            normalizer = normalizer,
-            rawTranscript = raw,
-            partialTranscript = partial,
-            status = status,
-        )
-        renderSnapshot(snapshot)
-    }
-
-    private fun renderIdle(status: String) {
+    private fun renderStatusOnly(status: String) {
         listenButton.setText(R.string.diagnostic_start)
-        val snapshot = DiagnosticSnapshot(
-            status = status,
-            partialTranscript = session.partial,
-            rawStt = session.rawStt,
-            normalized = if (session.rawStt.isEmpty()) {
-                ""
-            } else {
-                normalizer.normalize(session.rawStt).normalizedTranscript
-            },
-            provider = "",
-            aliasMatched = "",
-            changed = false,
-        )
+        val snapshot = session.currentSnapshot?.copy(status = status)
+            ?: DiagnosticDisplay.of(normalizer, session.rawStt, session.partial, status)
         renderSnapshot(snapshot)
     }
 
@@ -274,21 +267,22 @@ class AliasDiagnosticActivity : Activity() {
         partialView.text = snapshot.partialTranscript
         rawView.text = snapshot.rawStt
         normalizedView.text = snapshot.normalized
-        providerView.text = snapshot.provider
-        aliasView.text = snapshot.aliasMatched
-        changedView.text = snapshot.changed.toString()
-        historyView.text = if (session.history.isEmpty()) {
-            ""
-        } else {
-            session.history.mapIndexed { i, line -> "${i + 1}. $line" }.joinToString("\n")
-        }
-        lastDump = buildString {
-            append(snapshot.format())
-            if (session.history.isNotEmpty()) {
-                appendLine("HISTORY:")
-                session.history.forEach { appendLine("- $it") }
-            }
-        }
+        mediaView.text = snapshot.mediaContext
+        slotView.text = snapshot.providerSlot
+        candidateView.text = snapshot.candidate
+        canonicalView.text = snapshot.canonicalProvider
+        exactView.text = snapshot.exactMatch
+        aliasMatchView.text = snapshot.aliasMatch
+        lexicalView.text = snapshot.lexicalScore
+        phoneticView.text = snapshot.phoneticScore
+        finalScoreView.text = snapshot.finalScore
+        confidenceView.text = snapshot.confidence
+        ambiguousView.text = snapshot.ambiguous
+        matchTypeView.text = snapshot.matchType
+        rewriteView.text = snapshot.shouldRewrite
+        reasonView.text = snapshot.reason
+        historyView.text = session.history.joinToString("\n") { it.compact() }
+        lastDump = DiagnosticDisplay.formatDump(snapshot, session.history)
     }
 
     private fun copyDump() {
@@ -304,7 +298,7 @@ class AliasDiagnosticActivity : Activity() {
     }
 
     companion object {
-        private const val REQUEST_RECORD_AUDIO = 512
+        private const val REQUEST_RECORD_AUDIO = 513
 
         fun firstTranscript(bundle: Bundle?): String {
             val results = bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
