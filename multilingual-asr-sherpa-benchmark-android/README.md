@@ -55,3 +55,7 @@ Ordinary sideload from CARFU File Manager → Android Package Installer.
 `testOnly` is disabled. v1+v2 signing enabled for Android 10.
 
 applicationId: `org.stypox.dicio.sherpabenchmark`
+
+Published APK (do not commit the APK to git):
+
+https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-sherpa-zipformer-benchmark/carfu-sherpa-zipformer-vi-benchmark.apk
