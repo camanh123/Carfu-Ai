@@ -1,0 +1,21 @@
+.gradle/
+build/
+.cxx/
+.externalNativeBuild/
+local.properties
+*.iml
+.idea/
+.DS_Store
+captures/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Downloaded at build by scripts/prepare-deps.sh — never commit binaries
+third_party/sherpa-onnx-android/
+third_party/sherpa-onnx-kotlin-api/
+models/sherpa-onnx-zipformer-vi-30M-int8-2026-02-09/
+models/*.tar.bz2
+models/*.tar.bz2.partial
+src/main/assets/models/

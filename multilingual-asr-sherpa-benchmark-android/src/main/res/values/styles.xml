@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.SherpaBenchmark" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">#FF101418</item>
+        <item name="android:statusBarColor">#FF101418</item>
+        <item name="android:navigationBarColor">#FF101418</item>
+        <item name="android:textColor">#FFF2F4F7</item>
+        <item name="colorPrimary">#FF3D8BFF</item>
+        <item name="colorAccent">#FF3D8BFF</item>
+    </style>
+</resources>
