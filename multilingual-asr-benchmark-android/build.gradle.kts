@@ -77,8 +77,8 @@ android {
         applicationId = "org.stypox.dicio.asrbenchmark"
         minSdk = 29
         targetSdk = 29
-        versionCode = 1
-        versionName = "0.3a-whisper-tiny"
+        versionCode = 2
+        versionName = "0.3a1-whisper-tiny-installable"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -120,7 +120,11 @@ android {
 
     signingConfigs {
         getByName("debug") {
-            // Diagnostic APK: debug signing is intentional.
+            // Diagnostic identity (Android Debug). Enable v1+v2 for API 29 / OEM installers.
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = false
+            enableV4Signing = false
         }
     }
 
@@ -195,8 +199,12 @@ dependencies {
 
 android.applicationVariants.configureEach {
     outputs.configureEach {
-        (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
-            .outputFileName = "carfu-whisper-asr-benchmark-${buildType.name}.apk"
+        val fileName = if (buildType.name == "debug") {
+            "carfu-whisper-asr-benchmark-installable.apk"
+        } else {
+            "carfu-whisper-asr-benchmark-${buildType.name}.apk"
+        }
+        (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName = fileName
     }
 }
 
@@ -205,6 +213,7 @@ tasks.register<Copy>("syncDiagnosticApk") {
     from(layout.buildDirectory.dir("intermediates/apk/debug"))
     include("*.apk")
     into(layout.buildDirectory.dir("outputs/apk/debug"))
+    rename { "carfu-whisper-asr-benchmark-installable.apk" }
 }
 
 afterEvaluate {
