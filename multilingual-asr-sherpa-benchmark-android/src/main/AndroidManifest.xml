@@ -11,7 +11,6 @@
     <application
         android:name=".SherpaBenchmarkApp"
         android:allowBackup="false"
-        android:extractNativeLibs="true"
         android:icon="@drawable/ic_launcher"
         android:label="@string/app_name"
         android:largeHeap="true"

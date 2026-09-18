@@ -140,7 +140,9 @@ class SessionIsolationAndTransitionsTest {
         assertEquals(s.sessionId, m.lastReleasedSessionId)
         val next = m.start(1)
         assertNotEquals(s.sessionId, next.sessionId)
-        assertEquals(1, next.sequence)
+        assertEquals(2, next.sequence)
+        assertEquals("", next.latestPartial)
+        assertEquals("", next.finalRawTranscript)
     }
 }
 
@@ -319,6 +321,7 @@ class DiagnosticExportTest {
             "MODEL FILE SIZES:",
             "MODEL FILE SHA256:",
             "ANDROID_MIN_SDK: 29",
+            "ANDROID_TARGET_SDK: 29",
             "TARGET_ABI: arm64-v8a",
             "DEVICE_API: 29",
             "CPU_CORES_AVAILABLE: 8",

@@ -116,8 +116,8 @@ class SessionMachine(
         lastReleasedSessionId = current?.sessionId
         current = null
         state = BenchState.IDLE
-        sequence = 0
         archived.clear()
+        // Do not reset sequence: session IDs must never be reused after release.
     }
 
     fun archivedSessions(): List<IsolatedSession> = archived.toList()

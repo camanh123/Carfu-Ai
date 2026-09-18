@@ -49,6 +49,7 @@ object DiagnosticReport {
         appendLine(modelFileSha256)
         appendLine()
         appendLine("ANDROID_MIN_SDK: $minSdk")
+        appendLine("ANDROID_TARGET_SDK: $targetSdk")
         appendLine("TARGET_ABI: $abi")
         appendLine("DEVICE_API: $deviceApi")
         appendLine("CPU_CORES_AVAILABLE: $cpuCores")
