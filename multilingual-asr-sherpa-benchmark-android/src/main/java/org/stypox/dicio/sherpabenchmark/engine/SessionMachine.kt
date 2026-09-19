@@ -32,10 +32,16 @@ data class IsolatedSession(
     var totalAsrComputeMs: Long = 0L
     var lastPartialEpochMs: Long = -1L
     var recognizerInitMs: Long = -1L
+    var autoStopReason: String = ""
+    var totalPartialCount: Int = 0
 
     fun replaceLatestPartial(event: PartialEvent) {
         latestPartial = event.text
         partials += event
+        while (partials.size > org.stypox.dicio.sherpabenchmark.freeze.BenchmarkLimits.MAX_PARTIAL_EVENTS) {
+            partials.removeAt(0)
+        }
+        totalPartialCount += 1
         lastPartialEpochMs = event.wallClockEpochMs
         if (timeToFirstNonEmptyPartialMs == null && event.text.isNotEmpty()) {
             timeToFirstNonEmptyPartialMs = event.sessionElapsedMs
@@ -73,6 +79,7 @@ class SessionMachine(
             throw SessionIsolationException("double START rejected; state=$state")
         }
         current?.let { archived += it }
+        while (archived.size > SessionHistoryLimit) archived.removeAt(0)
         sequence += 1
         val now = clock()
         val session = IsolatedSession(
@@ -121,4 +128,8 @@ class SessionMachine(
     }
 
     fun archivedSessions(): List<IsolatedSession> = archived.toList()
+
+    companion object {
+        private const val SessionHistoryLimit: Int = 20
+    }
 }

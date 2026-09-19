@@ -8,6 +8,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.concurrent.thread
 
 class AudioCaptureException(message: String) : RuntimeException(message)
@@ -23,9 +24,9 @@ class Pcm16kMonoRecorder {
     private val pcm = ByteArrayOutputStream()
     private val lock = Any()
 
-    @Volatile
-    var firstChunkElapsedMs: Long = -1L
-        private set
+    private val chunks = AtomicLong(0)
+
+    val chunkCount: Long get() = chunks.get()
 
     private var startNs: Long = 0L
 
@@ -40,6 +41,7 @@ class Pcm16kMonoRecorder {
             pcm.reset()
         }
         firstChunkElapsedMs = -1L
+        chunks.set(0L)
         startNs = System.nanoTime()
 
         val minBuf = AudioRecord.getMinBufferSize(
@@ -75,6 +77,7 @@ class Pcm16kMonoRecorder {
                         if (firstChunkElapsedMs < 0L) {
                             firstChunkElapsedMs = (System.nanoTime() - startNs) / 1_000_000L
                         }
+                        chunks.incrementAndGet()
                         synchronized(lock) {
                             pcm.write(buf, 0, n)
                         }
@@ -97,15 +100,19 @@ class Pcm16kMonoRecorder {
         return pcm16leToFloat32(bytes)
     }
 
-    fun stopAndFloatSamples(): FloatArray {
-        if (!recording.compareAndSet(true, false) && worker == null) {
-            throw AudioCaptureException("double STOP: not recording")
-        }
+    fun requestStop() {
         recording.set(false)
-        worker?.join(5_000)
+    }
+
+    fun awaitStopped(timeoutMs: Long = 5_000) {
+        recording.set(false)
+        worker?.join(timeoutMs)
         worker = null
-        val bytes: ByteArray = synchronized(lock) { pcm.toByteArray() }
-        return pcm16leToFloat32(bytes)
+    }
+
+    fun stopAndFloatSamples(): FloatArray {
+        awaitStopped()
+        return snapshotFloatSamples()
     }
 
     fun release() {

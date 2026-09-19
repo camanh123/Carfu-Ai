@@ -21,13 +21,13 @@ cd multilingual-asr-sherpa-benchmark-android
 APK output:
 
 ```
-build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark.apk
+build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-1.apk
 ```
 
 Audit that exact APK:
 
 ```bash
-bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark.apk
+bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-1.apk
 ```
 
 ## What this measures
@@ -56,6 +56,16 @@ Ordinary sideload from CARFU File Manager → Android Package Installer.
 
 applicationId: `org.stypox.dicio.sherpabenchmark`
 
+Phase 3B.1.1 adds a 15 s auto-stop, decode backpressure, a crash-surviving
+session journal, and safer lifecycle/finalization. Model, hashes, sherpa-onnx
+pin, CPU provider, and greedy_search are unchanged.
+
 Published APK (do not commit the APK to git):
+
+Phase 3B.1.1 (stability):
+
+https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-1-sherpa-stability/carfu-sherpa-zipformer-vi-benchmark-p3b1-1.apk
+
+Phase 3B.1 (original):
 
 https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-sherpa-zipformer-benchmark/carfu-sherpa-zipformer-vi-benchmark.apk
