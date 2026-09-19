@@ -22,7 +22,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="CARFU Phase 3B.1 — Sherpa Zipformer VI INT8"
+                android:text="CARFU Phase 3B.1.1 — Sherpa Zipformer VI INT8"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
@@ -39,6 +39,27 @@
             android:layout_height="wrap_content"
             android:paddingTop="4dp"
             android:textSize="13sp"
+            android:typeface="monospace" />
+
+        <TextView
+            android:id="@+id/previousSession"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFCC80" />
+
+        <TextView
+            android:id="@+id/lastJournal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#FF1A222B"
+            android:minHeight="48dp"
+            android:padding="6dp"
+            android:text="LAST SESSION JOURNAL: (none)"
+            android:textIsSelectable="true"
+            android:textSize="12sp"
             android:typeface="monospace" />
 
         <LinearLayout

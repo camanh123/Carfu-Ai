@@ -27,8 +27,11 @@ object DiagnosticReport {
         current: BenchmarkSession?,
         history: List<BenchmarkSession>,
         extraError: String,
+        previousEndedAbnormally: Boolean = false,
+        lastJournal: String = "",
+        maxRecordingMs: Long = org.stypox.dicio.sherpabenchmark.freeze.BenchmarkLimits.MAX_RECORDING_MS,
     ): String = buildString {
-        appendLine("=== CARFU PHASE 3B.1 SHERPA ASR DIAGNOSTIC ===")
+        appendLine("=== CARFU PHASE 3B.1.1 SHERPA ASR DIAGNOSTIC ===")
         appendLine()
         appendLine("PHASE_BASE: ${PhaseInfo.PHASE_BASE}")
         appendLine("MODULE: ${PhaseInfo.MODULE}")
@@ -67,6 +70,8 @@ object DiagnosticReport {
         appendLine("AUDIO_FORMAT: ${HardFreeze.AUDIO_FORMAT}")
         appendLine()
         appendLine("THREAD_OPTIONS: $threadOptions")
+        appendLine("MAX_RECORDING_DURATION_MS: $maxRecordingMs")
+        appendLine("AUTO_STOP_REASON_IF_LIMIT: ${org.stypox.dicio.sherpabenchmark.freeze.BenchmarkLimits.AUTO_STOP_REASON}")
         appendLine()
         appendLine("RAW_OUTPUT_UNMODIFIED: ${HardFreeze.yesNo(HardFreeze.RAW_OUTPUT_UNMODIFIED)}")
         appendLine("HOTWORDS_CONNECTED: ${HardFreeze.yesNo(HardFreeze.HOTWORDS_CONNECTED)}")
@@ -83,6 +88,10 @@ object DiagnosticReport {
         if (extraError.isNotBlank()) {
             appendLine("ERROR: $extraError")
         }
+        appendLine()
+        appendLine("PREVIOUS SESSION ENDED ABNORMALLY: ${HardFreeze.yesNo(previousEndedAbnormally)}")
+        appendLine("--- LAST SESSION JOURNAL ---")
+        appendLine(lastJournal.ifBlank { "(none)" })
         appendLine()
         appendLine("--- HISTORY ---")
         if (history.isEmpty()) {
@@ -118,6 +127,11 @@ object DiagnosticReport {
                 (s.timeToFirstNonEmptyPartialMs?.toString() ?: "N/A"),
         )
         appendLine("PARTIAL COUNT: ${s.partialCount}")
+        appendLine("CHUNK COUNT: ${s.chunkCount}")
+        appendLine("DECODE COUNT: ${s.decodeCount}")
+        appendLine("MAX DECODE DURATION ms: ${s.maxDecodeMs}")
+        appendLine("PENDING DECODE COUNT: ${s.pendingDecodeCount}")
+        appendLine("AUTO_STOP_REASON: ${s.autoStopReason.ifBlank { "(none)" }}")
         appendLine("LAST PARTIAL timestamp: ${s.lastPartialEpochMs}")
         appendLine("STOP -> FINAL latency ms: ${s.stopToFinalMs}")
         appendLine("TOTAL ASR COMPUTE TIME ms: ${s.totalAsrComputeMs}")

@@ -40,6 +40,11 @@ data class BenchmarkSession(
     val memoryAfter: MemorySnapshot?,
     val error: String,
     val recordingStatus: String,
+    val autoStopReason: String = "",
+    val chunkCount: Long = 0L,
+    val decodeCount: Int = 0,
+    val maxDecodeMs: Long = 0L,
+    val pendingDecodeCount: Int = 0,
 ) {
     fun shortHistoryLine(): String {
         val rtfText = if (rtf == null) "n/a" else String.format(java.util.Locale.US, "%.2f", rtf)

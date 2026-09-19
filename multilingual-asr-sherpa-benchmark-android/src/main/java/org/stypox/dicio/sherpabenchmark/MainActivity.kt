@@ -16,13 +16,20 @@ import org.stypox.dicio.sherpabenchmark.config.ThreadOption
 import org.stypox.dicio.sherpabenchmark.corpus.SpokenTestTargets
 import org.stypox.dicio.sherpabenchmark.databinding.ActivityMainBinding
 import org.stypox.dicio.sherpabenchmark.diagnostics.DeviceInfo
+import org.stypox.dicio.sherpabenchmark.diagnostics.SessionJournal
+import org.stypox.dicio.sherpabenchmark.engine.BenchState
+import org.stypox.dicio.sherpabenchmark.engine.DecodeGate
+import org.stypox.dicio.sherpabenchmark.engine.FinalizeGuard
 import org.stypox.dicio.sherpabenchmark.engine.RecognitionConfigFactory
+import org.stypox.dicio.sherpabenchmark.engine.RecordingPolicy
 import org.stypox.dicio.sherpabenchmark.engine.SessionIsolationException
 import org.stypox.dicio.sherpabenchmark.engine.SessionMachine
 import org.stypox.dicio.sherpabenchmark.engine.SherpaOfflineBackend
 import org.stypox.dicio.sherpabenchmark.engine.SimulatedStreamingDecoder
+import org.stypox.dicio.sherpabenchmark.freeze.BenchmarkLimits
 import org.stypox.dicio.sherpabenchmark.freeze.HardFreeze
 import org.stypox.dicio.sherpabenchmark.metrics.MemoryProbe
+import org.stypox.dicio.sherpabenchmark.metrics.MemorySnapshot
 import org.stypox.dicio.sherpabenchmark.metrics.PeakMemory
 import org.stypox.dicio.sherpabenchmark.metrics.RealTimeFactor
 import org.stypox.dicio.sherpabenchmark.model.ModelInstaller
@@ -30,6 +37,7 @@ import org.stypox.dicio.sherpabenchmark.report.BenchmarkSession
 import org.stypox.dicio.sherpabenchmark.report.DiagnosticReport
 import org.stypox.dicio.sherpabenchmark.report.SessionHistory
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
@@ -37,11 +45,14 @@ class MainActivity : AppCompatActivity() {
     private val recorder = Pcm16kMonoRecorder()
     private val history = SessionHistory()
     private val sessions = SessionMachine()
+    private val decodeGate = DecodeGate()
+    private val finalizeGuard = FinalizeGuard()
     private val worker = Executors.newSingleThreadExecutor { r ->
         Thread(r, "sherpa-benchmark-worker")
     }
     private val ui = Handler(Looper.getMainLooper())
     private lateinit var memory: MemoryProbe
+    private lateinit var journal: SessionJournal
 
     @Volatile
     private var recognizerInitMs: Long = -1L
@@ -52,21 +63,37 @@ class MainActivity : AppCompatActivity() {
     @Volatile
     private var currentReport: BenchmarkSession? = null
 
+    @Volatile
+    private var alive: Boolean = true
+
     private var decoder: SimulatedStreamingDecoder? = null
     private var durationTicker: Runnable? = null
     private var peakSampler: MemoryProbe.PeakSampler? = null
+    private var memoryStart: MemorySnapshot? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         memory = MemoryProbe(this)
+        journal = (application as SherpaBenchmarkApp).journal
+        journal.markLifecycle("MainActivity.onCreate")
 
-        binding.corpus.text = SpokenTestTargets.asPlainText()
+        binding.corpus.text = SpokenTestTargets.asPlainText() +
+            "\nMAX RECORDING: ${BenchmarkLimits.MAX_RECORDING_MS} ms auto-stop " +
+            "(${BenchmarkLimits.AUTO_STOP_REASON}). Not production Voice."
+        showPreviousJournal()
         refreshConfigLine()
         bindControls()
         setStateLabel("IDLE")
         loadRecognizerAsync(selectedThreads().nThreads)
+    }
+
+    private fun showPreviousJournal() {
+        val abnormal = journal.previousEndedAbnormally
+        binding.previousSession.text =
+            "PREVIOUS SESSION ENDED ABNORMALLY: ${HardFreeze.yesNo(abnormal)}"
+        binding.lastJournal.text = "LAST SESSION JOURNAL\n" + journal.renderLast()
     }
 
     private fun bindControls() {
@@ -95,7 +122,9 @@ class MainActivity : AppCompatActivity() {
             append("SIMULATED_STREAMING=${HardFreeze.yesNo(HardFreeze.SIMULATED_STREAMING)}\n")
             append("THREADS=${selectedThreads().nThreads}  ABI=${PhaseInfo.ABI}  ")
             append("minSdk=${PhaseInfo.MIN_SDK} targetSdk=${PhaseInfo.TARGET_SDK}  ")
-            append("API=${DeviceInfo.api()}  cores=${DeviceInfo.cpuCores()}")
+            append("API=${DeviceInfo.api()}  cores=${DeviceInfo.cpuCores()}\n")
+            append("MAX_RECORDING=${BenchmarkLimits.MAX_RECORDING_MS} ms  ")
+            append("AUTO_STOP=${BenchmarkLimits.AUTO_STOP_REASON}")
         }
     }
 
@@ -122,15 +151,22 @@ class MainActivity : AppCompatActivity() {
                 val paths = ModelInstaller.ensureInstalled(this)
                 val cfg = RecognitionConfigFactory.create(threads, paths)
                 recognizerInitMs = backend.init(cfg)
-                ui.post {
+                journal.update {
+                    it.copy(
+                        recognizerState = "ready",
+                        lastNativeOp = backend.lastNativeOp,
+                    )
+                }
+                postUi {
                     setStateLabel("IDLE")
                     binding.timing.text = "MODEL / RECOGNIZER INIT TIME: ${recognizerInitMs} ms\n" +
-                        "Press START. CPU only. greedy_search. simulated streaming."
+                        "MAX RECORDING ${BenchmarkLimits.MAX_RECORDING_MS} ms. " +
+                        "CPU only. greedy_search. simulated streaming."
                     refreshConfigLine()
                 }
             } catch (t: Throwable) {
                 val msg = t.message ?: t.toString()
-                ui.post {
+                postUi {
                     setStateLabel("ERROR")
                     setError(msg)
                 }
@@ -139,8 +175,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onStartStop() {
-        if (recorder.isRecording) {
-            stopAndFinalize()
+        if (recorder.isRecording || sessions.state == BenchState.RECORDING) {
+            stopAndFinalize(BenchmarkLimits.MANUAL_STOP_REASON)
             return
         }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
@@ -183,6 +219,10 @@ class MainActivity : AppCompatActivity() {
             setError(e.message ?: "double START")
             return
         }
+        finalizeGuard.reset()
+        decodeGate.reset()
+        val session = sessions.current!!
+        journal.beginSession(session.sessionId, session.createdEpochMs)
         worker.execute {
             try {
                 if (backend.loadedThreads != threads) {
@@ -191,9 +231,10 @@ class MainActivity : AppCompatActivity() {
                     recognizerInitMs = backend.init(cfg)
                 }
                 decoder = SimulatedStreamingDecoder(backend)
+                memoryStart = memory.snapshot()
                 recorder.start()
                 peakSampler = memory.startPeakSampler()
-                ui.post {
+                postUi {
                     binding.startStop.text = "STOP"
                     setThreadControlsEnabled(false)
                     setError("")
@@ -205,7 +246,7 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (t: Throwable) {
                 sessions.fail(t.message ?: t.toString())
-                ui.post {
+                postUi {
                     binding.startStop.text = "START"
                     setThreadControlsEnabled(true)
                     setStateLabel("ERROR")
@@ -219,10 +260,14 @@ class MainActivity : AppCompatActivity() {
         stopTickers()
         val r = object : Runnable {
             override fun run() {
-                if (!recorder.isRecording) return
+                if (!alive || !recorder.isRecording || finalizeGuard.hasStarted) return
                 val ms = recorder.recordedDurationMs()
-                setStateLabel("RECORDING  AUDIO DURATION=${ms} ms")
-                worker.execute { maybePartial() }
+                setStateLabel("RECORDING  AUDIO DURATION=${ms} ms / max ${BenchmarkLimits.MAX_RECORDING_MS}")
+                if (RecordingPolicy.shouldAutoStop(ms)) {
+                    stopAndFinalize(RecordingPolicy.autoStopReason())
+                    return
+                }
+                schedulePartial()
                 ui.postDelayed(this, HardFreeze.SIMULATED_STREAMING_CHUNK_MS)
             }
         }
@@ -235,153 +280,244 @@ class MainActivity : AppCompatActivity() {
         durationTicker = null
     }
 
+    private fun schedulePartial() {
+        decodeGate.trySchedule({ worker.execute(it) }) {
+            maybePartial()
+        }
+    }
+
     private fun maybePartial() {
+        if (finalizeGuard.hasStarted) return
         val session = sessions.current ?: return
         val dec = decoder ?: return
         if (!recorder.isRecording) return
         val samples = recorder.snapshotFloatSamples()
         val elapsed = recorder.recordedDurationMs()
-        val event = dec.tryPartial(samples, elapsed) ?: return
-        session.replaceLatestPartial(event)
-        ui.post {
-            binding.latestPartial.text = event.text
+        val event = dec.tryPartial(samples, elapsed)
+        if (event != null) {
+            session.replaceLatestPartial(event)
+            postUi { binding.latestPartial.text = event.text }
+        }
+        persistJournal("partial-decode")
+        if (RecordingPolicy.shouldAutoStop(elapsed) && !finalizeGuard.hasStarted) {
+            postUi { stopAndFinalize(RecordingPolicy.autoStopReason()) }
         }
     }
 
-    private fun stopAndFinalize() {
-        stopTickers()
-        binding.startStop.isEnabled = false
-        setStateLabel("PROCESSING")
-        val stopRequestedAt = System.currentTimeMillis()
-        worker.execute {
-            val session = try {
-                sessions.requestStop()
-            } catch (e: SessionIsolationException) {
-                ui.post {
-                    binding.startStop.isEnabled = true
-                    setError(e.message ?: "double STOP")
-                }
-                return@execute
-            }
-            val before = memory.snapshot()
-            val samples = try {
-                recorder.stopAndFloatSamples()
-            } catch (t: Throwable) {
-                sessions.fail(t.message ?: t.toString())
-                ui.post {
-                    binding.startStop.isEnabled = true
-                    binding.startStop.text = "START"
-                    setThreadControlsEnabled(true)
-                    setStateLabel("ERROR")
-                    setError(t.message ?: t.toString())
-                }
-                return@execute
-            }
-            val audioMs = Pcm16kMonoRecorder.durationMs(samples.size)
-            val firstChunk = recorder.firstChunkElapsedMs
-            session.firstAudioChunkMs = firstChunk
-            val dec = decoder ?: SimulatedStreamingDecoder(backend)
-            val finalResult = try {
-                dec.finalize(samples)
-            } catch (t: Throwable) {
-                sessions.fail(t.message ?: t.toString())
-                ui.post {
-                    binding.startStop.isEnabled = true
-                    binding.startStop.text = "START"
-                    setThreadControlsEnabled(true)
-                    setStateLabel("ERROR")
-                    setError(t.message ?: t.toString())
-                }
-                return@execute
-            }
-            val stopToFinal = System.currentTimeMillis() - stopRequestedAt
-            val after = memory.snapshot()
-            val peak: PeakMemory? = try {
-                peakSampler?.stop()
-            } catch (_: Throwable) {
-                null
-            }
-            peakSampler = null
-            sessions.complete(finalResult.text, finalResult.totalComputeMs, audioMs, stopToFinal)
-            val rtf = RealTimeFactor.compute(finalResult.totalComputeMs, audioMs)
-            val report = BenchmarkSession(
-                sessionId = session.sessionId,
-                sequence = session.sequence,
-                timestampEpochMs = session.createdEpochMs,
-                engine = BuildConfig.ENGINE_NAME,
-                model = BuildConfig.MODEL_NAME,
-                modelFiles = listOf(
-                    BuildConfig.MODEL_ENCODER,
-                    BuildConfig.MODEL_DECODER,
-                    BuildConfig.MODEL_JOINER,
-                    BuildConfig.MODEL_TOKENS,
-                    BuildConfig.MODEL_BPE,
-                ).joinToString(","),
-                executionProvider = HardFreeze.EXECUTION_PROVIDER,
-                recognitionMode = HardFreeze.RECOGNITION_MODE,
-                nativeStreamingModel = HardFreeze.NATIVE_STREAMING_MODEL,
-                simulatedStreaming = HardFreeze.SIMULATED_STREAMING,
-                decodingMethod = HardFreeze.DECODING_METHOD,
-                threadCount = session.threadCount,
-                cpuCores = DeviceInfo.cpuCores(),
-                androidAbi = DeviceInfo.abi(),
-                androidApi = DeviceInfo.api(),
-                cpuFeatures = DeviceInfo.cpuFeatures(),
-                audioStartEpochMs = session.audioStartEpochMs,
-                stopEpochMs = session.stopEpochMs,
-                audioDurationMs = audioMs,
-                timeToFirstAudioChunkMs = firstChunk,
-                timeToFirstNonEmptyPartialMs = finalResult.firstNonEmptyPartialElapsedMs
-                    ?: session.timeToFirstNonEmptyPartialMs,
-                partialCount = finalResult.partials.size,
-                lastPartialEpochMs = session.lastPartialEpochMs,
-                stopToFinalMs = stopToFinal,
-                totalAsrComputeMs = finalResult.totalComputeMs,
-                rtf = rtf,
-                recognizerInitMs = recognizerInitMs,
-                finalRawTranscript = finalResult.text,
-                latestPartial = session.latestPartial,
-                partials = finalResult.partials,
-                memoryBefore = before,
-                memoryDuringSampledPeak = peak,
-                memoryAfter = after,
-                error = session.error,
-                recordingStatus = "manual STOP; captured ${audioMs} ms",
+    private fun persistJournal(nativeHint: String) {
+        val dec = decoder
+        val mem = peakSampler?.latest ?: memory.snapshot()
+        journal.update {
+            it.copy(
+                inProgress = true,
+                audioDurationMs = recorder.recordedDurationMs(),
+                chunkCount = recorder.chunkCount,
+                decodeCount = dec?.decodeAttempts ?: 0,
+                partialCount = dec?.partialCount ?: 0,
+                lastSuccessfulPartial = sessions.current?.latestPartial ?: it.lastSuccessfulPartial,
+                lastPartialEpochMs = sessions.current?.lastPartialEpochMs ?: 0L,
+                lastDecodeMs = dec?.lastDecodeDurationMs ?: 0L,
+                maxDecodeMs = dec?.maximumDecodeMs ?: 0L,
+                pendingDecodeCount = decodeGate.pendingCount,
+                javaUsedBytes = mem.javaUsedBytes,
+                nativeHeapBytes = mem.nativeHeapAllocatedBytes,
+                pssKb = mem.pssKb,
+                availMemBytes = mem.availMemBytes,
+                lowMemory = mem.lowMemory,
+                javaThreadCount = Thread.activeCount(),
+                recognizerState = if (backend.isReady) "ready" else "none",
+                lastNativeOp = backend.lastNativeOp.ifBlank { nativeHint },
             )
-            currentReport = report
-            history.add(report)
-            decoder = null
-            ui.post {
-                binding.startStop.isEnabled = true
-                binding.startStop.text = "START"
-                setThreadControlsEnabled(true)
-                binding.finalTranscript.text =
-                    if (finalResult.text.isEmpty()) "(empty raw transcript)" else finalResult.text
-                binding.latestPartial.text = session.latestPartial.ifEmpty { "(none)" }
-                binding.history.text = history.asPlainText()
-                binding.timing.text = buildString {
-                    appendLine("TIMING:")
-                    appendLine("- audio duration: ${audioMs} ms")
-                    appendLine(
-                        "- first partial: " +
-                            (report.timeToFirstNonEmptyPartialMs?.let { "$it ms" } ?: "N/A"),
-                    )
-                    appendLine("- stop->final: ${stopToFinal} ms")
-                    appendLine("- compute time: ${finalResult.totalComputeMs} ms")
-                    appendLine("- RTF: ${RealTimeFactor.format(rtf)}")
-                    appendLine("- first audio chunk: ${firstChunk} ms")
-                    appendLine("- recognizer init: ${recognizerInitMs} ms")
-                    appendLine("- partial count: ${finalResult.partials.size}")
-                }
-                binding.memory.text = buildString {
-                    appendLine("MEMORY:")
-                    before.let { appendLine(it.summaryLine("before")) }
-                    peak?.let { appendLine(it.summaryLine()) }
-                    after.let { appendLine(it.summaryLine("after")) }
-                }
-                setError(session.error)
-                setStateLabel(if (session.error.isBlank()) "COMPLETE" else "ERROR")
+        }
+    }
+
+    private fun stopAndFinalize(reason: String) {
+        if (!finalizeGuard.tryBegin()) return
+        stopTickers()
+        recorder.requestStop()
+        val stopRequestedAt = System.currentTimeMillis()
+        journal.update { it.copy(autoStopReason = reason, lastLifecycleEvent = "finalize:$reason") }
+        if (alive) {
+            try {
+                binding.startStop.isEnabled = false
+                setStateLabel("PROCESSING")
+            } catch (_: Throwable) {
             }
+        }
+        worker.execute {
+            runFinalize(reason, stopRequestedAt)
+        }
+    }
+
+    private fun runFinalize(reason: String, stopRequestedAt: Long) {
+        val session = try {
+            if (sessions.canStop()) sessions.requestStop() else sessions.current
+        } catch (e: SessionIsolationException) {
+            postUi {
+                binding.startStop.isEnabled = true
+                setError(e.message ?: "double STOP")
+            }
+            finalizeGuard.markFinished()
+            return
+        } ?: run {
+            finalizeGuard.markFinished()
+            return
+        }
+        session.autoStopReason = reason
+        val before = memoryStart ?: memory.snapshot()
+        val samples = try {
+            recorder.awaitStopped()
+            recorder.snapshotFloatSamples()
+        } catch (t: Throwable) {
+            sessions.fail(t.message ?: t.toString())
+            finishUiError(t.message ?: t.toString())
+            return
+        }
+        val audioMs = Pcm16kMonoRecorder.durationMs(samples.size)
+        val firstChunk = recorder.firstChunkElapsedMs
+        session.firstAudioChunkMs = firstChunk
+        val dec = decoder ?: SimulatedStreamingDecoder(backend)
+        val finalResult = try {
+            dec.finalize(samples)
+        } catch (t: Throwable) {
+            sessions.fail(t.message ?: t.toString())
+            finishUiError(t.message ?: t.toString())
+            return
+        }
+        val stopToFinal = System.currentTimeMillis() - stopRequestedAt
+        val after = memory.snapshot()
+        val peak: PeakMemory? = try {
+            peakSampler?.stop()
+        } catch (_: Throwable) {
+            null
+        }
+        peakSampler = null
+        sessions.complete(finalResult.text, finalResult.totalComputeMs, audioMs, stopToFinal)
+        val rtf = RealTimeFactor.compute(finalResult.totalComputeMs, audioMs)
+        val report = BenchmarkSession(
+            sessionId = session.sessionId,
+            sequence = session.sequence,
+            timestampEpochMs = session.createdEpochMs,
+            engine = BuildConfig.ENGINE_NAME,
+            model = BuildConfig.MODEL_NAME,
+            modelFiles = listOf(
+                BuildConfig.MODEL_ENCODER,
+                BuildConfig.MODEL_DECODER,
+                BuildConfig.MODEL_JOINER,
+                BuildConfig.MODEL_TOKENS,
+                BuildConfig.MODEL_BPE,
+            ).joinToString(","),
+            executionProvider = HardFreeze.EXECUTION_PROVIDER,
+            recognitionMode = HardFreeze.RECOGNITION_MODE,
+            nativeStreamingModel = HardFreeze.NATIVE_STREAMING_MODEL,
+            simulatedStreaming = HardFreeze.SIMULATED_STREAMING,
+            decodingMethod = HardFreeze.DECODING_METHOD,
+            threadCount = session.threadCount,
+            cpuCores = DeviceInfo.cpuCores(),
+            androidAbi = DeviceInfo.abi(),
+            androidApi = DeviceInfo.api(),
+            cpuFeatures = DeviceInfo.cpuFeatures(),
+            audioStartEpochMs = session.audioStartEpochMs,
+            stopEpochMs = session.stopEpochMs,
+            audioDurationMs = audioMs,
+            timeToFirstAudioChunkMs = firstChunk,
+            timeToFirstNonEmptyPartialMs = finalResult.firstNonEmptyPartialElapsedMs
+                ?: session.timeToFirstNonEmptyPartialMs,
+            partialCount = dec.partialCount,
+            lastPartialEpochMs = session.lastPartialEpochMs,
+            stopToFinalMs = stopToFinal,
+            totalAsrComputeMs = finalResult.totalComputeMs,
+            rtf = rtf,
+            recognizerInitMs = recognizerInitMs,
+            finalRawTranscript = finalResult.text,
+            latestPartial = session.latestPartial,
+            partials = finalResult.partials,
+            memoryBefore = before,
+            memoryDuringSampledPeak = peak,
+            memoryAfter = after,
+            error = session.error,
+            recordingStatus = "$reason; captured ${audioMs} ms",
+            autoStopReason = reason,
+            chunkCount = recorder.chunkCount,
+            decodeCount = dec.decodeAttempts,
+            maxDecodeMs = dec.maximumDecodeMs,
+            pendingDecodeCount = decodeGate.pendingCount,
+        )
+        currentReport = report
+        history.add(report)
+        journal.update {
+            it.copy(
+                inProgress = false,
+                audioDurationMs = audioMs,
+                chunkCount = report.chunkCount,
+                decodeCount = report.decodeCount,
+                partialCount = report.partialCount,
+                lastSuccessfulPartial = session.latestPartial,
+                autoStopReason = reason,
+                lastNativeOp = backend.lastNativeOp,
+                javaUsedBytes = after.javaUsedBytes,
+                nativeHeapBytes = after.nativeHeapAllocatedBytes,
+                pssKb = after.pssKb,
+                availMemBytes = after.availMemBytes,
+                lowMemory = after.lowMemory,
+                recognizerState = if (backend.isReady) "ready" else "none",
+            )
+        }
+        journal.completeNormally()
+        decoder = null
+        if (!finalizeGuard.tryReleaseOnce()) {
+            // per-session resources already released
+        }
+        finalizeGuard.markFinished()
+        postUi {
+            binding.startStop.isEnabled = true
+            binding.startStop.text = "START"
+            setThreadControlsEnabled(true)
+            binding.finalTranscript.text =
+                if (finalResult.text.isEmpty()) "(empty raw transcript)" else finalResult.text
+            binding.latestPartial.text = session.latestPartial.ifEmpty { "(none)" }
+            binding.history.text = history.asPlainText()
+            binding.timing.text = buildString {
+                appendLine("TIMING:")
+                appendLine("- audio duration: ${audioMs} ms")
+                appendLine("- max recording: ${BenchmarkLimits.MAX_RECORDING_MS} ms")
+                appendLine("- AUTO_STOP_REASON: $reason")
+                appendLine(
+                    "- first partial: " +
+                        (report.timeToFirstNonEmptyPartialMs?.let { "$it ms" } ?: "N/A"),
+                )
+                appendLine("- stop->final: ${stopToFinal} ms")
+                appendLine("- compute time: ${finalResult.totalComputeMs} ms")
+                appendLine("- RTF: ${RealTimeFactor.format(rtf)}")
+                appendLine("- first audio chunk: ${firstChunk} ms")
+                appendLine("- recognizer init: ${recognizerInitMs} ms")
+                appendLine("- partial count: ${dec.partialCount}")
+                appendLine("- decode count: ${dec.decodeAttempts}")
+                appendLine("- max decode: ${dec.maximumDecodeMs} ms")
+            }
+            binding.memory.text = buildString {
+                appendLine("MEMORY (start / sampled peak / latest):")
+                before.let { appendLine(it.summaryLine("start")) }
+                peak?.let { appendLine(it.summaryLine()) }
+                after.let { appendLine(it.summaryLine("latest")) }
+            }
+            showPreviousJournal()
+            setError(session.error)
+            setStateLabel(if (session.error.isBlank()) "COMPLETE" else "ERROR")
+        }
+    }
+
+    private fun finishUiError(msg: String) {
+        journal.update { it.copy(inProgress = true, recognizerState = "error") }
+        decoder = null
+        finalizeGuard.tryReleaseOnce()
+        finalizeGuard.markFinished()
+        postUi {
+            binding.startStop.isEnabled = true
+            binding.startStop.text = "START"
+            setThreadControlsEnabled(true)
+            setStateLabel("ERROR")
+            setError(msg)
         }
     }
 
@@ -407,32 +543,59 @@ class MainActivity : AppCompatActivity() {
             current = currentReport,
             history = history.snapshot(),
             extraError = lastError,
+            previousEndedAbnormally = journal.previousEndedAbnormally,
+            lastJournal = journal.renderLast(),
+            maxRecordingMs = BenchmarkLimits.MAX_RECORDING_MS,
         )
         val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("CARFU Phase 3B.1 diagnostic", text))
+        cm.setPrimaryClip(ClipData.newPlainText("CARFU Phase 3B.1.1 diagnostic", text))
         Toast.makeText(this, "Copied diagnostic text", Toast.LENGTH_SHORT).show()
     }
 
+    private fun postUi(block: () -> Unit) {
+        if (!alive) return
+        ui.post {
+            if (alive) block()
+        }
+    }
+
     override fun onPause() {
+        journal.markLifecycle("MainActivity.onPause")
         super.onPause()
-        if (recorder.isRecording) {
-            stopAndFinalize()
+        if (recorder.isRecording && !finalizeGuard.hasStarted) {
+            stopAndFinalize(BenchmarkLimits.LIFECYCLE_STOP_REASON)
         }
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        journal.markLifecycle("MainActivity.onDestroy")
+        alive = false
         stopTickers()
-        try {
-            if (recorder.isRecording) recorder.stopAndFloatSamples()
-        } catch (_: Throwable) {
+        if (recorder.isRecording && !finalizeGuard.hasStarted) {
+            stopAndFinalize(BenchmarkLimits.LIFECYCLE_STOP_REASON)
         }
-        recorder.release()
-        peakSampler?.stop()
-        worker.shutdownNow()
-        backend.release()
+        worker.execute {
+            try {
+                if (recorder.isRecording) recorder.stopAndFloatSamples()
+            } catch (_: Throwable) {
+            }
+            recorder.release()
+            try {
+                peakSampler?.stop()
+            } catch (_: Throwable) {
+            }
+            // Recognizer released only after queued decode/finalize work.
+            backend.release()
+        }
+        worker.shutdown()
+        try {
+            worker.awaitTermination(20, TimeUnit.SECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
         sessions.cleanup()
         decoder = null
+        super.onDestroy()
     }
 
     companion object {

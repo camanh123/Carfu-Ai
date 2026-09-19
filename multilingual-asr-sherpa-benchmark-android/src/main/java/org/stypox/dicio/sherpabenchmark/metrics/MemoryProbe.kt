@@ -39,6 +39,9 @@ class MemoryProbe(private val context: Context) {
         private val peakJava = AtomicLong(0)
         private val peakNative = AtomicLong(0)
         private val peakPss = AtomicLong(0)
+        @Volatile
+        var latest: MemorySnapshot? = null
+            private set
         private val exec = Executors.newSingleThreadScheduledExecutor { r ->
             Thread(r, "sherpa-mem-peak").apply { isDaemon = true }
         }
@@ -56,6 +59,7 @@ class MemoryProbe(private val context: Context) {
 
         private fun sampleOnce() {
             val s = probe.snapshot()
+            latest = s
             peakJava.updateAndGet { cur -> maxOf(cur, s.javaUsedBytes) }
             peakNative.updateAndGet { cur -> maxOf(cur, s.nativeHeapAllocatedBytes) }
             peakPss.updateAndGet { cur -> maxOf(cur, s.pssKb) }
