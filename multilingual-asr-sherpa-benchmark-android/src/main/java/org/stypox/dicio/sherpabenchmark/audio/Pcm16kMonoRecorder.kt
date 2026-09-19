@@ -28,6 +28,10 @@ class Pcm16kMonoRecorder {
 
     val chunkCount: Long get() = chunks.get()
 
+    @Volatile
+    var firstChunkElapsedMs: Long = -1L
+        private set
+
     private var startNs: Long = 0L
 
     val isRecording: Boolean get() = recording.get()

@@ -66,6 +66,9 @@ Phase 3B.1.1 (stability):
 
 https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-1-sherpa-stability/carfu-sherpa-zipformer-vi-benchmark-p3b1-1.apk
 
+APK_SIZE: 57230303
+APK_SHA256: dc503d9d78616647f023a18fc20c6f43c28be3cd3ba3b9f3a62f4a59dc091c2b
+
 Phase 3B.1 (original):
 
 https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-sherpa-zipformer-benchmark/carfu-sherpa-zipformer-vi-benchmark.apk

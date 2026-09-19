@@ -335,10 +335,15 @@ class MainActivity : AppCompatActivity() {
         if (!finalizeGuard.tryBegin()) return
         stopTickers()
         recorder.requestStop()
-        binding.startStop.isEnabled = false
-        setStateLabel("PROCESSING")
         val stopRequestedAt = System.currentTimeMillis()
         journal.update { it.copy(autoStopReason = reason, lastLifecycleEvent = "finalize:$reason") }
+        if (alive) {
+            try {
+                binding.startStop.isEnabled = false
+                setStateLabel("PROCESSING")
+            } catch (_: Throwable) {
+            }
+        }
         worker.execute {
             runFinalize(reason, stopRequestedAt)
         }
@@ -504,6 +509,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun finishUiError(msg: String) {
         journal.update { it.copy(inProgress = true, recognizerState = "error") }
+        decoder = null
+        finalizeGuard.tryReleaseOnce()
         finalizeGuard.markFinished()
         postUi {
             binding.startStop.isEnabled = true
@@ -563,7 +570,6 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         journal.markLifecycle("MainActivity.onDestroy")
         alive = false
-        super.onDestroy()
         stopTickers()
         if (recorder.isRecording && !finalizeGuard.hasStarted) {
             stopAndFinalize(BenchmarkLimits.LIFECYCLE_STOP_REASON)
@@ -589,6 +595,7 @@ class MainActivity : AppCompatActivity() {
         }
         sessions.cleanup()
         decoder = null
+        super.onDestroy()
     }
 
     companion object {

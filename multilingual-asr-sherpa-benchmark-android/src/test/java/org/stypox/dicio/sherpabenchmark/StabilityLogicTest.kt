@@ -57,6 +57,23 @@ class FinalizeOnceTest {
         assertTrue(g.tryBegin())
         assertTrue(g.tryReleaseOnce())
     }
+
+    @Test
+    fun concurrentTryBeginExactlyOnce() {
+        val g = FinalizeGuard()
+        val wins = AtomicInteger(0)
+        val threads = (1..8).map {
+            Thread {
+                if (g.tryBegin()) wins.incrementAndGet()
+            }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertEquals(1, wins.get())
+        assertTrue(g.hasStarted)
+        assertTrue(g.tryReleaseOnce())
+        assertFalse(g.tryReleaseOnce())
+    }
 }
 
 class DecodeBackpressureTest {
