@@ -50,7 +50,7 @@ GITHUB_RELEASE: https://github.com/camanh123/Carfu-Ai/releases/tag/phase-3b1-1-s
 DIRECT_DOWNLOAD_URL: https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-1-sherpa-stability/carfu-sherpa-zipformer-vi-benchmark-p3b1-1.apk
 
 FILES_CHANGED: multilingual-asr-sherpa-benchmark-android/ only (nested standalone Gradle; see PR file list)
-COMMIT: (recorded after push)
+COMMIT: 9c185ee69ecf8d1bdde4bf4f54fafedd44dd139b (on cursor/sherpa-benchmark-stability-d5e4; parent bb2623c258bc831f16e7ed074387d46848a44666)
 PR: https://github.com/camanh123/Carfu-Ai/pull/24
 
 PRODUCTION_FILES_TOUCHED: NO
