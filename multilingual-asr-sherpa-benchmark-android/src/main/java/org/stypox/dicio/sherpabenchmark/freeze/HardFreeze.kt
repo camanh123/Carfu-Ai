@@ -9,6 +9,10 @@ object HardFreeze {
     const val DECODING_METHOD: String = "greedy_search"
     const val RECOGNITION_ARCHITECTURE: String = "offline-transducer-zipformer"
     const val RECOGNITION_MODE: String = "simulated-streaming-offline-transducer"
+    /** Interactive START/STOP. Same string as RECOGNITION_MODE. */
+    const val INTERACTIVE_MODE: String = RECOGNITION_MODE
+    /** Fixed-audio thread/soak benchmark. One offline decode to FINAL. Not simulated streaming. */
+    const val FIXED_AUDIO_BENCHMARK_MODE: String = "offline-final-only"
     const val NATIVE_STREAMING_MODEL: Boolean = false
     const val SIMULATED_STREAMING: Boolean = true
     const val RAW_OUTPUT_UNMODIFIED: Boolean = true

@@ -99,9 +99,10 @@ class Pcm16kMonoRecorder {
         }
     }
 
+    fun snapshotPcm16Bytes(): ByteArray = synchronized(lock) { pcm.toByteArray() }
+
     fun snapshotFloatSamples(): FloatArray {
-        val bytes: ByteArray = synchronized(lock) { pcm.toByteArray() }
-        return pcm16leToFloat32(bytes)
+        return pcm16leToFloat32(snapshotPcm16Bytes())
     }
 
     fun requestStop() {

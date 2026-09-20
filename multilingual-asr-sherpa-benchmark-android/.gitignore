@@ -9,6 +9,8 @@ local.properties
 captures/
 *.apk
 *.aab
+reference.pcm
+reference.meta.txt
 *.ap_
 *.dex
 

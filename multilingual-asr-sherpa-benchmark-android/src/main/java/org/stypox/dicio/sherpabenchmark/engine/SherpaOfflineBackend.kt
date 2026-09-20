@@ -13,6 +13,7 @@ import org.stypox.dicio.sherpabenchmark.freeze.HardFreeze
  */
 class SherpaOfflineBackend : AsrBackend {
     private var recognizer: OfflineRecognizer? = null
+    val counters = ResourceCounters()
     @Volatile
     var lastNativeOp: String = "none"
         private set
@@ -36,6 +37,7 @@ class SherpaOfflineBackend : AsrBackend {
         lastNativeOp = "release-previous"
         release()
         lastNativeOp = "newFromFile"
+        counters.onRecognizerCreated()
         val t0 = System.nanoTime()
         val native = OfflineRecognizerConfig(
             featConfig = FeatureConfig(
@@ -71,7 +73,11 @@ class SherpaOfflineBackend : AsrBackend {
 
     override fun decode(samples: FloatArray, sampleRate: Int): String {
         val rec = recognizer ?: throw IllegalStateException("recognizer not initialized")
+        if (!counters.tryBeginDecode()) {
+            throw IllegalStateException("overlapping native decode on same recognizer")
+        }
         lastNativeOp = "createStream"
+        counters.onStreamCreated()
         val stream = rec.createStream()
         try {
             lastNativeOp = "acceptWaveform samples=${samples.size}"
@@ -82,19 +88,26 @@ class SherpaOfflineBackend : AsrBackend {
             return rec.getResult(stream).text
         } finally {
             lastNativeOp = "releaseStream"
-            stream.release()
-            lastNativeOp = "decode-complete"
+            try {
+                stream.release()
+            } finally {
+                counters.onStreamReleased()
+                counters.endDecode()
+                lastNativeOp = "decode-complete"
+            }
         }
     }
 
     fun release() {
         lastNativeOp = "releaseRecognizer"
+        val had = recognizer != null
         try {
             recognizer?.release()
         } catch (_: Throwable) {
         }
         recognizer = null
         loadedThreads = -1
+        if (had) counters.onRecognizerReleased()
         lastNativeOp = "released"
     }
 }
