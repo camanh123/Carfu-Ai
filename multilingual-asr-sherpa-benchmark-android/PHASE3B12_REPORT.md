@@ -47,8 +47,8 @@ GITHUB_RELEASE: https://github.com/camanh123/Carfu-Ai/releases/tag/phase-3b1-2-s
 DIRECT_DOWNLOAD_URL: https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-2-sherpa-performance-memory/carfu-sherpa-zipformer-vi-benchmark-p3b1-2.apk
 
 FILES_CHANGED: multilingual-asr-sherpa-benchmark-android/ only
-COMMIT: (recorded after push)
-PR: (recorded after open)
+COMMIT: addd30c1502590aada1ccd2e5dc016c5ba5d25a2
+PR: https://github.com/camanh123/Carfu-Ai/pull/25
 
 PRODUCTION_FILES_TOUCHED: NO
 PHASE2A_TOUCHED: NO
