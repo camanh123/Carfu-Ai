@@ -21,13 +21,13 @@ cd multilingual-asr-sherpa-benchmark-android
 APK output:
 
 ```
-build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-1.apk
+build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-2.apk
 ```
 
 Audit that exact APK:
 
 ```bash
-bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-1.apk
+bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-2.apk
 ```
 
 ## What this measures
@@ -61,6 +61,17 @@ session journal, and safer lifecycle/finalization. Model, hashes, sherpa-onnx
 pin, CPU provider, and greedy_search are unchanged.
 
 Published APK (do not commit the APK to git):
+
+Phase 3B.1.2 adds a **fixed-audio** thread comparison (1/2/4) and memory soak
+on one stored PCM reference. Interactive START/STOP simulated-streaming is
+unchanged. Do not compare interactive RTF with fixed-audio RTF.
+
+Phase 3B.1.2 (performance + memory soak):
+
+https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-2-sherpa-performance-memory/carfu-sherpa-zipformer-vi-benchmark-p3b1-2.apk
+
+APK_SIZE: 57463759
+APK_SHA256: 3e0d0d89c01b9505917655e4134a31adef13caa6239108e670180baab804ccc4
 
 Phase 3B.1.1 (stability):
 

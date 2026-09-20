@@ -22,7 +22,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="CARFU Phase 3B.1.1 — Sherpa Zipformer VI INT8"
+                android:text="CARFU Phase 3B.1.2 — Sherpa Zipformer VI INT8"
                 android:textSize="18sp"
                 android:textStyle="bold" />
 
@@ -208,6 +208,219 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="=== CONTROLLED BENCHMARK ==="
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/previousBenchmark"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="#FFFFCC80"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="REFERENCE AUDIO"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/referenceAudio"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#FF1A222B"
+            android:minHeight="64dp"
+            android:padding="6dp"
+            android:text="REFERENCE AUDIO:\n(none)"
+            android:textIsSelectable="true"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/recordReference"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RECORD REFERENCE" />
+
+            <Button
+                android:id="@+id/deleteReference"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="DELETE REFERENCE" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="THREAD BENCHMARK"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/runThreadBenchmark"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="RUN 1/2/4 BENCHMARK" />
+
+        <TextView
+            android:id="@+id/threadComparison"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#FF1A222B"
+            android:minHeight="72dp"
+            android:padding="6dp"
+            android:text="(no thread benchmark)"
+            android:textIsSelectable="true"
+            android:textSize="12sp"
+            android:typeface="monospace" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="MEMORY SOAK"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Threads:" />
+
+            <RadioGroup
+                android:id="@+id/soakThreadGroup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/soakThreads1"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="1" />
+
+                <RadioButton
+                    android:id="@+id/soakThreads2"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="2" />
+
+                <RadioButton
+                    android:id="@+id/soakThreads4"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="4" />
+            </RadioGroup>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Iterations:" />
+
+            <RadioGroup
+                android:id="@+id/soakIterGroup"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:orientation="horizontal">
+
+                <RadioButton
+                    android:id="@+id/soakIter10"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="10" />
+
+                <RadioButton
+                    android:id="@+id/soakIter30"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="30" />
+
+                <RadioButton
+                    android:id="@+id/soakIter50"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="50" />
+            </RadioGroup>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/runMemorySoak"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="RUN MEMORY SOAK" />
+
+            <Button
+                android:id="@+id/stopBenchmark"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="STOP BENCHMARK" />
+
+            <Button
+                android:id="@+id/copyBenchmark"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="COPY BENCHMARK REPORT" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/benchProgress"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="THREAD BENCHMARK: idle\nMEMORY SOAK: idle"
+            android:textSize="13sp"
+            android:typeface="monospace" />
+
+        <TextView
+            android:id="@+id/benchReport"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#FF1A222B"
+            android:minHeight="80dp"
+            android:padding="6dp"
+            android:text="(no controlled benchmark yet)"
+            android:textIsSelectable="true"
+            android:textSize="11sp"
             android:typeface="monospace" />
     </LinearLayout>
 </ScrollView>
