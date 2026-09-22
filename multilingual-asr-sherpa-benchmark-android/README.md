@@ -21,13 +21,13 @@ cd multilingual-asr-sherpa-benchmark-android
 APK output:
 
 ```
-build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-2.apk
+build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk
 ```
 
 Audit that exact APK:
 
 ```bash
-bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-2.apk
+bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk
 ```
 
 ## What this measures
@@ -42,7 +42,7 @@ streaming model.
 | MODEL | sherpa-onnx-zipformer-vi-30M-int8-2026-02-09 |
 | PROVIDER | cpu |
 | DECODING | greedy_search |
-| THREADS | 1 / 2 / 4 (default 1) |
+| THREADS | 1 / 2 / 4 (interactive default 4) |
 | AUDIO | 16 kHz mono PCM16, manual START/STOP, no VAD |
 | RAW_OUTPUT_UNMODIFIED | YES |
 
@@ -61,6 +61,15 @@ session journal, and safer lifecycle/finalization. Model, hashes, sherpa-onnx
 pin, CPU provider, and greedy_search are unchanged.
 
 Published APK (do not commit the APK to git):
+
+Phase 3B.1.3 adds LEGACY vs OPTIMIZED interactive decode scheduling. OPTIMIZED
+does not request a full re-decode every 200 ms. LEGACY is unchanged for A/B.
+Default interactive: OPTIMIZED, 4 threads. Device comparison decides; no source
+claim that OPTIMIZED is better.
+
+Phase 3B.1.3 (interactive decode optimization):
+
+https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-3-interactive-optimize/carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk
 
 Phase 3B.1.2 adds a **fixed-audio** thread comparison (1/2/4) and memory soak
 on one stored PCM reference. Interactive START/STOP simulated-streaming is

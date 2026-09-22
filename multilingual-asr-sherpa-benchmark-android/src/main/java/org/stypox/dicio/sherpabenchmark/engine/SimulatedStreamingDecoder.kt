@@ -50,6 +50,7 @@ class SimulatedStreamingDecoder(
     val decodeAttempts: Int get() = decodeCount
     val maximumDecodeMs: Long get() = maxDecodeMs
     val lastDecodeDurationMs: Long get() = lastDecodeMs
+    val decodedSampleCount: Int get() = lastDecodedSampleCount
     private var totalPartialEvents: Int = 0
 
     fun tryPartial(samples: FloatArray, sessionElapsedMs: Long): PartialEvent? {

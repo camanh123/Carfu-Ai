@@ -31,7 +31,7 @@ object DiagnosticReport {
         lastJournal: String = "",
         maxRecordingMs: Long = org.stypox.dicio.sherpabenchmark.freeze.BenchmarkLimits.MAX_RECORDING_MS,
     ): String = buildString {
-        appendLine("=== CARFU PHASE 3B.1.1 SHERPA ASR DIAGNOSTIC ===")
+        appendLine("=== CARFU PHASE 3B.1.3 SHERPA ASR DIAGNOSTIC ===")
         appendLine()
         appendLine("PHASE_BASE: ${PhaseInfo.PHASE_BASE}")
         appendLine("MODULE: ${PhaseInfo.MODULE}")
@@ -131,6 +131,13 @@ object DiagnosticReport {
         appendLine("DECODE COUNT: ${s.decodeCount}")
         appendLine("MAX DECODE DURATION ms: ${s.maxDecodeMs}")
         appendLine("PENDING DECODE COUNT: ${s.pendingDecodeCount}")
+        appendLine("INTERACTIVE MODE: ${s.interactiveMode}")
+        appendLine("DECODE_REQUESTED: ${s.decodeRequested}")
+        appendLine("DECODE_EXECUTED: ${s.decodeExecuted}")
+        appendLine("DECODE_COALESCED: ${s.decodeCoalesced}")
+        appendLine("DECODE_SKIPPED_BUSY: ${s.decodeSkippedBusy}")
+        appendLine("FINAL_DECODE_COUNT: ${s.finalDecodeCount}")
+        appendLine("FINAL SAMPLE COUNT: ${s.finalSampleCount}")
         appendLine("AUTO_STOP_REASON: ${s.autoStopReason.ifBlank { "(none)" }}")
         appendLine("LAST PARTIAL timestamp: ${s.lastPartialEpochMs}")
         appendLine("STOP -> FINAL latency ms: ${s.stopToFinalMs}")

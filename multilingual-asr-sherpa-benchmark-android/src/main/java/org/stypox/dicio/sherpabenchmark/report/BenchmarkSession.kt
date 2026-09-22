@@ -45,13 +45,20 @@ data class BenchmarkSession(
     val decodeCount: Int = 0,
     val maxDecodeMs: Long = 0L,
     val pendingDecodeCount: Int = 0,
+    val interactiveMode: String = "LEGACY",
+    val decodeRequested: Int = 0,
+    val decodeExecuted: Int = 0,
+    val decodeCoalesced: Int = 0,
+    val decodeSkippedBusy: Int = 0,
+    val finalDecodeCount: Int = 0,
+    val finalSampleCount: Int = 0,
 ) {
     fun shortHistoryLine(): String {
         val rtfText = if (rtf == null) "n/a" else String.format(java.util.Locale.US, "%.2f", rtf)
         val preview = finalRawTranscript.replace('\n', ' ').take(80)
         val err = if (error.isBlank()) "" else " ERR=${error.take(40)}"
         val ttf = timeToFirstNonEmptyPartialMs?.toString() ?: "n/a"
-        return "#$sequence id=$sessionId thr=$threadCount ${audioDurationMs}ms " +
+        return "#$sequence id=$sessionId mode=$interactiveMode thr=$threadCount ${audioDurationMs}ms " +
             "ttfPartial=${ttf}ms stopFinal=${stopToFinalMs}ms rtf=$rtfText raw=\"$preview\"$err"
     }
 }
