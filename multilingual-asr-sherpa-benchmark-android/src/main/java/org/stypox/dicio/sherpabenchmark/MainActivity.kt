@@ -23,6 +23,11 @@ import org.stypox.dicio.sherpabenchmark.diagnostics.ThermalProbe
 import org.stypox.dicio.sherpabenchmark.engine.BenchState
 import org.stypox.dicio.sherpabenchmark.engine.DecodeGate
 import org.stypox.dicio.sherpabenchmark.engine.FinalizeGuard
+import org.stypox.dicio.sherpabenchmark.engine.InteractiveDecodeMode
+import org.stypox.dicio.sherpabenchmark.engine.InteractiveOptimizeLimits
+import org.stypox.dicio.sherpabenchmark.engine.OptimizedPartialPolicy
+import org.stypox.dicio.sherpabenchmark.engine.PartialScheduleDecision
+import org.stypox.dicio.sherpabenchmark.engine.RecognizerReuse
 import org.stypox.dicio.sherpabenchmark.engine.MemorySoakRunner
 import org.stypox.dicio.sherpabenchmark.engine.RecognitionConfigFactory
 import org.stypox.dicio.sherpabenchmark.engine.RecordingPolicy
@@ -57,6 +62,7 @@ class MainActivity : AppCompatActivity() {
     private val sessions = SessionMachine()
     private val decodeGate = DecodeGate()
     private val finalizeGuard = FinalizeGuard()
+    private val optimizedPolicy = OptimizedPartialPolicy()
     private val worker = Executors.newSingleThreadExecutor { r ->
         Thread(r, "sherpa-benchmark-worker")
     }
@@ -94,6 +100,15 @@ class MainActivity : AppCompatActivity() {
     private var lastThreadResult: ThreadBenchmarkResult? = null
     private var lastSoakResult: SoakResult? = null
 
+    @Volatile
+    private var sessionMode: InteractiveDecodeMode = InteractiveDecodeMode.DEFAULT
+
+    private val legacyRequested = java.util.concurrent.atomic.AtomicInteger(0)
+    private val legacyExecuted = java.util.concurrent.atomic.AtomicInteger(0)
+    private val legacyCoalesced = java.util.concurrent.atomic.AtomicInteger(0)
+    private val legacySkippedBusy = java.util.concurrent.atomic.AtomicInteger(0)
+    private val sessionFinalDecodeCount = java.util.concurrent.atomic.AtomicInteger(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -130,6 +145,11 @@ class MainActivity : AppCompatActivity() {
                 refreshConfigLine()
             }
         }
+        binding.interactiveModeGroup.setOnCheckedChangeListener { _, _ ->
+            if (sessions.canStart()) {
+                refreshConfigLine()
+            }
+        }
         binding.startStop.setOnClickListener { onStartStop() }
         binding.copyDiagnostic.setOnClickListener { copyDiagnostic() }
         binding.recordReference.setOnClickListener { onRecordReference() }
@@ -139,6 +159,10 @@ class MainActivity : AppCompatActivity() {
         binding.stopBenchmark.setOnClickListener { benchCancel.set(true) }
         binding.copyBenchmark.setOnClickListener { copyBenchmarkReport() }
     }
+
+    private fun selectedInteractiveMode(): InteractiveDecodeMode =
+        if (binding.modeLegacy.isChecked) InteractiveDecodeMode.LEGACY
+        else InteractiveDecodeMode.OPTIMIZED
 
     private fun selectedThreads(): ThreadOption = when {
         binding.threads4.isChecked -> ThreadOption.FOUR
@@ -151,6 +175,7 @@ class MainActivity : AppCompatActivity() {
             append("ENGINE=${BuildConfig.ENGINE_NAME}\n")
             append("MODEL=${BuildConfig.MODEL_NAME}\n")
             append("PROVIDER=${HardFreeze.EXECUTION_PROVIDER}\n")
+            append("INTERACTIVE_MODE=${selectedInteractiveMode()}\n")
             append("MODE=${HardFreeze.RECOGNITION_MODE}\n")
             append("FIXED_AUDIO=${HardFreeze.FIXED_AUDIO_BENCHMARK_MODE}\n")
             append("NATIVE_STREAMING=${HardFreeze.yesNo(HardFreeze.NATIVE_STREAMING_MODEL)}  ")
@@ -176,6 +201,8 @@ class MainActivity : AppCompatActivity() {
         binding.threads1.isEnabled = enabled
         binding.threads2.isEnabled = enabled
         binding.threads4.isEnabled = enabled
+        binding.modeLegacy.isEnabled = enabled
+        binding.modeOptimized.isEnabled = enabled
     }
 
     private fun loadRecognizerAsync(threads: Int) {
@@ -271,16 +298,27 @@ class MainActivity : AppCompatActivity() {
         }
         finalizeGuard.reset()
         decodeGate.reset()
+        optimizedPolicy.reset()
+        legacyRequested.set(0)
+        legacyExecuted.set(0)
+        legacyCoalesced.set(0)
+        legacySkippedBusy.set(0)
+        sessionFinalDecodeCount.set(0)
+        sessionMode = selectedInteractiveMode()
         val session = sessions.current!!
         journal.beginSession(session.sessionId, session.createdEpochMs)
         worker.execute {
             try {
-                if (backend.loadedThreads != threads) {
+                if (RecognizerReuse.needsRecreate(backend.isReady, backend.loadedThreads, threads)) {
                     val paths = ModelInstaller.ensureInstalled(this)
                     val cfg = RecognitionConfigFactory.create(threads, paths)
                     recognizerInitMs = backend.init(cfg)
                 }
-                decoder = SimulatedStreamingDecoder(backend)
+                decoder = if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+                    SimulatedStreamingDecoder(backend, minNewSamples = 1)
+                } else {
+                    SimulatedStreamingDecoder(backend)
+                }
                 memoryStart = memory.snapshot()
                 recorder.start()
                 peakSampler = memory.startPeakSampler()
@@ -308,17 +346,28 @@ class MainActivity : AppCompatActivity() {
 
     private fun startTickers() {
         stopTickers()
+        val delayMs = if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+            InteractiveOptimizeLimits.OPTIMIZED_POLL_MS
+        } else {
+            HardFreeze.SIMULATED_STREAMING_CHUNK_MS
+        }
         val r = object : Runnable {
             override fun run() {
                 if (!alive || !recorder.isRecording || finalizeGuard.hasStarted) return
                 val ms = recorder.recordedDurationMs()
-                setStateLabel("RECORDING  AUDIO DURATION=${ms} ms / max ${BenchmarkLimits.MAX_RECORDING_MS}")
+                setStateLabel(
+                    "RECORDING  MODE=${sessionMode.name}  AUDIO DURATION=${ms} ms / max ${BenchmarkLimits.MAX_RECORDING_MS}",
+                )
                 if (RecordingPolicy.shouldAutoStop(ms)) {
                     stopAndFinalize(RecordingPolicy.autoStopReason())
                     return
                 }
-                schedulePartial()
-                ui.postDelayed(this, HardFreeze.SIMULATED_STREAMING_CHUNK_MS)
+                if (sessionMode == InteractiveDecodeMode.LEGACY) {
+                    scheduleLegacyPartial()
+                } else {
+                    scheduleOptimizedPartial()
+                }
+                ui.postDelayed(this, delayMs)
             }
         }
         durationTicker = r
@@ -330,20 +379,53 @@ class MainActivity : AppCompatActivity() {
         durationTicker = null
     }
 
-    private fun schedulePartial() {
-        decodeGate.trySchedule({ worker.execute(it) }) {
+    private fun scheduleLegacyPartial() {
+        legacyRequested.incrementAndGet()
+        if (decodeGate.inFlightCount == 1 && decodeGate.pendingCount == 1) {
+            legacySkippedBusy.incrementAndGet()
+        }
+        val scheduled = decodeGate.trySchedule({ worker.execute(it) }) {
             maybePartial()
+        }
+        if (!scheduled) legacyCoalesced.incrementAndGet()
+    }
+
+    private fun scheduleOptimizedPartial() {
+        val decision = optimizedPolicy.decide(
+            audioMs = recorder.recordedDurationMs(),
+            currentSamples = recorder.recordedSampleCount(),
+            inFlight = decodeGate.inFlightCount == 1,
+            pending = decodeGate.pendingCount == 1,
+        )
+        when (decision) {
+            PartialScheduleDecision.REQUEST, PartialScheduleDecision.COALESCE -> {
+                decodeGate.trySchedule({ worker.execute(it) }) {
+                    maybePartial()
+                }
+            }
+            PartialScheduleDecision.SKIP_TOO_EARLY,
+            PartialScheduleDecision.SKIP_NO_NEW_AUDIO,
+            PartialScheduleDecision.SKIP_BUSY,
+            -> Unit
         }
     }
 
     private fun maybePartial() {
-        if (finalizeGuard.hasStarted) return
+        if (finalizeGuard.hasStarted || optimizedPolicy.stopRequested) return
         val session = sessions.current ?: return
         val dec = decoder ?: return
         if (!recorder.isRecording) return
         val samples = recorder.snapshotFloatSamples()
         val elapsed = recorder.recordedDurationMs()
+        val before = dec.decodeAttempts
         val event = dec.tryPartial(samples, elapsed)
+        if (dec.decodeAttempts > before) {
+            if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+                optimizedPolicy.onPartialExecuted(samples.size, dec.lastDecodeDurationMs)
+            } else {
+                legacyExecuted.incrementAndGet()
+            }
+        }
         if (event != null) {
             session.replaceLatestPartial(event)
             postUi { binding.latestPartial.text = event.text }
@@ -385,6 +467,10 @@ class MainActivity : AppCompatActivity() {
         if (!finalizeGuard.tryBegin()) return
         stopTickers()
         recorder.requestStop()
+        if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+            optimizedPolicy.markStop()
+            decodeGate.discardPending()
+        }
         val stopRequestedAt = System.currentTimeMillis()
         journal.update { it.copy(autoStopReason = reason, lastLifecycleEvent = "finalize:$reason") }
         if (alive) {
@@ -433,6 +519,10 @@ class MainActivity : AppCompatActivity() {
             sessions.fail(t.message ?: t.toString())
             finishUiError(t.message ?: t.toString())
             return
+        }
+        sessionFinalDecodeCount.incrementAndGet()
+        if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+            optimizedPolicy.onFinalExecuted()
         }
         val stopToFinal = System.currentTimeMillis() - stopRequestedAt
         val after = memory.snapshot()
@@ -492,6 +582,29 @@ class MainActivity : AppCompatActivity() {
             decodeCount = dec.decodeAttempts,
             maxDecodeMs = dec.maximumDecodeMs,
             pendingDecodeCount = decodeGate.pendingCount,
+            interactiveMode = sessionMode.name,
+            decodeRequested = if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+                optimizedPolicy.requested.get()
+            } else {
+                legacyRequested.get()
+            },
+            decodeExecuted = if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+                optimizedPolicy.executed.get()
+            } else {
+                legacyExecuted.get()
+            },
+            decodeCoalesced = if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+                optimizedPolicy.coalesced.get()
+            } else {
+                legacyCoalesced.get()
+            },
+            decodeSkippedBusy = if (sessionMode == InteractiveDecodeMode.OPTIMIZED) {
+                optimizedPolicy.skippedBusy.get()
+            } else {
+                legacySkippedBusy.get()
+            },
+            finalDecodeCount = sessionFinalDecodeCount.get(),
+            finalSampleCount = samples.size,
         )
         currentReport = report
         history.add(report)
@@ -529,6 +642,8 @@ class MainActivity : AppCompatActivity() {
             binding.history.text = history.asPlainText()
             binding.timing.text = buildString {
                 appendLine("TIMING:")
+                appendLine("- MODE: ${sessionMode.name}")
+                appendLine("- THREADS: ${session.threadCount}")
                 appendLine("- audio duration: ${audioMs} ms")
                 appendLine("- max recording: ${BenchmarkLimits.MAX_RECORDING_MS} ms")
                 appendLine("- AUTO_STOP_REASON: $reason")
@@ -544,6 +659,12 @@ class MainActivity : AppCompatActivity() {
                 appendLine("- partial count: ${dec.partialCount}")
                 appendLine("- decode count: ${dec.decodeAttempts}")
                 appendLine("- max decode: ${dec.maximumDecodeMs} ms")
+                appendLine("- FINAL samples: ${samples.size}")
+                appendLine("- DECODE_REQUESTED: ${report.decodeRequested}")
+                appendLine("- DECODE_EXECUTED: ${report.decodeExecuted}")
+                appendLine("- DECODE_COALESCED: ${report.decodeCoalesced}")
+                appendLine("- DECODE_SKIPPED_BUSY: ${report.decodeSkippedBusy}")
+                appendLine("- FINAL_DECODE_COUNT: ${report.finalDecodeCount}")
             }
             binding.memory.text = buildString {
                 appendLine("MEMORY (start / sampled peak / latest):")
@@ -589,7 +710,7 @@ class MainActivity : AppCompatActivity() {
             deviceApi = DeviceInfo.api(),
             cpuCores = DeviceInfo.cpuCores(),
             cpuFeatures = DeviceInfo.cpuFeatures(),
-            threadOptions = "1, 2, 4 (default 1)",
+            threadOptions = "1, 2, 4 (default 4)",
             current = currentReport,
             history = history.snapshot(),
             extraError = lastError,
@@ -598,7 +719,7 @@ class MainActivity : AppCompatActivity() {
             maxRecordingMs = BenchmarkLimits.MAX_RECORDING_MS,
         )
         val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        cm.setPrimaryClip(ClipData.newPlainText("CARFU Phase 3B.1.1 diagnostic", text))
+        cm.setPrimaryClip(ClipData.newPlainText("CARFU Phase 3B.1.3 diagnostic", text))
         Toast.makeText(this, "Copied diagnostic text", Toast.LENGTH_SHORT).show()
     }
 
@@ -842,7 +963,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureRecognizerThreads(n: Int): Long {
-        if (backend.isReady && backend.loadedThreads == n) return 0L
+        if (!RecognizerReuse.needsRecreate(backend.isReady, backend.loadedThreads, n)) return 0L
         val paths = ModelInstaller.ensureInstalled(this)
         val cfg = RecognitionConfigFactory.create(n, paths)
         val ms = backend.init(cfg)

@@ -55,4 +55,9 @@ class DecodeGate {
         submitted.set(0)
         coalesced.set(0)
     }
+
+    /** Drop a coalesced follow-up so STOP can run FINAL without an extra partial. */
+    fun discardPending() {
+        pending.set(false)
+    }
 }

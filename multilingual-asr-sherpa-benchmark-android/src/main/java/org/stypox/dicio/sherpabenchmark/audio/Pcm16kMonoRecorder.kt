@@ -136,6 +136,11 @@ class Pcm16kMonoRecorder {
         return (nSamples * 1000L) / SAMPLE_RATE_HZ
     }
 
+    fun recordedSampleCount(): Int {
+        val nBytes = synchronized(lock) { pcm.size() }
+        return nBytes / BYTES_PER_SAMPLE
+    }
+
     companion object {
         const val SAMPLE_RATE_HZ: Int = 16_000
         const val CHANNELS: Int = 1
