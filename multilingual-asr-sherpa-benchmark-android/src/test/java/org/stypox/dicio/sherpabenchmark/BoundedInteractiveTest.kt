@@ -87,10 +87,9 @@ class BoundedSchedulerTest {
     @Test
     fun partialBudgetCapsAtFive() {
         val p = BoundedPartialPolicy()
-        var snapshot = samples(700)
         repeat(5) { i ->
             val audioMs = 700L + i * 900L
-            snapshot = samples(audioMs)
+            val snapshot = samples(audioMs)
             assertEquals(
                 BoundedScheduleDecision.REQUEST,
                 p.decide(audioMs = audioMs, currentSamples = snapshot, inFlight = false, recording = true),
@@ -238,8 +237,9 @@ class BoundedFreezeAndUiTest {
         assertTrue(main.contains("HardFreeze.SIMULATED_STREAMING_CHUNK_MS"))
         val failed = File("src/main/java/org/stypox/dicio/sherpabenchmark/engine/OptimizedPartialPolicy.kt").readText()
         assertTrue(failed.contains("firstPartialAudioMs: Long = InteractiveOptimizeLimits.FIRST_PARTIAL_AUDIO_MS"))
+        assertTrue(failed.contains("InteractiveOptimizeLimits.MIN_NEW_AUDIO_MS"))
         assertFalse(failed.contains("MAX_PARTIAL_DECODES"))
-        assertFalse(failed.contains("NEW_AUDIO_MS"))
+        assertFalse(failed.contains("BoundedPartialLimits"))
         assertFalse(failed.contains("BEST"))
         assertFalse(failed.contains("WINNER"))
     }
