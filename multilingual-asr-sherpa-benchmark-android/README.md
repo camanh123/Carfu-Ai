@@ -71,6 +71,9 @@ Phase 3B.1.3 (interactive decode optimization):
 
 https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-3-interactive-optimize/carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk
 
+APK_SIZE: 57293980
+APK_SHA256: 2c8b850187f3c46fe036132ffc86f35259faefc33fc70111932d619cdf190564
+
 Phase 3B.1.2 adds a **fixed-audio** thread comparison (1/2/4) and memory soak
 on one stored PCM reference. Interactive START/STOP simulated-streaming is
 unchanged. Do not compare interactive RTF with fixed-audio RTF.
