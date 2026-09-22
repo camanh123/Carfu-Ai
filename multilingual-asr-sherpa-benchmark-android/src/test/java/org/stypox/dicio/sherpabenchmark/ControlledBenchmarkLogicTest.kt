@@ -387,7 +387,7 @@ class BenchmarkJournalAndReportTest {
         assertEquals("greedy_search", HardFreeze.DECODING_METHOD)
         val interactiveDiag = File("src/main/java/org/stypox/dicio/sherpabenchmark/report/DiagnosticReport.kt")
             .readText()
-        assertTrue(interactiveDiag.contains("=== CARFU PHASE 3B.1.3 SHERPA ASR DIAGNOSTIC ==="))
+        assertTrue(interactiveDiag.contains("=== CARFU PHASE 3B.1.4 SHERPA ASR DIAGNOSTIC ==="))
     }
 
     @Test

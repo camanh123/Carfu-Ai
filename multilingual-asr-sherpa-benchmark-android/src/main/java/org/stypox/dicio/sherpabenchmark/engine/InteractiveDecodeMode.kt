@@ -1,23 +1,32 @@
 package org.stypox.dicio.sherpabenchmark.engine
 
 /**
- * Interactive simulated-streaming A/B. LEGACY is the Phase 3B.1.1/3B.1.2 path
- * (decode tick every 200 ms through DecodeGate). OPTIMIZED only requests a
- * full-utterance partial when the previous decode is done and enough new audio
- * has arrived.
+ * Interactive simulated-streaming A/B.
+ *
+ * LEGACY: Phase 3B.1.1/3B.1.2 200 ms tick → DecodeGate (device baseline).
+ * OPTIMIZED: Phase 3B.1.3 adaptive coalescing scheduler (device fail baseline).
+ * BOUNDED: Phase 3B.1.4 audio-progress budget (max 5 partials).
  */
 enum class InteractiveDecodeMode {
     LEGACY,
     OPTIMIZED,
+    BOUNDED,
     ;
 
+    val reportName: String
+        get() = when (this) {
+            LEGACY -> "LEGACY"
+            OPTIMIZED -> "OPTIMIZED_3B1_3"
+            BOUNDED -> "BOUNDED"
+        }
+
     companion object {
-        val DEFAULT: InteractiveDecodeMode = OPTIMIZED
+        val DEFAULT: InteractiveDecodeMode = BOUNDED
     }
 }
 
 object InteractiveOptimizeLimits {
-    /** Midpoint of the 500–700 ms first-partial target. */
+    /** Midpoint of the 500–700 ms first-partial target. Unchanged 3B.1.3 fail baseline. */
     const val FIRST_PARTIAL_AUDIO_MS: Long = 600L
     const val MIN_NEW_AUDIO_MS: Long = 200L
     const val MAX_NEW_AUDIO_WAIT_MS: Long = 800L

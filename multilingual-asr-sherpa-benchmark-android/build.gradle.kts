@@ -123,8 +123,8 @@ android {
         applicationId = "org.stypox.dicio.sherpabenchmark"
         minSdk = 29
         targetSdk = 29
-        versionCode = 4
-        versionName = "0.3b1.3-interactive-optimize"
+        versionCode = 5
+        versionName = "0.3b1.4-bounded-partial"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -159,7 +159,7 @@ android {
         buildConfigField("String", "MODEL_BPE", "\"${pin("MODEL_BPE")}\"")
         buildConfigField("String", "MODEL_BPE_SHA256", "\"${pin("MODEL_BPE_SHA256")}\"")
         buildConfigField("long", "MODEL_BPE_BYTES", "${pin("MODEL_BPE_BYTES")}L")
-        buildConfigField("String", "PHASE_NAME", "\"3B.1.3\"")
+        buildConfigField("String", "PHASE_NAME", "\"3B.1.4\"")
         buildConfigField("String", "ENGINE_NAME", "\"sherpa-onnx\"")
         buildConfigField("String", "EXECUTION_PROVIDER", "\"cpu\"")
         buildConfigField("String", "DECODING_METHOD", "\"greedy_search\"")
@@ -248,9 +248,9 @@ dependencies {
 android.applicationVariants.configureEach {
     outputs.configureEach {
         val fileName = if (buildType.name == "debug") {
-            "carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk"
+            "carfu-sherpa-zipformer-vi-benchmark-p3b1-4.apk"
         } else {
-            "carfu-sherpa-zipformer-vi-benchmark-p3b1-3-${buildType.name}.apk"
+            "carfu-sherpa-zipformer-vi-benchmark-p3b1-4-${buildType.name}.apk"
         }
         (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName = fileName
     }
@@ -261,7 +261,7 @@ tasks.register<Copy>("syncDiagnosticApk") {
     from(layout.buildDirectory.dir("intermediates/apk/debug"))
     include("*.apk")
     into(layout.buildDirectory.dir("outputs/apk/debug"))
-    rename { "carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk" }
+    rename { "carfu-sherpa-zipformer-vi-benchmark-p3b1-4.apk" }
 }
 
 afterEvaluate {

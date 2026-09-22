@@ -21,13 +21,13 @@ cd multilingual-asr-sherpa-benchmark-android
 APK output:
 
 ```
-build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk
+build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-4.apk
 ```
 
 Audit that exact APK:
 
 ```bash
-bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-3.apk
+bash scripts/audit-apk.sh build/outputs/apk/debug/carfu-sherpa-zipformer-vi-benchmark-p3b1-4.apk
 ```
 
 ## What this measures
@@ -62,10 +62,22 @@ pin, CPU provider, and greedy_search are unchanged.
 
 Published APK (do not commit the APK to git):
 
+Phase 3B.1.4 adds **BOUNDED** partial-decode budget (max 5 partials, audio-progress
+triggers). LEGACY stays the device baseline. OPTIMIZED_3B1_3 is the 3B.1.3
+device-fail scheduler, preserved and not retuned. Default: BOUNDED, 4 threads.
+Device A/B decides; source tests do not claim a pass.
+
+Phase 3B.1.4 (bounded partial decode budget):
+
+https://github.com/camanh123/Carfu-Ai/releases/download/phase-3b1-4-bounded-partial/carfu-sherpa-zipformer-vi-benchmark-p3b1-4.apk
+
+APK_SIZE: 57313438
+APK_SHA256: b3f1671c224cbc9f3bac9909b3e5a8eec2edc429a61470db8f04403c10a116cd
+
 Phase 3B.1.3 adds LEGACY vs OPTIMIZED interactive decode scheduling. OPTIMIZED
 does not request a full re-decode every 200 ms. LEGACY is unchanged for A/B.
-Default interactive: OPTIMIZED, 4 threads. Device comparison decides; no source
-claim that OPTIMIZED is better.
+Default interactive in 3B.1.3: OPTIMIZED, 4 threads. Device comparison on CARFU
+showed OPTIMIZED did not reduce executed full-audio decodes.
 
 Phase 3B.1.3 (interactive decode optimization):
 
