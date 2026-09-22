@@ -41,14 +41,15 @@ class OptimizedSchedulerTest {
     }
 
     @Test
-    fun layoutDefaultsOptimizedAndFourThreads() {
+    fun layoutKeepsFailedOptimizedAndFourThreads() {
         val xml = File("src/main/res/layout/activity_main.xml").readText()
         assertTrue(xml.contains("android:id=\"@+id/modeOptimized\""))
-        assertTrue(xml.contains("android:text=\"OPTIMIZED\""))
+        assertTrue(xml.contains("android:text=\"OPTIMIZED_3B1_3\""))
         assertTrue(xml.contains("android:id=\"@+id/threads4\""))
-        assertTrue(Regex("""android:id="@\+id/modeOptimized"[\s\S]{0,400}android:checked="true"""").containsMatchIn(xml))
         assertTrue(Regex("""android:id="@\+id/threads4"[\s\S]{0,400}android:checked="true"""").containsMatchIn(xml))
-        assertFalse(Regex("""android:id="@\+id/modeLegacy"[\s\S]{0,200}android:checked="true"""").containsMatchIn(xml))
+        assertFalse(Regex("""android:id="@\+id/modeOptimized"[\s\S]{0,200}android:checked="true"""").containsMatchIn(xml))
+        assertEquals(InteractiveDecodeMode.BOUNDED, InteractiveDecodeMode.DEFAULT)
+        assertEquals("OPTIMIZED_3B1_3", InteractiveDecodeMode.OPTIMIZED.reportName)
     }
 
     @Test
@@ -176,7 +177,8 @@ class LegacyPathAndFreezeTest {
         val legacy = SimulatedStreamingDecoder(backend)
         assertEquals(null, legacy.tryPartial(FloatArray(100), 10))
         assertEquals(0, calls)
-        assertEquals(InteractiveDecodeMode.OPTIMIZED, InteractiveDecodeMode.DEFAULT)
+        assertEquals(InteractiveDecodeMode.BOUNDED, InteractiveDecodeMode.DEFAULT)
+        assertEquals("OPTIMIZED_3B1_3", InteractiveDecodeMode.OPTIMIZED.reportName)
         assertEquals(600L, InteractiveOptimizeLimits.FIRST_PARTIAL_AUDIO_MS)
         val src = File("src/main/java/org/stypox/dicio/sherpabenchmark/MainActivity.kt").readText()
         assertTrue(src.contains("scheduleLegacyPartial()"))

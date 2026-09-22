@@ -1,5 +1,6 @@
 package org.stypox.dicio.sherpabenchmark.report
 
+import org.stypox.dicio.sherpabenchmark.engine.BoundedPartialLog
 import org.stypox.dicio.sherpabenchmark.engine.PartialEvent
 import org.stypox.dicio.sherpabenchmark.metrics.MemorySnapshot
 import org.stypox.dicio.sherpabenchmark.metrics.PeakMemory
@@ -50,8 +51,12 @@ data class BenchmarkSession(
     val decodeExecuted: Int = 0,
     val decodeCoalesced: Int = 0,
     val decodeSkippedBusy: Int = 0,
+    val decodeDroppedBudget: Int = 0,
+    val decodeDroppedStop: Int = 0,
+    val partialDecodeCount: Int = 0,
     val finalDecodeCount: Int = 0,
     val finalSampleCount: Int = 0,
+    val boundedPartialLogs: List<BoundedPartialLog> = emptyList(),
 ) {
     fun shortHistoryLine(): String {
         val rtfText = if (rtf == null) "n/a" else String.format(java.util.Locale.US, "%.2f", rtf)

@@ -307,7 +307,7 @@ class DiagnosticExportTest {
             extraError = "",
         )
         val required = listOf(
-            "=== CARFU PHASE 3B.1.3 SHERPA ASR DIAGNOSTIC ===",
+            "=== CARFU PHASE 3B.1.4 SHERPA ASR DIAGNOSTIC ===",
             "PHASE_BASE: ${PhaseInfo.PHASE_BASE}",
             "MODULE: multilingual-asr-sherpa-benchmark-android",
             "APPLICATION_ID: org.stypox.dicio.sherpabenchmark",
@@ -344,6 +344,8 @@ class DiagnosticExportTest {
             "DECODE_EXECUTED:",
             "DECODE_COALESCED:",
             "DECODE_SKIPPED_BUSY:",
+            "DECODE_DROPPED_BUDGET:",
+            "DECODE_DROPPED_STOP:",
             "FINAL_DECODE_COUNT:",
             "FINAL SAMPLE COUNT:",
             "PREVIOUS SESSION ENDED ABNORMALLY:",
