@@ -13,7 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "btc_intelligence"
 CONFIG = ROOT / "config" / "phase0.toml"
 
-ALLOWED_NAUTILUS_IMPORT = SRC / "market" / "nautilus_source.py"
+ALLOWED_NAUTILUS_IMPORTS = {
+    SRC / "market" / "nautilus_source.py",
+    SRC / "sensor" / "node.py",
+}
+PUBLIC_DATA_NODE = SRC / "sensor" / "node.py"
 
 
 def test_phase0_config_lists_venues_and_disables_trading() -> None:
@@ -63,10 +67,18 @@ def test_intelligence_modules_do_not_import_exchange_sdks() -> None:
             else:
                 continue
             for name in names:
-                if name.startswith("nautilus_trader") and path != ALLOWED_NAUTILUS_IMPORT:
+                if name.startswith("nautilus_trader") and path not in ALLOWED_NAUTILUS_IMPORTS:
                     offenders.append(f"{path}:{name}")
-                if any(token in name for token in ("binance", "bybit", "ccxt", "httpx", "requests", "dotenv")):
+                if any(token in name for token in ("ccxt", "httpx", "requests", "dotenv")):
                     offenders.append(f"{path}:{name}")
+                if any(token in name for token in ("binance", "bybit")) and path != PUBLIC_DATA_NODE:
+                    offenders.append(f"{path}:{name}")
+                if path == PUBLIC_DATA_NODE and ("execution" in name or name.endswith(".exec")):
+                    offenders.append(f"{path}:{name}")
+    node_source = PUBLIC_DATA_NODE.read_text(encoding="utf-8")
+    for banned in ("add_exec_client_factory", "LiveExecClient", "submit_order", "new_private"):
+        if banned in node_source:
+            offenders.append(f"{PUBLIC_DATA_NODE}:{banned}")
     assert offenders == []
 
 
@@ -85,6 +97,20 @@ def test_repository_has_no_secret_assignments_or_nautilus_vendor_tree() -> None:
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
             lowered = line.lower()
-            if "api_key" in lowered or "api_secret" in lowered or "private_key" in lowered:
-                banned_lines.append(f"{path}:{lineno}")
+            if "api_key" not in lowered and "api_secret" not in lowered and "private_key" not in lowered:
+                continue
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                continue
+            if _public_credential_placeholder(lowered):
+                continue
+            banned_lines.append(f"{path}:{lineno}")
     assert banned_lines == []
+
+
+def _public_credential_placeholder(lowered: str) -> bool:
+    """Public data clients pass an empty credential. A real secret is still banned."""
+
+    import re
+
+    return re.search(r"(api_key|api_secret|private_key)\s*=\s*(none|\"\"|'')\b", lowered) is not None

@@ -13,6 +13,19 @@ class MarketEventKind(str, Enum):
     QUOTE = "QUOTE"
     TRADE = "TRADE"
     BOOK = "BOOK"
+    BOOK_DELTA = "BOOK_DELTA"
+
+
+class BookSide(str, Enum):
+    BID = "BID"
+    ASK = "ASK"
+
+
+class BookUpdateAction(str, Enum):
+    ADD = "ADD"
+    UPDATE = "UPDATE"
+    DELETE = "DELETE"
+    CLEAR = "CLEAR"
 
 
 def _require_decimal(name: str, value: Decimal) -> Decimal:
@@ -114,11 +127,64 @@ class BookEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class BookDelta:
+    """One L2 book change. ``CLEAR`` has no price."""
+
+    action: BookUpdateAction
+    side: BookSide | None = None
+    price: Decimal | None = None
+    size: Decimal | None = None
+    sequence: int | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.action, BookUpdateAction):
+            raise ValueError("action must be a BookUpdateAction")
+        if self.sequence is not None and (isinstance(self.sequence, bool) or not isinstance(self.sequence, int)):
+            raise ValueError("sequence must be an int or None")
+        if self.sequence is not None and self.sequence < 0:
+            raise ValueError("sequence must be >= 0")
+        if self.action is BookUpdateAction.CLEAR:
+            return
+        if not isinstance(self.side, BookSide):
+            raise ValueError("book delta requires a side")
+        if self.price is None or self.size is None:
+            raise ValueError("book delta requires price and size")
+        _require_positive("price", self.price)
+        _require_non_negative("size", self.size)
+
+
+@dataclass(frozen=True, slots=True)
+class BookDeltaEvent:
+    instrument: InstrumentRef
+    deltas: tuple[BookDelta, ...]
+    sequence: int | None
+    is_snapshot: bool
+    timestamps: EventTimestamps
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.instrument, InstrumentRef):
+            raise ValueError("instrument must be an InstrumentRef")
+        if not isinstance(self.deltas, tuple) or not self.deltas:
+            raise ValueError("deltas must be a non-empty tuple")
+        if any(not isinstance(delta, BookDelta) for delta in self.deltas):
+            raise ValueError("deltas must contain BookDelta values")
+        if self.sequence is not None and (isinstance(self.sequence, bool) or not isinstance(self.sequence, int)):
+            raise ValueError("sequence must be an int or None")
+        if self.sequence is not None and self.sequence < 0:
+            raise ValueError("sequence must be >= 0")
+        if not isinstance(self.is_snapshot, bool):
+            raise ValueError("is_snapshot must be bool")
+        if not isinstance(self.timestamps, EventTimestamps):
+            raise ValueError("timestamps must be EventTimestamps")
+
+
+@dataclass(frozen=True, slots=True)
 class NormalizedMarketEvent:
     """Envelope passed from a MarketSource into the aggregator.
 
-    Exactly one of ``quote``, ``trade``, or ``book`` is set, and it matches
-    ``kind``. Exchange-specific objects are not valid members of this type.
+    Exactly one of ``quote``, ``trade``, ``book``, or ``book_delta`` is set,
+    and it matches ``kind``. Exchange-specific objects are not valid members
+    of this type.
     """
 
     kind: MarketEventKind
@@ -127,6 +193,7 @@ class NormalizedMarketEvent:
     quote: QuoteEvent | None = None
     trade: TradeEvent | None = None
     book: BookEvent | None = None
+    book_delta: BookDeltaEvent | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.kind, MarketEventKind):
@@ -139,6 +206,7 @@ class NormalizedMarketEvent:
             MarketEventKind.QUOTE: self.quote,
             MarketEventKind.TRADE: self.trade,
             MarketEventKind.BOOK: self.book,
+            MarketEventKind.BOOK_DELTA: self.book_delta,
         }
         selected = payloads[self.kind]
         if selected is None:
@@ -146,7 +214,7 @@ class NormalizedMarketEvent:
         extras = [name for name, value in payloads.items() if name is not self.kind and value is not None]
         if extras:
             raise ValueError("normalized event carries more than one payload")
-        if not isinstance(selected, (QuoteEvent, TradeEvent, BookEvent)):
+        if not isinstance(selected, (QuoteEvent, TradeEvent, BookEvent, BookDeltaEvent)):
             raise ValueError("payload must be a project market event")
         if selected.instrument != self.instrument:
             raise ValueError("payload instrument does not match the envelope")
@@ -178,4 +246,13 @@ class NormalizedMarketEvent:
             instrument=book.instrument,
             timestamps=book.timestamps,
             book=book,
+        )
+
+    @classmethod
+    def from_book_delta(cls, book_delta: BookDeltaEvent) -> "NormalizedMarketEvent":
+        return cls(
+            kind=MarketEventKind.BOOK_DELTA,
+            instrument=book_delta.instrument,
+            timestamps=book_delta.timestamps,
+            book_delta=book_delta,
         )

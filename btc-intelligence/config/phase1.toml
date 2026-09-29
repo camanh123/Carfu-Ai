@@ -1,0 +1,24 @@
+# Public market-data sensor. Trading, leverage, and withdrawals stay disabled.
+# No credentials are read from this file.
+
+live_trading = false
+leverage_enabled = false
+withdrawals_enabled = false
+
+[sensor]
+publish_depth = 50
+stale_after_ms = 5000
+disconnect_after_ms = 30000
+recorder_queue = 100000
+
+[venues.BINANCE]
+enabled = true
+symbol = "BTCUSDT"
+book_depth = 1000
+http_base = "https://data-api.binance.vision"
+ws_base = "wss://data-stream.binance.vision"
+
+[venues.BYBIT]
+enabled = true
+symbol = "BTCUSDT-SPOT"
+book_depth = 50

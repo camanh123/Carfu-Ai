@@ -3,8 +3,12 @@
 from decimal import Decimal, InvalidOperation
 
 from btc_intelligence.domain.events import (
+    BookDelta,
+    BookDeltaEvent,
     BookEvent,
     BookLevel,
+    BookSide,
+    BookUpdateAction,
     NormalizedMarketEvent,
     QuoteEvent,
     TradeEvent,
@@ -28,13 +32,17 @@ def parse_decimal(name: str, raw: str) -> Decimal:
 
 def build_timestamps(
     *,
-    exchange_timestamp_ns: int,
+    exchange_timestamp_ns: int | None,
     local_receive_timestamp_ns: int,
     normalized_timestamp_ns: int,
     source_init_timestamp_ns: int | None = None,
+    exchange_event_ns: int | None = None,
+    exchange_transaction_ns: int | None = None,
 ) -> EventTimestamps:
     return EventTimestamps(
         exchange_timestamp_ns=exchange_timestamp_ns,
+        exchange_event_ns=exchange_event_ns,
+        exchange_transaction_ns=exchange_transaction_ns,
         local_receive_timestamp_ns=local_receive_timestamp_ns,
         normalized_timestamp_ns=normalized_timestamp_ns,
         source_init_timestamp_ns=source_init_timestamp_ns,
@@ -49,16 +57,20 @@ def normalize_quote(
     ask_price: str,
     bid_size: str,
     ask_size: str,
-    exchange_timestamp_ns: int,
+    exchange_timestamp_ns: int | None,
     local_receive_timestamp_ns: int,
     normalized_timestamp_ns: int,
     source_init_timestamp_ns: int | None = None,
+    exchange_event_ns: int | None = None,
+    exchange_transaction_ns: int | None = None,
 ) -> NormalizedMarketEvent:
     timestamps = build_timestamps(
         exchange_timestamp_ns=exchange_timestamp_ns,
         local_receive_timestamp_ns=local_receive_timestamp_ns,
         normalized_timestamp_ns=normalized_timestamp_ns,
         source_init_timestamp_ns=source_init_timestamp_ns,
+        exchange_event_ns=exchange_event_ns,
+        exchange_transaction_ns=exchange_transaction_ns,
     )
     quote = QuoteEvent(
         instrument=InstrumentRef.parse(symbol, venue),
@@ -79,10 +91,12 @@ def normalize_trade(
     size: str,
     side: str,
     trade_id: str,
-    exchange_timestamp_ns: int,
+    exchange_timestamp_ns: int | None,
     local_receive_timestamp_ns: int,
     normalized_timestamp_ns: int,
     source_init_timestamp_ns: int | None = None,
+    exchange_event_ns: int | None = None,
+    exchange_transaction_ns: int | None = None,
 ) -> NormalizedMarketEvent:
     try:
         trade_side = TradeSide(side)
@@ -93,6 +107,8 @@ def normalize_trade(
         local_receive_timestamp_ns=local_receive_timestamp_ns,
         normalized_timestamp_ns=normalized_timestamp_ns,
         source_init_timestamp_ns=source_init_timestamp_ns,
+        exchange_event_ns=exchange_event_ns,
+        exchange_transaction_ns=exchange_transaction_ns,
     )
     trade = TradeEvent(
         instrument=InstrumentRef.parse(symbol, venue),
@@ -113,16 +129,20 @@ def normalize_book(
     asks: tuple[tuple[str, str], ...],
     book_type: str,
     sequence: int | None,
-    exchange_timestamp_ns: int,
+    exchange_timestamp_ns: int | None,
     local_receive_timestamp_ns: int,
     normalized_timestamp_ns: int,
     source_init_timestamp_ns: int | None = None,
+    exchange_event_ns: int | None = None,
+    exchange_transaction_ns: int | None = None,
 ) -> NormalizedMarketEvent:
     timestamps = build_timestamps(
         exchange_timestamp_ns=exchange_timestamp_ns,
         local_receive_timestamp_ns=local_receive_timestamp_ns,
         normalized_timestamp_ns=normalized_timestamp_ns,
         source_init_timestamp_ns=source_init_timestamp_ns,
+        exchange_event_ns=exchange_event_ns,
+        exchange_transaction_ns=exchange_transaction_ns,
     )
     book = BookEvent(
         instrument=InstrumentRef.parse(symbol, venue),
@@ -133,3 +153,54 @@ def normalize_book(
         timestamps=timestamps,
     )
     return NormalizedMarketEvent.from_book(book)
+
+
+def normalize_book_deltas(
+    *,
+    symbol: str,
+    venue: str,
+    deltas: tuple[BookDelta, ...],
+    sequence: int | None,
+    is_snapshot: bool,
+    exchange_timestamp_ns: int | None,
+    local_receive_timestamp_ns: int,
+    normalized_timestamp_ns: int,
+    source_init_timestamp_ns: int | None = None,
+    exchange_event_ns: int | None = None,
+    exchange_transaction_ns: int | None = None,
+) -> NormalizedMarketEvent:
+    timestamps = build_timestamps(
+        exchange_timestamp_ns=exchange_timestamp_ns,
+        local_receive_timestamp_ns=local_receive_timestamp_ns,
+        normalized_timestamp_ns=normalized_timestamp_ns,
+        source_init_timestamp_ns=source_init_timestamp_ns,
+        exchange_event_ns=exchange_event_ns,
+        exchange_transaction_ns=exchange_transaction_ns,
+    )
+    event = BookDeltaEvent(
+        instrument=InstrumentRef.parse(symbol, venue),
+        deltas=deltas,
+        sequence=sequence,
+        is_snapshot=is_snapshot,
+        timestamps=timestamps,
+    )
+    return NormalizedMarketEvent.from_book_delta(event)
+
+
+def book_delta_from_parts(
+    *,
+    action: str,
+    side: str | None,
+    price: str | None,
+    size: str | None,
+    sequence: int | None,
+) -> BookDelta:
+    update = BookUpdateAction(action)
+    book_side = BookSide(side) if side is not None else None
+    return BookDelta(
+        action=update,
+        side=book_side,
+        price=parse_decimal("price", price) if price is not None else None,
+        size=parse_decimal("size", size) if size is not None else None,
+        sequence=sequence,
+    )
