@@ -123,7 +123,9 @@ def _summary(
     error: str | None,
     record_path: Path,
 ) -> dict[str, object]:
-    state = pipeline.observe_clock(time.time_ns())
+    # Snapshot the state left by the live run. A later clock check would mark
+    # the venue stale only because the node has already stopped.
+    state = pipeline.aggregator.snapshot(time.time_ns())
     stages = pipeline.summaries()
     venues: dict[str, object] = {}
     for feed in feeds:
