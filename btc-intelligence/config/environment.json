@@ -1,0 +1,16 @@
+{
+  "nautilus_version": "1.231.0",
+  "nautilus_distribution_version": "1.231.0",
+  "python_version": "3.12.3",
+  "python_implementation": "CPython",
+  "platform": "Linux-6.12.94+-x86_64-with-glibc2.39",
+  "machine": "x86_64",
+  "installation_method": "pip install nautilus_trader==1.231.0 from PyPI as the binary wheel nautilus_trader-1.231.0-cp312-cp312-manylinux_2_35_x86_64.whl",
+  "selection": {
+    "pinned": "1.231.0",
+    "pypi_latest_stable": "1.231.0",
+    "latest_release_candidate_not_pinned": "2.0.0rc5",
+    "rationale": "1.231.0 is the latest stable PyPI release and publishes a CPython 3.12 manylinux x86_64 wheel. 2.0.0rc5 is a pre-release. Upstream documents release candidates as community testing builds and does not recommend them for production."
+  },
+  "live_trading": false
+}
