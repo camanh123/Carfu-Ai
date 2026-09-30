@@ -47,6 +47,7 @@ import org.stypox.dicio.io.session.HardCeilingRescuePolicy
 import org.stypox.dicio.io.session.RecordAudioPermission
 import org.stypox.dicio.io.session.CanonicalActionGate
 import org.stypox.dicio.io.session.CanonicalCommand
+import org.stypox.dicio.io.session.AsrAbEvidence
 import org.stypox.dicio.io.session.CanonicalCommandExecutor
 import org.stypox.dicio.io.session.InstalledAppResolver
 import org.stypox.dicio.io.session.CommandTranscriptNormalizer
@@ -1196,6 +1197,7 @@ class SkillEvaluatorImpl(
                 val merged = (sessionBestCandidates.get() + event.utterances)
                     .distinctBy { it.first }
                 val decision = SessionCommandDecision.decideFinal(sid, merged)
+                recordAsrUnderstanding(decision)
                 val displayRaw = event.utterances.maxByOrNull { it.first.length }?.first
                     ?: event.utterances.firstOrNull()?.first.orEmpty()
                 // Live UI keeps the raw STT text — never overwrite with normalized labels.
@@ -1535,6 +1537,7 @@ class SkillEvaluatorImpl(
             CarfuLatencyLog.logSessionEvent("UNDERSTAND_SKIPPED", "stale_or_cancelled")
             return
         }
+        recordAsrUnderstanding(decision)
 
         if (decision?.reason == "unsupported_place_search" ||
             VietnameseCommandUnderstanding.isUnsupportedPlaceOrNearbyQuery(original)
@@ -1599,6 +1602,27 @@ class SkillEvaluatorImpl(
         // Legacy fallback for timers/weather/etc. not yet in the V2 understanding surface.
         val best = CarfuCommandRouter.matchBest(utterances)
         processMatchedCommand(best, original, utterances)
+    }
+
+    /**
+     * Diagnostic only. Does not alter [decision] or which command executes.
+     * The A/B profile is not an input.
+     */
+    private fun recordAsrUnderstanding(decision: UnderstandingResult?) {
+        if (decision == null) {
+            AsrAbEvidence.noteNormalized("")
+            AsrAbEvidence.noteNlu("none")
+            AsrAbEvidence.noteCanonical("none")
+        } else {
+            AsrAbEvidence.noteNormalized(decision.normalizedTranscript)
+            AsrAbEvidence.noteNlu(
+                "intent=${decision.intent} completeness=${decision.completeness} " +
+                    "executable=${decision.executable} reason=${decision.reason} " +
+                    "entities=${decision.entities}",
+            )
+            AsrAbEvidence.noteCanonical(decision.command?.toString() ?: "none")
+        }
+        AsrAbEvidence.noteTimings(VoiceToActionLatency.summary())
     }
 
     /**
@@ -1679,6 +1703,8 @@ class SkillEvaluatorImpl(
                 canonicalExecutor.executeTraced(command)
             }
         } catch (throwable: Throwable) {
+            AsrAbEvidence.noteExecution("error=${throwable.javaClass.simpleName}")
+            AsrAbEvidence.noteTimings(VoiceToActionLatency.summary())
             addErrorInteractionFromPending(throwable)
             if (!VoiceSessionGuard.dropIfStale(sid, "canonical_skill_error")) {
                 endWakeSession("skill_error", originatingSessionId = sid)
@@ -1709,6 +1735,13 @@ class SkillEvaluatorImpl(
                 "mediaQ=${trace.mediaQuery.orEmpty()} mediaP=${trace.mediaProvider.orEmpty()} " +
                 "mediaData=${trace.mediaData.orEmpty()} reason=${trace.reason}",
         )
+        AsrAbEvidence.noteExecution(
+            "actionTaken=${trace.actionTaken} reason=${trace.reason} " +
+                "geo=${trace.geoUri.orEmpty()} pkg=${trace.packageName.orEmpty()} " +
+                "mediaQ=${trace.mediaQuery.orEmpty()} mediaP=${trace.mediaProvider.orEmpty()} " +
+                "mediaData=${trace.mediaData.orEmpty()} speech=${trace.speechVi}",
+        )
+        AsrAbEvidence.noteTimings(VoiceToActionLatency.summary())
         val result = SkillExecutionResult(
             speechVi = speech,
             actionTaken = trace.actionTaken,

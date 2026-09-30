@@ -10,16 +10,19 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.speech.RecognitionListener
-import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import org.stypox.dicio.io.input.AsrRecognizerIntentProfiles
+import org.stypox.dicio.io.input.AsrRecognizerLease
+import org.stypox.dicio.io.input.AsrTestProfileController
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
 import org.stypox.dicio.io.input.SttInputDevice
 import org.stypox.dicio.io.input.SttState
+import org.stypox.dicio.io.session.AsrAbEvidence
 import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CarfuPcmHub
@@ -190,11 +193,14 @@ class AndroidSpeechInputDevice(
             return false
         }
         stopListeningInternal()
+        AsrRecognizerLease.markOwned()
         terminalEmitted.set(false)
         sawReady.set(false)
         sawSpeechOrPartial.set(false)
         listenerRef.set(eventListener)
         val generation = listenerGeneration.incrementAndGet()
+        val profile = AsrTestProfileController.current(context)
+        val spec = AsrRecognizerIntentProfiles.specFor(profile, context.packageName)
         val sr = try {
             SpeechRecognizer.createSpeechRecognizer(
                 context,
@@ -205,13 +211,14 @@ class AndroidSpeechInputDevice(
             CarfuVoiceTrace.srStartRefused("create_failed_${t.javaClass.simpleName}")
             _uiState.value = SttState.NotAvailable
             listenerRef.set(null)
+            AsrRecognizerLease.markIdle()
             return false
         }
         recognizer.set(sr)
         CarfuLatencyLog.logPipelineStage("SR_CREATE")
         CarfuVoiceTrace.srCreate(component.packageName, component.className)
         sr.setRecognitionListener(Listener(generation))
-        val intent = recognizerIntent()
+        val intent = AsrRecognizerIntentProfiles.toIntent(spec)
         VoiceToActionLatency.mark(
             VoiceToActionStage.SR_INTENT_CONFIG,
             VoiceToActionLatencyPolicy.recognizerSilenceExtrasLog(),
@@ -222,11 +229,12 @@ class AndroidSpeechInputDevice(
         CarfuVoiceTrace.srStartRequest()
         CarfuVoiceTrace.srStartListening()
         armStartedAtMs.set(SystemClock.elapsedRealtime())
+        val languageLog = spec.explicitLanguage()?.let { "language=$it" } ?: "language=unset"
         CarfuLog.i(
             CommandSession.TAG,
             "ANDROID_SR_START package=${component.packageName} " +
-                "class=${component.className} language=vi-VN popup=false browser=false " +
-                "gen=$generation",
+                "class=${component.className} profile=${profile.name} $languageLog " +
+                "popup=false browser=false gen=$generation",
         )
         try {
             sr.startListening(intent)
@@ -237,8 +245,10 @@ class AndroidSpeechInputDevice(
             destroyRecognizer(sr)
             recognizer.set(null)
             listenerRef.set(null)
+            AsrRecognizerLease.markIdle()
             return false
         }
+        AsrAbEvidence.begin(profile, AsrRecognizerIntentProfiles.describe(spec))
         CarfuVoiceTrace.srStartAccepted()
         _uiState.value = SttState.Listening
         mainHandler.postDelayed(
@@ -246,21 +256,6 @@ class AndroidSpeechInputDevice(
             CommandRecognitionPolicy.ANDROID_LISTEN_TIMEOUT_MS,
         )
         return true
-    }
-
-    private fun recognizerIntent(): Intent {
-        val cfg = CommandRecognitionPolicy.recognizerIntentConfig()
-        // OEM-sensitive: do NOT put EXTRA_SPEECH_INPUT_* silence/minimum extras.
-        // Policy constants exist for Smart helpers only; unset → OEM endpointer defaults.
-        return Intent(cfg.action).apply {
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, cfg.languageModel)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, cfg.language)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, cfg.language)
-            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, cfg.partialResults)
-            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, cfg.maxResults)
-            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, cfg.preferOffline)
-            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-        }
     }
 
     private fun pickExternalService(): CommandRecognitionPolicy.RecognitionServiceCandidate? {
@@ -297,6 +292,7 @@ class AndroidSpeechInputDevice(
         cancelFirst: Boolean = true,
     ) {
         cancelTimeout()
+        AsrRecognizerLease.markIdle()
         if (invalidateListener) {
             listenerGeneration.incrementAndGet()
         }
@@ -378,6 +374,7 @@ class AndroidSpeechInputDevice(
             CarfuLatencyLog.logPipelineStage("SR_READY")
             CarfuVoiceTrace.srReady()
             VoiceToActionLatency.mark(VoiceToActionStage.LISTENING_READY, "sr_onReadyForSpeech")
+            AsrAbEvidence.noteTimings(VoiceToActionLatency.summary())
         }
 
         override fun onBeginningOfSpeech() {
@@ -430,6 +427,10 @@ class AndroidSpeechInputDevice(
             CarfuLog.i(CommandSession.TAG, "ANDROID_SR_ERROR code=$error name=$name action=$action")
             CarfuLatencyLog.logPipelineStage("SR_ERROR", "code=$error name=$name")
             CarfuVoiceTrace.srError(error, name, action.name, generation, current)
+            if (action != SpeechRecognizerSessionPolicy.ProductAction.IGNORE_STALE) {
+                AsrAbEvidence.noteAsrError("code=$error name=$name action=$action")
+                AsrAbEvidence.noteTimings(VoiceToActionLatency.summary())
+            }
             when (action) {
                 SpeechRecognizerSessionPolicy.ProductAction.IGNORE_STALE -> return
                 SpeechRecognizerSessionPolicy.ProductAction.KEEP_PRODUCT_SESSION -> {
@@ -455,6 +456,7 @@ class AndroidSpeechInputDevice(
 
         override fun onResults(results: Bundle?) {
             val current = listenerGeneration.get()
+            val rawFinal = rawRecognitionText(results)
             val utterances = utterancesFrom(results)
             val action = SpeechRecognizerSessionPolicy.onResults(
                 utteranceCount = utterances.size,
@@ -487,6 +489,9 @@ class AndroidSpeechInputDevice(
                         "candidates=${utterances.size} text=${text.trim().take(80)}",
                     )
                     onTerminal(CommandRecognitionPolicy.RecognizerTerminal.RESULT) { listener ->
+                        val delivered = rawFinal ?: text
+                        AsrAbEvidence.noteRawFinal(delivered)
+                        AsrAbEvidence.noteTimings(VoiceToActionLatency.summary())
                         listener(InputEvent.Final(utterances))
                     }
                 }
@@ -505,6 +510,7 @@ class AndroidSpeechInputDevice(
         }
 
         override fun onPartialResults(partialResults: Bundle?) {
+            val rawPartial = rawRecognitionText(partialResults)
             val text = utterancesFrom(partialResults).firstOrNull()?.first ?: return
             val current = listenerGeneration.get()
             if (!SpeechRecognizerSessionPolicy.onPartial(
@@ -525,11 +531,18 @@ class AndroidSpeechInputDevice(
                 VoiceToActionStage.PARTIAL_TRANSCRIPT,
                 "len=${text.length} text=${text.trim().take(80)}",
             )
+            AsrAbEvidence.noteRawPartial(rawPartial ?: text)
+            AsrAbEvidence.noteTimings(VoiceToActionLatency.summary())
             // Visible transcript / ranking only — never terminates the SR session.
             listenerRef.get()?.invoke(InputEvent.Partial(text))
         }
 
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    }
+
+    /** Recognizer string before [CommandRecognitionPolicy.finalUtterances] trims it. */
+    private fun rawRecognitionText(bundle: Bundle?): String? {
+        return bundle?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
     }
 
     private fun utterancesFrom(bundle: Bundle?): List<Pair<String, Float>> {

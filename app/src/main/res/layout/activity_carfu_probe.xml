@@ -28,6 +28,48 @@
         android:textColor="#9E9E9E"
         android:textSize="13sp" />
 
+    <TextView
+        android:id="@+id/asr_profile_heading"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/asr_profile_heading"
+        android:textColor="#EEEEEE"
+        android:textSize="16sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/asr_profile_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:textColor="#E8B84A"
+        android:textSize="15sp"
+        tools:text="Hồ sơ ASR: A — VIA Current" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="8dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btn_asr_profile_a"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:text="@string/asr_profile_a"
+            android:textAllCaps="false" />
+
+        <Button
+            android:id="@+id/btn_asr_profile_b"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_weight="1"
+            android:text="@string/asr_profile_b"
+            android:textAllCaps="false" />
+    </LinearLayout>
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -21,6 +21,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import org.stypox.dicio.R
+import org.stypox.dicio.io.input.AsrTestProfile
+import org.stypox.dicio.io.input.AsrTestProfileController
+import org.stypox.dicio.io.input.AsrTestProfileState
 import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.util.checkPermissions
 
@@ -72,6 +75,14 @@ class CarfuProbeActivity : AppCompatActivity() {
         logScroll = findViewById(R.id.probe_log_scroll)
         audioButton = findViewById(R.id.btn_test_audio)
 
+        AsrTestProfileController.ensureLoaded(this)
+        refreshAsrProfileStatus()
+        findViewById<Button>(R.id.btn_asr_profile_a).setOnClickListener {
+            selectAsrProfile(AsrTestProfile.A_VIA_CURRENT)
+        }
+        findViewById<Button>(R.id.btn_asr_profile_b).setOnClickListener {
+            selectAsrProfile(AsrTestProfile.B_SMARTTUBE_STYLE)
+        }
         findViewById<Button>(R.id.btn_scan_packages).setOnClickListener { scanPackages() }
         findViewById<Button>(R.id.btn_test_key_event).setOnClickListener { armKeyCapture() }
         findViewById<Button>(R.id.btn_test_bt_call).setOnClickListener { testBluetoothCall() }
@@ -97,6 +108,7 @@ class CarfuProbeActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        refreshAsrProfileStatus()
         window.decorView.requestFocus()
         CarfuProbeLog.append("Activity onResume (window focused=${window.decorView.hasWindowFocus()})")
         updateAudioButton()
@@ -129,6 +141,22 @@ class CarfuProbeActivity : AppCompatActivity() {
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         logKey("onKeyUp", event)
         return super.onKeyUp(keyCode, event)
+    }
+
+    private fun selectAsrProfile(profile: AsrTestProfile) {
+        val ok = AsrTestProfileController.trySelect(this, profile)
+        refreshAsrProfileStatus()
+        if (ok) {
+            CarfuProbeLog.append("ASR TEST PROFILE ${profile.displayLabel}")
+        } else {
+            CarfuProbeLog.append(getString(R.string.asr_profile_switch_blocked))
+        }
+    }
+
+    private fun refreshAsrProfileStatus() {
+        val label = AsrTestProfileState.profile.value.displayLabel
+        findViewById<TextView>(R.id.asr_profile_status).text =
+            getString(R.string.asr_profile_active, label)
     }
 
     private fun restoreLog() {
