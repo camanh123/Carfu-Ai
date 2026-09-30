@@ -72,6 +72,8 @@ object CarfuDiag {
             if (assist.isEmpty()) appendLine("(empty)") else assist.forEach { appendLine(it) }
             appendLine("=== $TAG_VOICE ===")
             if (voice.isEmpty()) appendLine("(empty)") else voice.forEach { appendLine(it) }
+            appendLine("=== ASR_AB ===")
+            append(AsrAbEvidence.copyableSection())
         }
     }
 

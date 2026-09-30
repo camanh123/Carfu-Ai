@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
+import org.stypox.dicio.io.input.AsrProductPhaseMirror
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,7 +79,7 @@ class CommandSession @Inject constructor(
             log("COMMAND_SESSION_OVERLAP ignored elapsed=${machine.elapsedMs}")
             return false
         }
-        _ui.value = _ui.value.forNewSession(machine.sessionId, machine.phase)
+        emit(_ui.value.forNewSession(machine.sessionId, machine.phase))
         log("COMMAND_SESSION_START id=${machine.sessionId} origin=$origin")
         log("WAKE_PCM_ROUTE=discard recorder_held=true")
         return true
@@ -105,12 +106,14 @@ class CommandSession @Inject constructor(
     ) {
         machine.onCommandAudioStarted()
         val focusGranted = requestTransientFocus()
-        _ui.value = _ui.value.copy(
-            phase = machine.phase,
-            captureRateHz = sampleRate,
-            modelPath = modelPath,
-            partial = null,
-            elapsedMs = machine.elapsedMs,
+        emit(
+            _ui.value.copy(
+                phase = machine.phase,
+                captureRateHz = sampleRate,
+                modelPath = modelPath,
+                partial = null,
+                elapsedMs = machine.elapsedMs,
+            ),
         )
         log(
             "COMMAND_AUDIO_STARTED sampleRate=$sampleRate bufferSize=$bufferSize " +
@@ -124,18 +127,20 @@ class CommandSession @Inject constructor(
     }
 
     fun onPartial(text: String) {
-        _ui.value = _ui.value.copy(partial = text, elapsedMs = machine.elapsedMs)
+        emit(_ui.value.copy(partial = text, elapsedMs = machine.elapsedMs))
         log("PARTIAL_TEXT text=${text.take(80)}")
     }
 
     fun onFinalText(original: String) {
         machine.onProcessing()
-        _ui.value = _ui.value.copy(
-            phase = machine.phase,
-            lastHeard = original,
-            partial = null,
-            unclear = false,
-            elapsedMs = machine.elapsedMs,
+        emit(
+            _ui.value.copy(
+                phase = machine.phase,
+                lastHeard = original,
+                partial = null,
+                unclear = false,
+                elapsedMs = machine.elapsedMs,
+            ),
         )
         log("FINAL_TEXT text=${original.take(80)}")
         log("SPEECH_END")
@@ -147,21 +152,25 @@ class CommandSession @Inject constructor(
 
     fun onReply(text: String) {
         machine.onResponding()
-        _ui.value = _ui.value.copy(
-            phase = machine.phase,
-            lastReply = text,
-            unclear = false,
-            elapsedMs = machine.elapsedMs,
+        emit(
+            _ui.value.copy(
+                phase = machine.phase,
+                lastReply = text,
+                unclear = false,
+                elapsedMs = machine.elapsedMs,
+            ),
         )
     }
 
     fun onUnclear() {
         machine.onResponding()
-        _ui.value = _ui.value.copy(
-            phase = machine.phase,
-            lastReply = null,
-            unclear = true,
-            elapsedMs = machine.elapsedMs,
+        emit(
+            _ui.value.copy(
+                phase = machine.phase,
+                lastReply = null,
+                unclear = true,
+                elapsedMs = machine.elapsedMs,
+            ),
         )
     }
 
@@ -173,10 +182,12 @@ class CommandSession @Inject constructor(
         }
         log("COMMAND_SESSION_END reason=$reason elapsedMs=$elapsed abandonFocus=$abandonAudioFocus")
         machine.onIdle()
-        _ui.value = _ui.value.copy(
-            phase = CommandSessionPhase.IDLE_WAKE,
-            partial = null,
-            elapsedMs = 0,
+        emit(
+            _ui.value.copy(
+                phase = CommandSessionPhase.IDLE_WAKE,
+                partial = null,
+                elapsedMs = 0,
+            ),
         )
         if (CarfuSessionGate.returningToWakeMayRestartListening()) {
             log("WAKE_RESUME_SCHEDULED")
@@ -241,11 +252,18 @@ class CommandSession @Inject constructor(
     }
 
     private fun publish() {
-        _ui.value = _ui.value.copy(
-            phase = machine.phase,
-            sessionId = machine.sessionId,
-            elapsedMs = machine.elapsedMs,
+        emit(
+            _ui.value.copy(
+                phase = machine.phase,
+                sessionId = machine.sessionId,
+                elapsedMs = machine.elapsedMs,
+            ),
         )
+    }
+
+    private fun emit(state: CommandUiState) {
+        _ui.value = state
+        AsrProductPhaseMirror.publish(state.phase)
     }
 
     private fun log(message: String) {

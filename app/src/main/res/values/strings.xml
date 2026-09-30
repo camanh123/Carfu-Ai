@@ -131,6 +131,11 @@
     <string name="carfu_status_online">Online</string>
     <string name="carfu_mic_ready">Mic sẵn sàng</string>
     <string name="carfu_mic_listening">Mic đang nghe</string>
+    <string name="asr_profile_heading">ASR TEST PROFILE</string>
+    <string name="asr_profile_a">A — VIA Current</string>
+    <string name="asr_profile_b">B — SmartTube Style</string>
+    <string name="asr_profile_active">Hồ sơ ASR: %1$s</string>
+    <string name="asr_profile_switch_blocked">Không đổi hồ sơ ASR khi phiên đang hoạt động</string>
     <string name="carfu_diagnostics">Diagnostics</string>
     <string name="carfu_diagnostics_summary">Open the CARFU probe log (long-press the assistant orb)</string>
     <string name="settings_mode_button_setup">Thiết lập nút MODE</string>

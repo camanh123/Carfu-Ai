@@ -15,6 +15,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -43,6 +44,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -66,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import org.stypox.dicio.R
+import org.stypox.dicio.io.input.AsrTestProfileController
+import org.stypox.dicio.io.input.AsrTestProfileState
 import org.stypox.dicio.io.input.SttState
 import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.io.session.CommandUiState
@@ -100,6 +104,11 @@ fun DrivingScreen(
     var volumeIdleToken by remember { mutableLongStateOf(0L) }
     var banner by remember { mutableStateOf<String?>(null) }
     val volumeController = remember(context) { androidVolumeController(context) }
+    remember(context) {
+        AsrTestProfileController.ensureLoaded(context)
+        true
+    }
+    val asrProfile by AsrTestProfileState.profile.collectAsState()
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -161,8 +170,19 @@ fun DrivingScreen(
                 online = online,
                 micListening = presentation.visual == DrivingVisualState.LISTENING ||
                     sttState == SttState.Listening,
+                asrProfileLabel = asrProfile.displayLabel,
                 timeText = DateFormat.getTimeFormat(context).format(now),
                 onSettingsClick = onSettingsClick,
+                onAsrProfileClick = {
+                    val switched = AsrTestProfileController.trySelect(
+                        context,
+                        asrProfile.toggled(),
+                        commandUi.phase,
+                    )
+                    if (!switched) {
+                        banner = context.getString(R.string.asr_profile_switch_blocked)
+                    }
+                },
             )
 
             Row(
@@ -324,8 +344,10 @@ fun DrivingScreen(
 private fun DrivingTopBar(
     online: Boolean,
     micListening: Boolean,
+    asrProfileLabel: String,
     timeText: String,
     onSettingsClick: () -> Unit,
+    onAsrProfileClick: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -352,6 +374,19 @@ private fun DrivingTopBar(
                 if (micListening) R.string.carfu_mic_listening else R.string.carfu_mic_ready
             ),
             color = if (micListening) Lime else TextMuted,
+        )
+        Spacer(Modifier.width(8.dp))
+        Text(
+            text = asrProfileLabel,
+            color = Amber,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .clip(RoundedCornerShape(12.dp))
+                .background(CharcoalElevated)
+                .clickable(onClick = onAsrProfileClick)
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+                .testTag("asr_test_profile"),
         )
         Spacer(Modifier.weight(1f))
         Text(
