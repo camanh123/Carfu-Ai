@@ -110,12 +110,29 @@ class SmartTubeProviderSpeechAliasTest : StringSpec({
         AsrAbEvidence.resetForTests()
     }
 
-    "smart youtube is not mapped to the SmartTube media provider" {
+    "smart youtube stays an unresolved media provider and is not SmartTube" {
         val result = u("Mở bài Đừng Xa Em Đêm Nay trên smart youtube")
         result.query shouldBe "Đừng Xa Em Đêm Nay"
-        result.provider.shouldBeNull()
-        result.command shouldBe CanonicalCommand.PlayMedia("Đừng Xa Em Đêm Nay", null)
+        result.provider shouldBe "smart youtube"
+        result.command shouldBe CanonicalCommand.PlayMedia("Đừng Xa Em Đêm Nay", "smart youtube")
         MediaProviderExecutor.isSmartTubeProvider(result.provider).shouldBeFalse()
         MediaProviderExecutor.isYouTubeProvider(result.provider).shouldBeFalse()
+        MediaProviderExecutor.build(result.query!!, result.provider)
+            .shouldBe(MediaProviderExecutor.Result.Unsupported("unknown_provider:smart youtube"))
+    }
+
+    "bare smart youtube is the existing trailing YouTube provider, not SmartTube" {
+        val result = u("smart youtube")
+        result.command shouldBe CanonicalCommand.PlayMedia("smart", "YouTube")
+        MediaProviderExecutor.isSmartTubeProvider(result.provider).shouldBeFalse()
+    }
+
+    "Mở smart youtube is trailing YouTube media, not the SmartTube open-app alias" {
+        val result = u("Mở smart youtube")
+        result.command shouldBe CanonicalCommand.PlayMedia("smart", "YouTube")
+        result.provider shouldBe "YouTube"
+        MediaProviderExecutor.isSmartTubeProvider(result.provider).shouldBeFalse()
+        CommandTranscriptNormalizer.matchAppInOpenDomain("smart youtube")
+            ?.intent shouldBe CarfuIntent.OPEN_SMARTTUBE
     }
 })
