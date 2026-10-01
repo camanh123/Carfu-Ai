@@ -28,6 +28,9 @@ object VietnameseMediaCommandGrammar {
         "yt" to "YouTube",
         "smarttube" to "SmartTube",
         "smart tube" to "SmartTube",
+        // SpeechRecognizer provider-slot forms heard on CARFU. Not a global rewrite.
+        "smartbook" to "SmartTube",
+        "smart book" to "SmartTube",
         "musicloop" to "MusicLoop",
         "music loop" to "MusicLoop",
     )
