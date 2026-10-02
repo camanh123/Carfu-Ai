@@ -40,11 +40,26 @@ object MediaProviderExecutor {
         val raw = provider?.trim().orEmpty()
         if (raw.isEmpty()) return false
         if (raw.equals("SmartTube", ignoreCase = true)) return true
+        if (raw.equals("VIDO", ignoreCase = true)) return true
         val folded = VietnameseTranscript.foldForMatch(raw)
         if (folded == "smarttube" || folded == "smart tube") return true
+        if (folded == "vido" || folded == "vi do") return true
         if (VietnameseMediaCommandGrammar.resolveProviderLabel(folded) == "SmartTube") return true
         return folded.startsWith("smarttube") || folded.startsWith("smart tube")
     }
+
+    fun displayProviderName(provider: String?): String {
+        val p = provider?.trim().orEmpty()
+        if (p.isEmpty()) return p
+        return if (isSmartTubeProvider(p)) "VIDO" else p
+    }
+
+    fun displayAppName(appName: String): String =
+        if (isSmartTubeProvider(appName) || appName.equals("VIDO", ignoreCase = true)) {
+            "VIDO"
+        } else {
+            appName
+        }
 
     fun build(query: String, provider: String?): Result {
         val q = query.trim()

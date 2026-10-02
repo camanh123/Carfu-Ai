@@ -42,11 +42,12 @@ class CarfuVietnameseSkillExecutor(
             )
             CarfuIntent.OPEN_SMARTTUBE -> openKnown(
                 listOf(
+                    "org.smarttube.stable",
                     "com.teamsmart.videomanager.tv",
                     "com.liskovsoft.smarttube.tv",
                     "com.liskovsoft.smartyoutubetv2",
                 ),
-                "SmartTube",
+                "VIDO",
             )
             CarfuIntent.OPEN_ZALO -> openKnown(
                 listOf(CarfuDialer.ZALO_PACKAGE),

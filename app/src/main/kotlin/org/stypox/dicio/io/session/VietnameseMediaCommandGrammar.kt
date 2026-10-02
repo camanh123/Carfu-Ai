@@ -28,6 +28,8 @@ object VietnameseMediaCommandGrammar {
         "yt" to "YouTube",
         "smarttube" to "SmartTube",
         "smart tube" to "SmartTube",
+        "vido" to "SmartTube",
+        "vi do" to "SmartTube",
         "musicloop" to "MusicLoop",
         "music loop" to "MusicLoop",
     )
@@ -125,6 +127,37 @@ object VietnameseMediaCommandGrammar {
 
         val tokens = folded.split(' ').filter { it.isNotEmpty() }
         if (tokens.isEmpty()) return null
+
+        val lead = leadingKnownProvider(tokens)
+        if (lead != null && tokens.size > lead.second) {
+            val rest = tokens.drop(lead.second)
+            val restStartsMedia = consumeLongest(rest, 0, ACTIONS) != null ||
+                consumeLongest(rest, 0, FILLERS) != null ||
+                consumeLongest(rest, 0, MEDIA_NOUNS) != null
+            if (restStartsMedia) {
+                val inner = parseFolded(rest.joinToString(" "))
+                if (inner != null) {
+                    val leadFolded = tokens.take(lead.second).joinToString(" ")
+                    return if (inner.providerLabel == null && inner.providerFolded.isNullOrBlank()) {
+                        val complete = inner.complete || (
+                            inner.reason == "media_missing_provider" &&
+                                inner.queryFolded.isNotEmpty() &&
+                                isMeaningfulQuery(inner.queryFolded)
+                            )
+                        inner.copy(
+                            complete = complete,
+                            reason = if (complete && !inner.complete) "media_complete" else inner.reason,
+                            providerLabel = lead.first,
+                            providerFolded = leadFolded,
+                            knownProvider = true,
+                            leadingTokenCount = inner.leadingTokenCount + lead.second,
+                        )
+                    } else {
+                        inner.copy(leadingTokenCount = inner.leadingTokenCount + lead.second)
+                    }
+                }
+            }
+        }
 
         var index = 0
         val action = consumeLongest(tokens, index, ACTIONS)
@@ -297,6 +330,18 @@ object VietnameseMediaCommandGrammar {
             PROVIDER_LABELS[slice]?.let { return it }
         }
         PROVIDER_LABELS[tokens.joinToString(" ")]?.let { return it }
+        return null
+    }
+
+    /** Longest known provider label at the start of [tokens], with its token count. */
+    private fun leadingKnownProvider(tokens: List<String>): Pair<String, Int>? {
+        if (tokens.isEmpty()) return null
+        val max = minOf(3, tokens.size)
+        for (n in max downTo 1) {
+            val slice = tokens.take(n).joinToString(" ")
+            val label = PROVIDER_LABELS[slice] ?: continue
+            return label to n
+        }
         return null
     }
 

@@ -29,6 +29,8 @@ object VietnameseCommandUnderstanding {
         "music lube" to "MusicLoop",
         "smarttube" to "SmartTube",
         "smart tube" to "SmartTube",
+        "vido" to "SmartTube",
+        "vi do" to "SmartTube",
         "zalo" to "Zalo",
         "ban do" to "Maps",
         "maps" to "Maps",
@@ -543,7 +545,7 @@ object VietnameseCommandUnderstanding {
             "musicloop" -> RoutedCommand(
                 CarfuIntent.OPEN_MUSICLOOP, "mở musicloop", "open",
             )
-            "smarttube" -> RoutedCommand(
+            "smarttube", "vido" -> RoutedCommand(
                 CarfuIntent.OPEN_SMARTTUBE, "mở smarttube", "open",
             )
             "zalo" -> RoutedCommand(
@@ -576,11 +578,12 @@ object VietnameseCommandUnderstanding {
 
     fun confirmationSpeechVi(command: CanonicalCommand): String? = when (command) {
         is CanonicalCommand.Navigate -> "Đang chỉ đường đến ${command.destination}"
-        is CanonicalCommand.OpenApp -> "Đang mở ${command.appName}"
+        is CanonicalCommand.OpenApp ->
+            "Đang mở ${MediaProviderExecutor.displayAppName(command.appName)}"
         is CanonicalCommand.PlayMedia -> {
             val p = command.provider
             if (p.isNullOrBlank()) "Đang mở ${command.query}"
-            else "Đang mở ${command.query} trên $p"
+            else "Đang mở ${command.query} trên ${MediaProviderExecutor.displayProviderName(p)}"
         }
         is CanonicalCommand.Volume ->
             if (command.up) "Đang tăng âm lượng" else "Đang giảm âm lượng"
@@ -620,7 +623,7 @@ object VietnameseCommandUnderstanding {
         if (tokens.isEmpty() || tokens.first() != "tim") return false
         val mediaNouns = setOf("bai", "hat", "nhac", "video", "clip")
         if (tokens.any { it in mediaNouns }) return false
-        if (tokens.any { it in setOf("youtube", "yt", "smarttube", "musicloop") }) return false
+        if (tokens.any { it in setOf("youtube", "yt", "smarttube", "vido", "musicloop") }) return false
         val politeFind = tokens.size >= 3 &&
             (
                 tokens.take(3) == listOf("tim", "cho", "toi") ||

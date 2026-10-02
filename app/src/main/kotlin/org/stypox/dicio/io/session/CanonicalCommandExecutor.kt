@@ -333,7 +333,7 @@ class CanonicalCommandExecutor(
         MediaPlayRouting.onSmartTubeJackEntered()
         val port = smartTubePlayAuto
         if (port == null) {
-            val spoken = "Không phát được bài trên SmartTube."
+            val spoken = "Không phát được bài trên VIDO."
             MediaPlayRouting.onSmartTubeResult(
                 packageName = null,
                 action = null,
@@ -407,11 +407,11 @@ class CanonicalCommandExecutor(
     }
 
     private fun smartTubeFailureSpeech(status: String?): String = when (status) {
-        "NO_RESULTS" -> "Không tìm thấy bài trên SmartTube."
-        "NETWORK_UNAVAILABLE", "TIMEOUT" -> "Không kết nối được SmartTube."
-        "QUOTA_EXCEEDED" -> "SmartTube tạm thời quá tải."
-        "smarttube_unavailable" -> "Không tìm thấy SmartTube."
-        else -> "Không phát được bài trên SmartTube."
+        "NO_RESULTS" -> "Không tìm thấy bài trên VIDO."
+        "NETWORK_UNAVAILABLE", "TIMEOUT" -> "Không kết nối được VIDO."
+        "QUOTA_EXCEEDED" -> "VIDO tạm thời quá tải."
+        "smarttube_unavailable" -> "Không tìm thấy VIDO."
+        else -> "Không phát được bài trên VIDO."
     }
 
     private fun youtubeFailureSpeech(status: String?): String = when (status) {

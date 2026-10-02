@@ -138,6 +138,14 @@ class InstalledAppResolver(
 object KnownAppCatalog {
     data class Pref(val displayName: String, val packages: List<String>)
 
+    private val VIDO_PACKAGES = listOf(
+        "org.smarttube.stable",
+        "com.teamsmart.videomanager.tv",
+        "com.liskovsoft.smarttube.tv",
+        "com.liskovsoft.smartyoutubetv2",
+    )
+    private val VIDO_PREF = Pref("VIDO", VIDO_PACKAGES)
+
     private val BY_ALIAS: Map<String, Pref> = mapOf(
         "youtube" to Pref("YouTube", listOf(
             "com.google.android.youtube",
@@ -152,12 +160,10 @@ object KnownAppCatalog {
         "music loop" to Pref("MusicLoop", listOf("com.musicloop.car", "com.musicloop")),
         "music look" to Pref("MusicLoop", listOf("com.musicloop.car", "com.musicloop")),
         "music lup" to Pref("MusicLoop", listOf("com.musicloop.car", "com.musicloop")),
-        "smarttube" to Pref("SmartTube", listOf(
-            "com.teamsmart.videomanager.tv",
-            "com.liskovsoft.smarttube.tv",
-            "com.liskovsoft.smartyoutubetv2",
-        )),
-        "smart tube" to Pref("SmartTube", listOf("com.teamsmart.videomanager.tv")),
+        "smarttube" to VIDO_PREF,
+        "smart tube" to VIDO_PREF,
+        "vido" to VIDO_PREF,
+        "vi do" to VIDO_PREF,
         "zalo" to Pref("Zalo", listOf("com.zing.zalo")),
         "chrome" to Pref("Chrome", listOf(
             "com.android.chrome",
