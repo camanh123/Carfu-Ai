@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.wake.WakeAcceptancePolicy
 import org.stypox.dicio.io.wake.WakeDevice
@@ -21,11 +22,16 @@ import org.stypox.dicio.util.FileToDownload
 import org.stypox.dicio.util.downloadBinaryFilesWithPartial
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 
 class OpenWakeWordDevice(
     @param:ApplicationContext private val appContext: Context,
     private val okHttpClient: OkHttpClient,
 ) : WakeDevice {
+    init {
+        noteUnexpectedConstruction()
+    }
+
     private val _state: MutableStateFlow<WakeState>
     override val state: StateFlow<WakeState>
 
@@ -204,6 +210,20 @@ class OpenWakeWordDevice(
         const val MEL_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/melspectrogram.tflite"
         const val EMB_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1/embedding_model.tflite"
         const val WAKE_MODEL_FILENAME = "carfu.tflite"
+
+        private val constructionCount = AtomicInteger(0)
+
+        fun constructionCount(): Int = constructionCount.get()
+
+        fun resetConstructionCountForTests() {
+            constructionCount.set(0)
+        }
+
+        private fun noteUnexpectedConstruction() {
+            constructionCount.incrementAndGet()
+            CarfuLog.w("CarfuWake", "OWW_UNEXPECTED_CONSTRUCTION")
+            CarfuDiag.wake("OWW_UNEXPECTED_CONSTRUCTION")
+        }
 
         private fun userWakeFile(context: Context) =
             File(context.filesDir, "openWakeWord/userwake.tflite")

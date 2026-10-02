@@ -35,6 +35,7 @@ import androidx.datastore.core.DataStore
 import org.stypox.dicio.io.session.AudioCaptureConfig
 import org.stypox.dicio.io.session.CarfuActivationSource
 import org.stypox.dicio.io.session.CarfuCommandRouter
+import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuLog
 import org.stypox.dicio.io.session.CarfuPcmHub
@@ -444,8 +445,11 @@ class SkillEvaluatorImpl(
             CarfuLog.i(
                 CommandSession.TAG,
                 "V2_SESSION session=$sid triggerId=${trigger.triggerId} " +
-                    "origin=$gateOrigin engine=ANDROID_ONLINE hubReleased=true no_mode_ack=true",
+                    "origin=$gateOrigin engine=ANDROID_ONLINE hubReleased=true no_mode_ack=true " +
+                    "ASR_AB_PRODUCTION=${org.stypox.dicio.io.input.ColdModeIsolation.ASR_AB_PRODUCTION} " +
+                    "OPENWAKEWORD_PRODUCTION=${org.stypox.dicio.io.input.ColdModeIsolation.OPENWAKEWORD_PRODUCTION}",
             )
+            CarfuDiag.voice("DEPENDENCIES_READY engine=ANDROID_ONLINE")
             scope.launch {
                 try {
                     startCommandListening(reason, sid, androidOnline = true)

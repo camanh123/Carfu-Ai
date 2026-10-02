@@ -9,6 +9,7 @@ import android.view.View
 import dagger.hilt.android.EntryPointAccessors
 import org.stypox.dicio.MainActivity
 import org.stypox.dicio.io.session.CarfuDiag
+import org.stypox.dicio.io.session.CarfuLatencyLog
 import org.stypox.dicio.io.session.CarfuSessionGate
 import org.stypox.dicio.ui.ambient.AmbientVoiceEntryPoint
 
@@ -28,6 +29,9 @@ class CarfuVoiceInteractionSession(context: Context) : VoiceInteractionSession(c
             "VOICE_INTERACTION_SHOW flags=0x${Integer.toHexString(showFlags)} " +
                 "extras=[${CarfuAssistIntents.summarizeSafeExtras(CarfuAssistIntents.extrasAsMap(args))}]",
         )
+        CarfuDiag.assist("MODE_RECEIVED")
+        CarfuDiag.voice("MODE_RECEIVED")
+        CarfuLatencyLog.onModeIntent()
         if (tryCrossAppModeWithoutForegrounding()) {
             hide()
             return

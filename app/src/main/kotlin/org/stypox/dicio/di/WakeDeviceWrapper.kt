@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
+import org.stypox.dicio.io.input.ColdModeIsolation
+import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.io.wake.WakeDevice
 import org.stypox.dicio.io.wake.WakeState
 import org.stypox.dicio.io.wake.oww.OpenWakeWordDevice
@@ -133,6 +135,12 @@ class WakeDeviceWrapperImpl(
     }
 
     private fun buildInputDevice(setting: DataStoreWakeDevice): WakeDevice? {
+        if (!ColdModeIsolation.shouldConstructOpenWakeWord()) {
+            CarfuDiag.wake(
+                "OPENWAKEWORD_PRODUCTION=${ColdModeIsolation.OPENWAKEWORD_PRODUCTION}",
+            )
+            return null
+        }
         return when (setting) {
             UNRECOGNIZED,
             WAKE_DEVICE_UNSET,

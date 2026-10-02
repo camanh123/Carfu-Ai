@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
 import dagger.hilt.android.HiltAndroidApp
+import org.stypox.dicio.io.input.ColdModeIsolation
+import org.stypox.dicio.io.session.CarfuDiag
 import org.stypox.dicio.util.checkPermissions
 
 // IMPORTANT NOTE: beware of this nasty bug related to allowBackup=true
@@ -14,6 +16,9 @@ import org.stypox.dicio.util.checkPermissions
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        CarfuDiag.voice("COLD_PROCESS_START")
+        CarfuDiag.voice("ASR_AB_PRODUCTION=${ColdModeIsolation.ASR_AB_PRODUCTION}")
+        CarfuDiag.voice("OPENWAKEWORD_PRODUCTION=${ColdModeIsolation.OPENWAKEWORD_PRODUCTION}")
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             checkPermissions(this, Manifest.permission.POST_NOTIFICATIONS)
         ) {
