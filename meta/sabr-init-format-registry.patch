@@ -1,0 +1,1172 @@
+From 230774558b2081645d170e3201203da3a4b47e11 Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 2 Oct 2026 14:44:19 +0000
+Subject: [PATCH 1/2] Fix SABR first-response init: register FormatId before
+ media samples.
+
+MediaHeader lookup used FormatId.toString(), so itag 140 with last_modified
+missed a FORMAT_INITIALIZATION_METADATA entry that omitted that field.
+Use canonical itag/last_modified/xtags keys, reorder first UMP bodies so
+format init is applied before samples, and keep throwing if the format
+never registers. Seek reset no longer drops selected formats; session
+reset clears the registry for a new video.
+---
+ .../source/sabr/DefaultSabrChunkSource.java   |   5 +
+ .../source/sabr/parser/SabrProcessor.java     | 128 +++++++++++-
+ .../source/sabr/parser/SabrStream.java        |  84 +++++++-
+ .../parser/misc/ByteArrayExtractorInput.java  | 168 ++++++++++++++++
+ .../sabr/parser/models/FormatIdKeys.java      |  47 +++++
+ .../sabr/parser/models/SelectedFormat.java    |  21 ++
+ .../SabrProcessorInitLifecycleTest.java       | 158 +++++++++++++++
+ .../parser/SabrStreamFirstResponseTest.java   | 187 ++++++++++++++++++
+ .../source/sabr/parser/SabrUmpBytes.java      |  85 ++++++++
+ .../sabr/parser/models/FormatIdKeysTest.java  |  43 ++++
+ 10 files changed, 917 insertions(+), 9 deletions(-)
+ create mode 100644 exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/misc/ByteArrayExtractorInput.java
+ create mode 100644 exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeys.java
+ create mode 100644 exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessorInitLifecycleTest.java
+ create mode 100644 exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrStreamFirstResponseTest.java
+ create mode 100644 exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrUmpBytes.java
+ create mode 100644 exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeysTest.java
+
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/DefaultSabrChunkSource.java b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/DefaultSabrChunkSource.java
+index bac2687..46d23f3 100644
+--- a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/DefaultSabrChunkSource.java
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/DefaultSabrChunkSource.java
+@@ -318,6 +318,11 @@ public class DefaultSabrChunkSource implements SabrChunkSource {
+             //    pendingIndexUri = selectedRepresentation.getIndexUri();
+             //}
+             //if (pendingInitializationUri != null || pendingIndexUri != null) {
++            // SABR representations always have an initialization URI (even when
++            // the DASH init range is unset). Keep this dedicated first POST:
++            // isInit=true clears selectedFormatIds so the server sends
++            // FORMAT_INITIALIZATION_METADATA. First-response media in that same
++            // UMP body is reordered by SabrStream so init is applied before samples.
+             if (pendingInitializationUri != null) {
+                 // We have initialization and/or index requests to make.
+                 out.chunk = newInitializationChunk(representationHolder, dataSource,
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessor.java b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessor.java
+index 6ea2130..cab2f5f 100644
+--- a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessor.java
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessor.java
+@@ -8,9 +8,11 @@ import com.google.android.exoplayer2.extractor.ExtractorInput;
+ import com.google.android.exoplayer2.source.sabr.parser.exceptions.SabrStreamError;
+ import com.google.android.exoplayer2.source.sabr.parser.misc.Utils;
+ import com.google.android.exoplayer2.source.sabr.parser.models.ConsumedRange;
++import com.google.android.exoplayer2.source.sabr.parser.models.FormatIdKeys;
+ import com.google.android.exoplayer2.source.sabr.parser.models.FormatSelector;
+ import com.google.android.exoplayer2.source.sabr.parser.models.Segment;
+ import com.google.android.exoplayer2.source.sabr.parser.models.SelectedFormat;
++import com.google.android.exoplayer2.source.sabr.protos.misc.FormatId;
+ import com.google.android.exoplayer2.source.sabr.parser.parts.FormatInitializedSabrPart;
+ import com.google.android.exoplayer2.source.sabr.parser.parts.MediaSeekSabrPart;
+ import com.google.android.exoplayer2.source.sabr.parser.parts.MediaSegmentDataSabrPart;
+@@ -169,11 +171,7 @@ public class SabrProcessor {
+         //    throw new SabrStreamError(String.format("Header ID %s already exists", mediaHeader.getHeaderId()));
+         //}
+ 
+-        SelectedFormat initializedFormat = selectedFormats.get(mediaHeader.getFormatId().toString());
+-
+-        if (initializedFormat == null) {
+-            throw new SabrStreamError(String.format("Initialized format not found for %s", mediaHeader.getFormatId()));
+-        }
++        SelectedFormat initializedFormat = requireInitializedFormat(mediaHeader.getFormatId());
+ 
+         if (mediaHeader.hasCompressionAlgorithm()) {
+             // Unknown when this is used, but it is not supported currently
+@@ -435,7 +433,9 @@ public class SabrProcessor {
+     public ProcessFormatInitializationMetadataResult processFormatInitializationMetadata(FormatInitializationMetadata formatInitMetadata) {
+         ProcessFormatInitializationMetadataResult result = new ProcessFormatInitializationMetadataResult();
+ 
+-        if (formatInitMetadata.hasFormatId() && selectedFormats.containsKey(formatInitMetadata.getFormatId().toString())) {
++        SelectedFormat existing = formatInitMetadata.hasFormatId()
++                ? findSelectedFormat(formatInitMetadata.getFormatId()) : null;
++        if (existing != null && !existing.provisional) {
+             Log.d(TAG, "Format %s already initialized", formatInitMetadata.getFormatId());
+             return result;
+         }
+@@ -459,6 +459,9 @@ public class SabrProcessor {
+         // Given we only provide one FormatId currently, and this should not occur in this case,
+         // we will mark this as not currently supported and bail.
+         for (SelectedFormat selectedFormat : selectedFormats.values()) {
++            if (selectedFormat.provisional) {
++                continue;
++            }
+             if (selectedFormat.formatSelector == formatSelector && !formatSelector.isDiscardMedia()) {
+                 throw new SabrStreamError("Server changed format. Changing formats is not currently supported");
+             }
+@@ -505,7 +508,7 @@ public class SabrProcessor {
+         }
+ 
+         if (formatInitMetadata.hasFormatId()) {
+-            selectedFormats.put(formatInitMetadata.getFormatId().toString(), initializedFormat);
++            putSelectedFormat(initializedFormat);
+             Log.d(TAG, "Initialized Format: %s", initializedFormat.formatId);
+         }
+ 
+@@ -773,4 +776,115 @@ public class SabrProcessor {
+             initializedFormats.put(iTag, newHeader);
+         }
+     }
++
++    /**
++     * Clears format registration for a new playback session (video change).
++     * Seek uses {@link #reset(int)} and must not drop selectedFormats.
++     */
++    public void resetSession() {
++        selectedFormats.clear();
++        initializedFormats.clear();
++        partialSegments.clear();
++        liveMetadata = null;
++        nextRequestPolicy = null;
++        totalDurationMs = NO_VALUE;
++    }
++
++    public boolean hasSelectedFormats() {
++        return !selectedFormats.isEmpty();
++    }
++
++    public int getSelectedFormatCount() {
++        return selectedFormats.size();
++    }
++
++    SelectedFormat requireInitializedFormat(FormatId formatId) {
++        SelectedFormat initializedFormat = findSelectedFormat(formatId);
++        if (initializedFormat == null) {
++            initializedFormat = registerProvisionalFormat(formatId);
++        }
++        if (initializedFormat == null) {
++            throw new SabrStreamError(String.format("Initialized format not found for %s", formatId));
++        }
++        return initializedFormat;
++    }
++
++    SelectedFormat findSelectedFormat(FormatId formatId) {
++        if (formatId == null) {
++            return null;
++        }
++
++        SelectedFormat exact = selectedFormats.get(FormatIdKeys.canonical(formatId));
++        if (exact != null) {
++            return exact;
++        }
++
++        String itagXtags = FormatIdKeys.itagXtags(formatId);
++        SelectedFormat xtagsMatch = null;
++        boolean xtagsAmbiguous = false;
++        SelectedFormat itagMatch = null;
++        int itagMatches = 0;
++
++        for (SelectedFormat candidate : selectedFormats.values()) {
++            if (candidate.formatId == null) {
++                continue;
++            }
++            if (FormatIdKeys.itagXtags(candidate.formatId).equals(itagXtags)) {
++                if (xtagsMatch == null) {
++                    xtagsMatch = candidate;
++                } else if (!FormatIdKeys.canonical(xtagsMatch.formatId)
++                        .equals(FormatIdKeys.canonical(candidate.formatId))) {
++                    xtagsAmbiguous = true;
++                }
++            }
++            if (FormatIdKeys.sameItag(candidate.formatId, formatId)) {
++                itagMatches++;
++                itagMatch = candidate;
++            }
++        }
++
++        if (xtagsMatch != null && !xtagsAmbiguous) {
++            return xtagsMatch;
++        }
++        if (itagMatches == 1) {
++            return itagMatch;
++        }
++        return null;
++    }
++
++    private void putSelectedFormat(SelectedFormat format) {
++        if (format == null || format.formatId == null) {
++            return;
++        }
++        String itagXtags = FormatIdKeys.itagXtags(format.formatId);
++        selectedFormats.entrySet().removeIf(entry ->
++                entry.getValue() != null
++                        && entry.getValue().formatId != null
++                        && FormatIdKeys.itagXtags(entry.getValue().formatId).equals(itagXtags));
++        selectedFormats.put(FormatIdKeys.canonical(format.formatId), format);
++    }
++
++    private SelectedFormat registerProvisionalFormat(FormatId formatId) {
++        if (formatId == null || formatSelector == null) {
++            return null;
++        }
++        if (!formatSelector.match(formatId, null)) {
++            return null;
++        }
++        SelectedFormat provisional = new SelectedFormat(
++                formatId,
++                -1,
++                -1,
++                null,
++                videoId,
++                formatSelector,
++                -1,
++                formatSelector.isDiscardMedia(),
++                true
++        );
++        putSelectedFormat(provisional);
++        Log.d(TAG, "Provisionally registered requested format before FORMAT_INITIALIZATION_METADATA: %s",
++                formatId);
++        return provisional;
++    }
+ }
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrStream.java b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrStream.java
+index 9eb57bf..e2fa0f8 100644
+--- a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrStream.java
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/SabrStream.java
+@@ -5,6 +5,8 @@ import androidx.annotation.NonNull;
+ import com.google.android.exoplayer2.extractor.ExtractorInput;
+ import com.google.android.exoplayer2.source.sabr.parser.exceptions.MediaSegmentMismatchError;
+ import com.google.android.exoplayer2.source.sabr.parser.exceptions.SabrStreamError;
++import com.google.android.exoplayer2.source.sabr.parser.misc.ByteArrayExtractorInput;
++import com.google.android.exoplayer2.source.sabr.parser.misc.Utils;
+ import com.google.android.exoplayer2.source.sabr.parser.models.FormatSelector;
+ import com.google.android.exoplayer2.source.sabr.parser.parts.FormatInitializedSabrPart;
+ import com.google.android.exoplayer2.source.sabr.parser.parts.MediaSeekSabrPart;
+@@ -41,8 +43,9 @@ import com.liskovsoft.sharedutils.querystringparser.UrlQueryString;
+ import com.liskovsoft.sharedutils.querystringparser.UrlQueryStringFactory;
+ 
+ import java.io.IOException;
+-import java.util.HashSet;
++import java.util.ArrayList;
+ import java.util.List;
++import java.util.HashSet;
+ import java.util.Set;
+ 
+ public class SabrStream {
+@@ -78,6 +81,7 @@ public class SabrStream {
+     private final SabrProcessor processor;
+     private final NoSegmentsTracker noNewSegmentsTracker;
+     private final Set<Integer> unknownPartTypes;
++    private final List<UMPPart> deferredParts;
+     private int sqMismatchForwardCount;
+     private int sqMismatchBacktrackCount;
+     private boolean receivedNewSegments;
+@@ -132,6 +136,7 @@ public class SabrStream {
+         // Whether we got any new (not consumed) segments in the request
+         noNewSegmentsTracker = new NoSegmentsTracker();
+         unknownPartTypes = new HashSet<>();
++        deferredParts = new ArrayList<>();
+ 
+         sqMismatchBacktrackCount = 0;
+         sqMismatchForwardCount = 0;
+@@ -142,12 +147,17 @@ public class SabrStream {
+         SabrPart result = null;
+ 
+         while (result == null && (multiResult == null || multiResult.isEmpty())) {
+-            UMPPart part = nextKnownUMPPart(extractorInput);
++            UMPPart part = nextPartForParse(extractorInput);
+ 
+             if (part == null) {
+                 break;
+             }
+ 
++            if (shouldDeferMediaUntilFormatInit(part)) {
++                deferMediaAndPromoteFormatInit(part, extractorInput);
++                continue;
++            }
++
+             result = parsePart(part);
+ 
+             if (result == null) {
+@@ -162,6 +172,13 @@ public class SabrStream {
+         noNewSegmentsTracker.reset();
+     }
+ 
++    public void resetSession() {
++        noNewSegmentsTracker.reset();
++        deferredParts.clear();
++        multiResult = null;
++        processor.resetSession();
++    }
++
+     public void reset(int iTag) {
+         processor.reset(iTag);
+     }
+@@ -170,6 +187,14 @@ public class SabrStream {
+         return processor.getFormatSelector();
+     }
+ 
++    public boolean hasSelectedFormats() {
++        return processor.hasSelectedFormats();
++    }
++
++    public int getSelectedFormatCount() {
++        return processor.getSelectedFormatCount();
++    }
++
+     public void setFormatSelector(FormatSelector formatSelector) {
+         processor.setFormatSelector(formatSelector);
+     }
+@@ -479,6 +504,61 @@ public class SabrStream {
+         return false;
+     }
+ 
++    private static boolean isMediaFamily(int partId) {
++        return partId == UMPPartId.MEDIA_HEADER
++                || partId == UMPPartId.MEDIA
++                || partId == UMPPartId.MEDIA_END;
++    }
++
++    private UMPPart nextPartForParse(@NonNull ExtractorInput extractorInput) {
++        if (!deferredParts.isEmpty()) {
++            return deferredParts.remove(0);
++        }
++        return nextKnownUMPPart(extractorInput);
++    }
++
++    /**
++     * First SABR responses can place MEDIA_HEADER before FORMAT_INITIALIZATION_METADATA.
++     * Buffer the rest of this body, process format init first, then media. Samples are
++     * not dropped: if init never arrives, processMediaHeader still throws.
++     */
++    private boolean shouldDeferMediaUntilFormatInit(UMPPart part) {
++        return isMediaFamily(part.partId)
++                && !processor.hasSelectedFormats()
++                && deferredParts.isEmpty();
++    }
++
++    private void deferMediaAndPromoteFormatInit(UMPPart firstMediaPart, ExtractorInput extractorInput) {
++        List<UMPPart> formatInitParts = new ArrayList<>();
++        deferredParts.add(copyPart(firstMediaPart));
++
++        while (true) {
++            UMPPart part = nextKnownUMPPart(extractorInput);
++            if (part == null) {
++                break;
++            }
++            UMPPart copied = copyPart(part);
++            if (copied.partId == UMPPartId.FORMAT_INITIALIZATION_METADATA) {
++                formatInitParts.add(copied);
++            } else {
++                deferredParts.add(copied);
++            }
++        }
++
++        deferredParts.addAll(0, formatInitParts);
++        Log.d(TAG, "Reordered first SABR response: formatInit=%s, deferred=%s",
++                formatInitParts.size(), deferredParts.size());
++    }
++
++    private static UMPPart copyPart(UMPPart part) {
++        try {
++            byte[] payload = Utils.readExactBytes(part.data, part.size);
++            return new UMPPart(part.partId, part.size, new ByteArrayExtractorInput(payload));
++        } catch (IOException | InterruptedException e) {
++            throw new IllegalStateException("Cannot buffer UMP part " + part.partId, e);
++        }
++    }
++
+     private UMPPart nextKnownUMPPart(@NonNull ExtractorInput extractorInput) {
+         UMPPart part;
+ 
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/misc/ByteArrayExtractorInput.java b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/misc/ByteArrayExtractorInput.java
+new file mode 100644
+index 0000000..2821e55
+--- /dev/null
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/misc/ByteArrayExtractorInput.java
+@@ -0,0 +1,168 @@
++package com.google.android.exoplayer2.source.sabr.parser.misc;
++
++import com.google.android.exoplayer2.C;
++import com.google.android.exoplayer2.extractor.ExtractorInput;
++
++import java.io.EOFException;
++import java.io.IOException;
++
++/** ExtractorInput over an in-memory payload, used when a UMP part must be deferred. */
++public final class ByteArrayExtractorInput implements ExtractorInput {
++    private final byte[] data;
++    private int position;
++    private int peekPosition;
++
++    public ByteArrayExtractorInput(byte[] data) {
++        this.data = data != null ? data : new byte[0];
++    }
++
++    @Override
++    public int read(byte[] buffer, int offset, int length) {
++        if (position >= data.length) {
++            return C.RESULT_END_OF_INPUT;
++        }
++        int toRead = Math.min(length, data.length - position);
++        System.arraycopy(data, position, buffer, offset, toRead);
++        position += toRead;
++        peekPosition = position;
++        return toRead;
++    }
++
++    @Override
++    public boolean readFully(byte[] target, int offset, int length, boolean allowEndOfInput)
++            throws IOException {
++        if (length == 0) {
++            return true;
++        }
++        if (position >= data.length) {
++            if (allowEndOfInput) {
++                return false;
++            }
++            throw new EOFException();
++        }
++        if (data.length - position < length) {
++            position = data.length;
++            peekPosition = position;
++            if (allowEndOfInput) {
++                return false;
++            }
++            throw new EOFException();
++        }
++        System.arraycopy(data, position, target, offset, length);
++        position += length;
++        peekPosition = position;
++        return true;
++    }
++
++    @Override
++    public void readFully(byte[] target, int offset, int length) throws IOException {
++        readFully(target, offset, length, false);
++    }
++
++    @Override
++    public int skip(int length) {
++        if (position >= data.length) {
++            return C.RESULT_END_OF_INPUT;
++        }
++        int toSkip = Math.min(length, data.length - position);
++        position += toSkip;
++        peekPosition = position;
++        return toSkip;
++    }
++
++    @Override
++    public boolean skipFully(int length, boolean allowEndOfInput) throws IOException {
++        if (length == 0) {
++            return true;
++        }
++        if (position >= data.length) {
++            if (allowEndOfInput) {
++                return false;
++            }
++            throw new EOFException();
++        }
++        if (data.length - position < length) {
++            throw new EOFException();
++        }
++        position += length;
++        peekPosition = position;
++        return true;
++    }
++
++    @Override
++    public void skipFully(int length) throws IOException {
++        skipFully(length, false);
++    }
++
++    @Override
++    public boolean peekFully(byte[] target, int offset, int length, boolean allowEndOfInput)
++            throws IOException {
++        if (length == 0) {
++            return true;
++        }
++        if (peekPosition >= data.length) {
++            if (allowEndOfInput) {
++                return false;
++            }
++            throw new EOFException();
++        }
++        if (data.length - peekPosition < length) {
++            if (allowEndOfInput) {
++                return false;
++            }
++            throw new EOFException();
++        }
++        System.arraycopy(data, peekPosition, target, offset, length);
++        peekPosition += length;
++        return true;
++    }
++
++    @Override
++    public void peekFully(byte[] target, int offset, int length) throws IOException {
++        peekFully(target, offset, length, false);
++    }
++
++    @Override
++    public boolean advancePeekPosition(int length, boolean allowEndOfInput) throws IOException {
++        if (data.length - peekPosition < length) {
++            if (allowEndOfInput) {
++                return false;
++            }
++            throw new EOFException();
++        }
++        peekPosition += length;
++        return true;
++    }
++
++    @Override
++    public void advancePeekPosition(int length) throws IOException {
++        advancePeekPosition(length, false);
++    }
++
++    @Override
++    public void resetPeekPosition() {
++        peekPosition = position;
++    }
++
++    @Override
++    public long getPeekPosition() {
++        return peekPosition;
++    }
++
++    @Override
++    public long getPosition() {
++        return position;
++    }
++
++    @Override
++    public long getLength() {
++        return data.length;
++    }
++
++    @Override
++    public <E extends Throwable> void setRetryPosition(long retryPosition, E e) throws E {
++        position = (int) retryPosition;
++        peekPosition = position;
++        throw e;
++    }
++}
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeys.java b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeys.java
+new file mode 100644
+index 0000000..99ab00c
+--- /dev/null
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeys.java
+@@ -0,0 +1,47 @@
++package com.google.android.exoplayer2.source.sabr.parser.models;
++
++import com.google.android.exoplayer2.source.sabr.protos.misc.FormatId;
++
++/**
++ * Stable SABR format keys. Protobuf {@link FormatId#toString()} is not a registry
++ * key: MediaHeader often includes {@code last_modified} while
++ * FormatInitializationMetadata may omit it (or the reverse), so the printed
++ * forms do not match even when they refer to the same itag/xtags tuple.
++ */
++public final class FormatIdKeys {
++    private FormatIdKeys() {}
++
++    /**
++     * Exact identity: itag, last_modified when present, xtags when present.
++     * Unset last_modified is stored as 0 so an omitted field and an explicit 0
++     * compare equal, matching protobuf's proto3 optional default.
++     */
++    public static String canonical(FormatId formatId) {
++        if (formatId == null) {
++            return "";
++        }
++        return formatId.getItag()
++                + "|"
++                + (formatId.hasLastModified() ? formatId.getLastModified() : 0L)
++                + "|"
++                + (formatId.hasXtags() ? formatId.getXtags() : "");
++    }
++
++    /**
++     * YouTube DRC/language variants share an itag and are distinguished by
++     * xtags. last_modified is intentionally excluded.
++     */
++    public static String itagXtags(FormatId formatId) {
++        if (formatId == null) {
++            return "";
++        }
++        return formatId.getItag()
++                + "|"
++                + (formatId.hasXtags() ? formatId.getXtags() : "");
++    }
++
++    public static boolean sameItag(FormatId left, FormatId right) {
++        return left != null && right != null && left.hasItag() && right.hasItag()
++                && left.getItag() == right.getItag();
++    }
++}
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/SelectedFormat.java b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/SelectedFormat.java
+index 25fb698..a75e1b1 100644
+--- a/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/SelectedFormat.java
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/main/java/com/google/android/exoplayer2/source/sabr/parser/models/SelectedFormat.java
+@@ -14,6 +14,12 @@ public class SelectedFormat {
+     public final FormatSelector formatSelector;
+     public long totalSegments;
+     public final boolean discard;
++    /**
++     * True when this entry was created from the client FormatSelector so that
++     * first-response media can be parsed before FormatInitializationMetadata
++     * arrives. Replaced when the server init metadata is processed.
++     */
++    public final boolean provisional;
+     public long sequenceLmt = -1;
+     public Segment currentSegment;
+     public Segment initSegment;
+@@ -28,6 +34,20 @@ public class SelectedFormat {
+             FormatSelector formatSelector,
+             long totalSegments,
+             boolean discard
++    ) {
++        this(formatId, durationMs, endTimeMs, mimeType, videoId, formatSelector, totalSegments, discard, false);
++    }
++
++    public SelectedFormat(
++            FormatId formatId,
++            long durationMs,
++            long endTimeMs,
++            String mimeType,
++            String videoId,
++            FormatSelector formatSelector,
++            long totalSegments,
++            boolean discard,
++            boolean provisional
+     ) {
+         this.formatId = formatId;
+         this.durationMs = durationMs;
+@@ -37,5 +57,6 @@ public class SelectedFormat {
+         this.formatSelector = formatSelector;
+         this.totalSegments = totalSegments;
+         this.discard = discard;
++        this.provisional = provisional;
+     }
+ }
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessorInitLifecycleTest.java b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessorInitLifecycleTest.java
+new file mode 100644
+index 0000000..179b9d2
+--- /dev/null
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrProcessorInitLifecycleTest.java
+@@ -0,0 +1,158 @@
++package com.google.android.exoplayer2.source.sabr.parser;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertFalse;
++import static org.junit.Assert.assertNotNull;
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
++
++import com.google.android.exoplayer2.source.sabr.parser.exceptions.SabrStreamError;
++import com.google.android.exoplayer2.source.sabr.parser.models.FormatSelector;
++import com.google.android.exoplayer2.source.sabr.parser.results.ProcessMediaHeaderResult;
++import com.google.android.exoplayer2.source.sabr.protos.misc.FormatId;
++import com.google.android.exoplayer2.source.sabr.protos.videostreaming.FormatInitializationMetadata;
++import com.google.android.exoplayer2.source.sabr.protos.videostreaming.MediaHeader;
++import com.google.android.exoplayer2.source.sabr.protos.videostreaming.StreamerContext.ClientInfo;
++
++import org.junit.Test;
++
++public class SabrProcessorInitLifecycleTest {
++    private static final long LAST_MODIFIED = 1790481582446859L;
++    private static final int ITAG = 140;
++
++    @Test
++    public void mediaHeaderMatchesInitWhenLastModifiedIsOnlyOnMediaHeader() {
++        SabrProcessor processor = processorWithSelector(formatId(ITAG, LAST_MODIFIED));
++        processor.processFormatInitializationMetadata(formatInit(formatId(ITAG, 0L), false));
++
++        ProcessMediaHeaderResult result = processor.processMediaHeader(
++                mediaHeader(formatId(ITAG, LAST_MODIFIED), /* headerId= */ 1, /* initSeg= */ false));
++
++        assertNotNull(result.sabrPart);
++        assertEquals(ITAG, result.sabrPart.formatId.getItag());
++        assertEquals(1, processor.getSelectedFormatCount());
++    }
++
++    @Test
++    public void firstResponseInitThenMediaRegistersBeforeSamples() {
++        SabrProcessor processor = processorWithSelector(formatId(ITAG, LAST_MODIFIED));
++        processor.processFormatInitializationMetadata(
++                formatInit(formatId(ITAG, LAST_MODIFIED), true));
++        ProcessMediaHeaderResult initSeg = processor.processMediaHeader(
++                mediaHeader(formatId(ITAG, LAST_MODIFIED), 1, true));
++        ProcessMediaHeaderResult mediaSeg = processor.processMediaHeader(
++                mediaHeader(formatId(ITAG, LAST_MODIFIED), 2, false));
++
++        assertNotNull(initSeg.sabrPart);
++        assertTrue(initSeg.sabrPart.isInitSegment);
++        assertNotNull(mediaSeg.sabrPart);
++        assertFalse(mediaSeg.sabrPart.isInitSegment);
++    }
++
++    @Test
++    public void mediaHeaderForUnregisteredFormatThrows() {
++        SabrProcessor processor = processorWithSelector(formatId(251, LAST_MODIFIED));
++        try {
++            processor.processMediaHeader(mediaHeader(formatId(ITAG, LAST_MODIFIED), 1, false));
++            fail("expected SabrStreamError");
++        } catch (SabrStreamError error) {
++            assertTrue(error.getMessage(), error.getMessage().contains("Initialized format not found"));
++            assertTrue(error.getMessage(), error.getMessage().contains("140"));
++        }
++        assertEquals(0, processor.getSelectedFormatCount());
++    }
++
++    @Test
++    public void requestedFormatCanBeProvisionedWhenInitArrivesAfterMedia() {
++        SabrProcessor processor = processorWithSelector(formatId(ITAG, LAST_MODIFIED));
++        ProcessMediaHeaderResult beforeInit = processor.processMediaHeader(
++                mediaHeader(formatId(ITAG, LAST_MODIFIED), 1, false));
++        assertNotNull(beforeInit.sabrPart);
++        assertTrue(processor.hasSelectedFormats());
++
++        processor.processFormatInitializationMetadata(
++                formatInit(formatId(ITAG, LAST_MODIFIED), true));
++        assertEquals(1, processor.getSelectedFormatCount());
++    }
++
++    @Test
++    public void sessionResetClearsRegistrySoNextVideoMustReinitialize() {
++        SabrProcessor processor = processorWithSelector(formatId(ITAG, LAST_MODIFIED));
++        processor.processFormatInitializationMetadata(formatInit(formatId(ITAG, LAST_MODIFIED), true));
++        assertTrue(processor.hasSelectedFormats());
++
++        processor.resetSession();
++        assertFalse(processor.hasSelectedFormats());
++        assertTrue(processor.getInitializedFormats().isEmpty());
++
++        try {
++            processor.processMediaHeader(mediaHeader(formatId(251, LAST_MODIFIED), 1, false));
++            fail("expected SabrStreamError after session reset");
++        } catch (SabrStreamError error) {
++            assertTrue(error.getMessage(), error.getMessage().contains("Initialized format not found"));
++        }
++    }
++
++    @Test
++    public void seekResetDoesNotDropSelectedFormats() {
++        SabrProcessor processor = processorWithSelector(formatId(ITAG, LAST_MODIFIED));
++        processor.processFormatInitializationMetadata(formatInit(formatId(ITAG, LAST_MODIFIED), true));
++        processor.processMediaHeader(mediaHeader(formatId(ITAG, LAST_MODIFIED), 1, false));
++        processor.processMediaEnd(1);
++
++        processor.reset(ITAG);
++        assertTrue(processor.hasSelectedFormats());
++        assertNotNull(processor.processMediaHeader(
++                mediaHeader(formatId(ITAG, LAST_MODIFIED), 2, false)).sabrPart);
++    }
++
++    private static SabrProcessor processorWithSelector(FormatId requested) {
++        SabrProcessor processor = new SabrProcessor(
++                "config",
++                ClientInfo.getDefaultInstance(),
++                -1,
++                -1,
++                0,
++                null,
++                false,
++                "video123",
++                60_000);
++        processor.setFormatSelector(new FormatSelector("selected_audio", false, requested));
++        return processor;
++    }
++
++    private static FormatId formatId(int itag, long lastModified) {
++        FormatId.Builder builder = FormatId.newBuilder().setItag(itag);
++        if (lastModified > 0) {
++            builder.setLastModified(lastModified);
++        }
++        return builder.build();
++    }
++
++    private static FormatInitializationMetadata formatInit(FormatId formatId, boolean withLastModifiedCopy) {
++        return FormatInitializationMetadata.newBuilder()
++                .setFormatId(formatId)
++                .setMimeType("audio/mp4")
++                .setDurationUnits(60_000)
++                .setDurationTimescale(1000)
++                .setEndTimeMs(60_000)
++                .build();
++    }
++
++    private static MediaHeader mediaHeader(FormatId formatId, int headerId, boolean initSeg) {
++        MediaHeader.Builder builder = MediaHeader.newBuilder()
++                .setHeaderId(headerId)
++                .setFormatId(formatId)
++                .setItag(formatId.getItag())
++                .setIsInitSeg(initSeg)
++                .setDurationMs(initSeg ? 0 : 1000)
++                .setStartMs(initSeg ? 0 : 1000);
++        if (formatId.hasLastModified()) {
++            builder.setLmt(formatId.getLastModified());
++        }
++        if (!initSeg) {
++            builder.setSequenceNumber(headerId);
++        }
++        return builder.build();
++    }
++}
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrStreamFirstResponseTest.java b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrStreamFirstResponseTest.java
+new file mode 100644
+index 0000000..54d566f
+--- /dev/null
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrStreamFirstResponseTest.java
+@@ -0,0 +1,187 @@
++package com.google.android.exoplayer2.source.sabr.parser;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertNotNull;
++import static org.junit.Assert.assertTrue;
++import static org.junit.Assert.fail;
++
++import com.google.android.exoplayer2.source.sabr.parser.exceptions.SabrStreamError;
++import com.google.android.exoplayer2.source.sabr.parser.misc.ByteArrayExtractorInput;
++import com.google.android.exoplayer2.source.sabr.parser.models.FormatSelector;
++import com.google.android.exoplayer2.source.sabr.parser.parts.FormatInitializedSabrPart;
++import com.google.android.exoplayer2.source.sabr.parser.parts.MediaSegmentDataSabrPart;
++import com.google.android.exoplayer2.source.sabr.parser.parts.MediaSegmentEndSabrPart;
++import com.google.android.exoplayer2.source.sabr.parser.parts.MediaSegmentInitSabrPart;
++import com.google.android.exoplayer2.source.sabr.parser.parts.SabrPart;
++import com.google.android.exoplayer2.source.sabr.parser.ump.UMPPartId;
++import com.google.android.exoplayer2.source.sabr.protos.misc.FormatId;
++import com.google.android.exoplayer2.source.sabr.protos.videostreaming.FormatInitializationMetadata;
++import com.google.android.exoplayer2.source.sabr.protos.videostreaming.MediaHeader;
++import com.google.android.exoplayer2.source.sabr.protos.videostreaming.StreamerContext.ClientInfo;
++
++import org.junit.Test;
++
++import java.io.IOException;
++import java.util.ArrayList;
++import java.util.List;
++
++public class SabrStreamFirstResponseTest {
++    private static final long LAST_MODIFIED = 1790481582446859L;
++    private static final int ITAG = 140;
++    private static final byte[] AAC_FRAME = new byte[] {0x11, 0x22, 0x33, 0x44};
++
++    @Test
++    public void firstResponseInitThenMediaEmitsInitBeforeSamples() throws Exception {
++        FormatId requested = formatId(ITAG, LAST_MODIFIED);
++        byte[] body = SabrUmpBytes.concat(
++                SabrUmpBytes.part(UMPPartId.FORMAT_INITIALIZATION_METADATA,
++                        formatInit(formatId(ITAG, 0L)).toByteArray()),
++                SabrUmpBytes.part(UMPPartId.MEDIA_HEADER,
++                        mediaHeader(requested, 1, false).toByteArray()),
++                SabrUmpBytes.mediaPart(1, AAC_FRAME),
++                SabrUmpBytes.mediaEndPart(1));
++
++        List<SabrPart> parts = drain(stream(requested), body);
++        assertEquals(FormatInitializedSabrPart.class, parts.get(0).getClass());
++        assertEquals(MediaSegmentInitSabrPart.class, parts.get(1).getClass());
++        assertEquals(MediaSegmentDataSabrPart.class, parts.get(2).getClass());
++        assertEquals(MediaSegmentEndSabrPart.class, parts.get(3).getClass());
++        assertEquals(AAC_FRAME.length, ((MediaSegmentDataSabrPart) parts.get(2)).contentLength);
++    }
++
++    @Test
++    public void firstResponseMediaBeforeInitStillRegistersFormatBeforeSamples() throws Exception {
++        FormatId requested = formatId(ITAG, LAST_MODIFIED);
++        byte[] body = SabrUmpBytes.concat(
++                SabrUmpBytes.part(UMPPartId.MEDIA_HEADER,
++                        mediaHeader(requested, 1, false).toByteArray()),
++                SabrUmpBytes.mediaPart(1, AAC_FRAME),
++                SabrUmpBytes.mediaEndPart(1),
++                SabrUmpBytes.part(UMPPartId.FORMAT_INITIALIZATION_METADATA,
++                        formatInit(formatId(ITAG, 0L)).toByteArray()));
++
++        List<SabrPart> parts = drain(stream(requested), body);
++        assertEquals(FormatInitializedSabrPart.class, parts.get(0).getClass());
++        assertEquals(MediaSegmentInitSabrPart.class, parts.get(1).getClass());
++        assertEquals(MediaSegmentDataSabrPart.class, parts.get(2).getClass());
++        assertEquals(MediaSegmentEndSabrPart.class, parts.get(3).getClass());
++    }
++
++    @Test
++    public void mediaReferencingUnregisteredFormatThrows() throws Exception {
++        FormatId requested = formatId(251, LAST_MODIFIED);
++        FormatId other = formatId(ITAG, LAST_MODIFIED);
++        byte[] body = SabrUmpBytes.concat(
++                SabrUmpBytes.part(UMPPartId.MEDIA_HEADER,
++                        mediaHeader(other, 1, false).toByteArray()),
++                SabrUmpBytes.mediaPart(1, AAC_FRAME),
++                SabrUmpBytes.mediaEndPart(1));
++
++        SabrStream sabrStream = stream(requested);
++        try {
++            drain(sabrStream, body);
++            fail("expected SabrStreamError");
++        } catch (SabrStreamError error) {
++            assertTrue(error.getMessage(), error.getMessage().contains("Initialized format not found"));
++            assertTrue(error.getMessage(), error.getMessage().contains("140"));
++        }
++        assertEquals(0, sabrStream.getSelectedFormatCount());
++    }
++
++    @Test
++    public void sessionResetRequiresFormatInitAgain() throws Exception {
++        FormatId requested = formatId(ITAG, LAST_MODIFIED);
++        byte[] initAndMedia = SabrUmpBytes.concat(
++                SabrUmpBytes.part(UMPPartId.FORMAT_INITIALIZATION_METADATA,
++                        formatInit(requested).toByteArray()),
++                SabrUmpBytes.part(UMPPartId.MEDIA_HEADER,
++                        mediaHeader(requested, 1, false).toByteArray()),
++                SabrUmpBytes.mediaPart(1, AAC_FRAME),
++                SabrUmpBytes.mediaEndPart(1));
++
++        SabrStream sabrStream = stream(requested);
++        assertNotNull(drain(sabrStream, initAndMedia));
++        assertTrue(sabrStream.hasSelectedFormats());
++
++        sabrStream.resetSession();
++        assertEquals(0, sabrStream.getSelectedFormatCount());
++
++        byte[] mediaOnly = SabrUmpBytes.concat(
++                SabrUmpBytes.part(UMPPartId.MEDIA_HEADER,
++                        mediaHeader(formatId(251, LAST_MODIFIED), 2, false).toByteArray()),
++                SabrUmpBytes.mediaPart(2, AAC_FRAME),
++                SabrUmpBytes.mediaEndPart(2));
++        try {
++            drain(sabrStream, mediaOnly);
++            fail("expected SabrStreamError after session reset");
++        } catch (SabrStreamError error) {
++            assertTrue(error.getMessage(), error.getMessage().contains("Initialized format not found"));
++        }
++    }
++
++    private static List<SabrPart> drain(SabrStream sabrStream, byte[] body)
++            throws IOException, InterruptedException {
++        ByteArrayExtractorInput input = SabrUmpBytes.input(body);
++        List<SabrPart> parts = new ArrayList<>();
++        SabrPart part;
++        while ((part = sabrStream.parse(input)) != null) {
++            parts.add(part);
++            if (part instanceof MediaSegmentDataSabrPart) {
++                MediaSegmentDataSabrPart data = (MediaSegmentDataSabrPart) part;
++                data.data.skipFully(data.contentLength);
++            }
++        }
++        return parts;
++    }
++
++    private static SabrStream stream(FormatId requested) {
++        SabrStream sabrStream = new SabrStream(
++                "https://googlevideo.example/videoplayback",
++                "config",
++                ClientInfo.getDefaultInstance(),
++                -1,
++                -1,
++                0,
++                null,
++                false,
++                "video123",
++                60_000);
++        sabrStream.setFormatSelector(new FormatSelector("selected_audio", false, requested));
++        return sabrStream;
++    }
++
++    private static FormatId formatId(int itag, long lastModified) {
++        FormatId.Builder builder = FormatId.newBuilder().setItag(itag);
++        if (lastModified > 0) {
++            builder.setLastModified(lastModified);
++        }
++        return builder.build();
++    }
++
++    private static FormatInitializationMetadata formatInit(FormatId formatId) {
++        return FormatInitializationMetadata.newBuilder()
++                .setFormatId(formatId)
++                .setMimeType("audio/mp4")
++                .setDurationUnits(60_000)
++                .setDurationTimescale(1000)
++                .setEndTimeMs(60_000)
++                .build();
++    }
++
++    private static MediaHeader mediaHeader(FormatId formatId, int headerId, boolean initSeg) {
++        MediaHeader.Builder builder = MediaHeader.newBuilder()
++                .setHeaderId(headerId)
++                .setFormatId(formatId)
++                .setItag(formatId.getItag())
++                .setIsInitSeg(initSeg)
++                .setDurationMs(initSeg ? 0 : 1000)
++                .setStartMs(initSeg ? 0 : 0);
++        if (formatId.hasLastModified()) {
++            builder.setLmt(formatId.getLastModified());
++        }
++        if (!initSeg) {
++            builder.setSequenceNumber(headerId);
++        }
++        return builder.build();
++    }
++}
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrUmpBytes.java b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrUmpBytes.java
+new file mode 100644
+index 0000000..b395b6d
+--- /dev/null
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/SabrUmpBytes.java
+@@ -0,0 +1,85 @@
++package com.google.android.exoplayer2.source.sabr.parser;
++
++import com.google.android.exoplayer2.source.sabr.parser.misc.ByteArrayExtractorInput;
++import com.google.android.exoplayer2.source.sabr.parser.ump.UMPPartId;
++
++import java.io.ByteArrayOutputStream;
++
++final class SabrUmpBytes {
++    private SabrUmpBytes() {}
++
++    static byte[] concat(byte[]... chunks) {
++        int size = 0;
++        for (byte[] chunk : chunks) {
++            size += chunk.length;
++        }
++        byte[] out = new byte[size];
++        int offset = 0;
++        for (byte[] chunk : chunks) {
++            System.arraycopy(chunk, 0, out, offset, chunk.length);
++            offset += chunk.length;
++        }
++        return out;
++    }
++
++    static byte[] part(int partId, byte[] payload) {
++        ByteArrayOutputStream out = new ByteArrayOutputStream();
++        writeVarInt(out, partId);
++        writeVarInt(out, payload.length);
++        out.write(payload, 0, payload.length);
++        return out.toByteArray();
++    }
++
++    static byte[] mediaPart(long headerId, byte[] media) {
++        ByteArrayOutputStream payload = new ByteArrayOutputStream();
++        writeVarInt(payload, headerId);
++        payload.write(media, 0, media.length);
++        return part(UMPPartId.MEDIA, payload.toByteArray());
++    }
++
++    static byte[] mediaEndPart(long headerId) {
++        ByteArrayOutputStream payload = new ByteArrayOutputStream();
++        writeVarInt(payload, headerId);
++        return part(UMPPartId.MEDIA_END, payload.toByteArray());
++    }
++
++    static ByteArrayExtractorInput input(byte[] umpBody) {
++        return new ByteArrayExtractorInput(umpBody);
++    }
++
++    /**
++     * Matches {@link com.google.android.exoplayer2.source.sabr.parser.ump.UMPDecoder} varint.
++     */
++    static void writeVarInt(ByteArrayOutputStream out, long value) {
++        if (value < 0) {
++            throw new IllegalArgumentException("varint must be unsigned: " + value);
++        }
++        if (value <= 127) {
++            out.write((int) value);
++            return;
++        }
++        if (value <= 16383) {
++            out.write(0x80 | (int) (value & 0x3F));
++            out.write((int) (value >> 6));
++            return;
++        }
++        if (value <= 2097151) {
++            out.write(0xC0 | (int) (value & 0x1F));
++            out.write((int) ((value >> 5) & 0xFF));
++            out.write((int) ((value >> 13) & 0xFF));
++            return;
++        }
++        if (value <= 268435455) {
++            out.write(0xE0 | (int) (value & 0x0F));
++            out.write((int) ((value >> 4) & 0xFF));
++            out.write((int) ((value >> 12) & 0xFF));
++            out.write((int) ((value >> 20) & 0xFF));
++            return;
++        }
++        out.write(0xF0);
++        out.write((int) (value & 0xFF));
++        out.write((int) ((value >> 8) & 0xFF));
++        out.write((int) ((value >> 16) & 0xFF));
++        out.write((int) ((value >> 24) & 0xFF));
++    }
++}
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeysTest.java b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeysTest.java
+new file mode 100644
+index 0000000..2b78971
+--- /dev/null
++++ b/exoplayer-amzn-2.10.6/library/sabr/src/test/java/com/google/android/exoplayer2/source/sabr/parser/models/FormatIdKeysTest.java
+@@ -0,0 +1,43 @@
++package com.google.android.exoplayer2.source.sabr.parser.models;
++
++import static org.junit.Assert.assertEquals;
++import static org.junit.Assert.assertNotEquals;
++
++import com.google.android.exoplayer2.source.sabr.protos.misc.FormatId;
++
++import org.junit.Test;
++
++public class FormatIdKeysTest {
++    private static final long LAST_MODIFIED = 1790481582446859L;
++
++    @Test
++    public void protobufToStringDiffersWhenLastModifiedIsOnlyOnOneSide() {
++        FormatId initId = FormatId.newBuilder().setItag(140).build();
++        FormatId mediaId = FormatId.newBuilder()
++                .setItag(140)
++                .setLastModified(LAST_MODIFIED)
++                .build();
++
++        // This is the device failure mode: selectedFormats was keyed by
++        // FormatId.toString() from FORMAT_INITIALIZATION_METADATA, then
++        // MediaHeader lookup used a toString() that also prints last_modified.
++        assertNotEquals(initId.toString(), mediaId.toString());
++        assertEquals("140|0|", FormatIdKeys.canonical(initId));
++        assertEquals("140|" + LAST_MODIFIED + "|", FormatIdKeys.canonical(mediaId));
++        assertEquals(FormatIdKeys.itagXtags(initId), FormatIdKeys.itagXtags(mediaId));
++        assertEquals("140|", FormatIdKeys.itagXtags(mediaId));
++    }
++
++    @Test
++    public void xtagsDistinguishDrcVariantsWithTheSameItag() {
++        FormatId plain = FormatId.newBuilder().setItag(140).setLastModified(LAST_MODIFIED).build();
++        FormatId drc = FormatId.newBuilder()
++                .setItag(140)
++                .setLastModified(LAST_MODIFIED)
++                .setXtags("drc")
++                .build();
++
++        assertNotEquals(FormatIdKeys.canonical(plain), FormatIdKeys.canonical(drc));
++        assertNotEquals(FormatIdKeys.itagXtags(plain), FormatIdKeys.itagXtags(drc));
++    }
++}
+-- 
+2.43.0
+
+
+From f49cc62671d2313defb3198ae9a736d658e682af Mon Sep 17 00:00:00 2001
+From: Cursor Agent <cursoragent@cursor.com>
+Date: Fri, 2 Oct 2026 14:48:26 +0000
+Subject: [PATCH 2/2] Enable default Android stubs so SABR parser unit tests
+ can run.
+
+SabrProcessor and SabrStream log through android.util.Log; JVM tests
+need returnDefaultValues instead of mocking Log.
+---
+ exoplayer-amzn-2.10.6/library/sabr/build.gradle | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/exoplayer-amzn-2.10.6/library/sabr/build.gradle b/exoplayer-amzn-2.10.6/library/sabr/build.gradle
+index 02fab31..da24175 100644
+--- a/exoplayer-amzn-2.10.6/library/sabr/build.gradle
++++ b/exoplayer-amzn-2.10.6/library/sabr/build.gradle
+@@ -40,6 +40,7 @@ android {
+     }
+ 
+     testOptions.unitTests.includeAndroidResources = true
++    testOptions.unitTests.returnDefaultValues = true
+ 
+     // gradle 4.6 migration: disable dimensions mechanism
+     // more: https://proandroiddev.com/advanced-android-flavors-part-4-a-new-version-fc2ad80c01bb
+-- 
+2.43.0
+
