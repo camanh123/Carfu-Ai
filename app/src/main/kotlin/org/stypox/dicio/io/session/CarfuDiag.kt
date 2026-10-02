@@ -62,6 +62,11 @@ object CarfuDiag {
 
     fun copyableLog(): String = synchronized(lock) {
         buildString {
+            appendLine("=== COLD_MODE_ISOLATION ===")
+            appendLine("ASR_AB_PRODUCTION=${org.stypox.dicio.io.input.ColdModeIsolation.ASR_AB_PRODUCTION}")
+            appendLine("OPENWAKEWORD_PRODUCTION=${org.stypox.dicio.io.input.ColdModeIsolation.OPENWAKEWORD_PRODUCTION}")
+            appendLine("ASR_PROFILE_SELECTOR_READ_ON_MODE=${org.stypox.dicio.io.input.ColdModeIsolation.productionConsultsAsrProfileSelector()}")
+            appendLine("OPENWAKEWORD_SHOULD_CONSTRUCT=${org.stypox.dicio.io.input.ColdModeIsolation.shouldConstructOpenWakeWord()}")
             appendLine("=== $TAG_WAKE ===")
             if (wake.isEmpty()) appendLine("(empty)") else wake.forEach { appendLine(it) }
             appendLine("=== $TAG_COMMAND ===")
