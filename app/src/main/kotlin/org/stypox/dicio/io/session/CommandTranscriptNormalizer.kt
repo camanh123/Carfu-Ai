@@ -67,6 +67,12 @@ object CommandTranscriptNormalizer {
                 "xem chiu",
                 "xem chi u",
                 "smart chiu",
+                "vido",
+                "vi do",
+                "vido len",
+                "vi do len",
+                "vido cho toi",
+                "vi do cho toi",
             ),
         ),
         AppTarget(

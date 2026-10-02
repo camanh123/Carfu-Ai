@@ -118,6 +118,12 @@ object CarfuCommandRouter {
             "mo smarttube",
             "mo smart tube",
             "mo smarttub",
+            "mo vido",
+            "mo vi do",
+            "mo vido len",
+            "mo vi do len",
+            "mo vido cho toi",
+            "mo vi do cho toi",
         ) to RoutedCommand(
             CarfuIntent.OPEN_SMARTTUBE, "mở smarttube", "open",
         ),

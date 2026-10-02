@@ -58,9 +58,12 @@ data class CommandUnderstanding(
                 VoiceIntent.PLAY_MEDIA -> {
                     val q = query ?: return null
                     val p = provider
-                    if (p.isNullOrBlank()) "Đang mở $q" else "Đang mở $q trên $p"
+                    if (p.isNullOrBlank()) "Đang mở $q"
+                    else "Đang mở $q trên ${MediaProviderExecutor.displayProviderName(p)}"
                 }
-                VoiceIntent.OPEN_APP -> app?.let { "Đang mở $it" }
+                VoiceIntent.OPEN_APP -> app?.let {
+                    "Đang mở ${MediaProviderExecutor.displayAppName(it)}"
+                }
                 VoiceIntent.CALL -> contact?.let { "Đang gọi $it" }
                 VoiceIntent.VOLUME_UP -> "Đang tăng âm lượng"
                 VoiceIntent.VOLUME_DOWN -> "Đang giảm âm lượng"

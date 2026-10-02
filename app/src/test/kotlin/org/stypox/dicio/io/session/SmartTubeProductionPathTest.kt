@@ -185,7 +185,7 @@ class SmartTubeProductionPathTest : StringSpec({
         trace.actionTaken.shouldBeTrue()
         trace.packageName shouldBe stable
         trace.mediaData shouldBe watch
-        trace.speechVi shouldBe "Đang mở $song trên SmartTube"
+        trace.speechVi shouldBe "Đang mở $song trên VIDO"
         trace.speechVi shouldNotContain MediaPlayRouting.UNSUPPORTED_SMARTTUBE_SPEECH_PREFIX
         trace.speechVi shouldNotBe unsupportedSpeech
     }
@@ -209,7 +209,7 @@ class SmartTubeProductionPathTest : StringSpec({
         launcher.lastSpec!!.packageName shouldBe stable
         launcher.lastSpec!!.uri shouldBe watch
         trace.speechVi shouldNotContain MediaPlayRouting.UNSUPPORTED_SMARTTUBE_SPEECH_PREFIX
-        trace.speechVi shouldBe "Đang mở $song trên SmartTube"
+        trace.speechVi shouldBe "Đang mở $song trên VIDO"
     }
 
     "arbitrary title is not hard-coded; still one jack and zero Unsupported" {

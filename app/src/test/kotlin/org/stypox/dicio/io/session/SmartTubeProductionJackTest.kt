@@ -277,10 +277,10 @@ class SmartTubeProductionJackTest : StringSpec({
         understood.query shouldBe song
         understood.provider shouldBe "SmartTube"
         VietnameseCommandUnderstanding.confirmationSpeechVi(understood.command!!) shouldBe
-            "Đang mở $song trên SmartTube"
+            "Đang mở $song trên VIDO"
         val (port, client, _) = driverPort()
         val trace = executor(smartTube = port).executeTraced(understood.command!!)
-        trace.speechVi shouldBe "Đang mở $song trên SmartTube"
+        trace.speechVi shouldBe "Đang mở $song trên VIDO"
         client.lastQuery shouldBe song
         client.lastQuery!!.shouldNotContain("Mở bài")
     }
