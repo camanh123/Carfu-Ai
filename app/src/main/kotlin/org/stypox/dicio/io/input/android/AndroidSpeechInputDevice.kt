@@ -10,13 +10,12 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import org.stypox.dicio.io.input.AsrRecognizerIntentProfiles
 import org.stypox.dicio.io.input.AsrRecognizerLease
-import org.stypox.dicio.io.input.AsrTestProfileController
 import org.stypox.dicio.io.input.CommandRecognitionPolicy
 import org.stypox.dicio.io.input.InputEvent
 import org.stypox.dicio.io.input.SpeechRecognizerSessionPolicy
@@ -199,8 +198,6 @@ class AndroidSpeechInputDevice(
         sawSpeechOrPartial.set(false)
         listenerRef.set(eventListener)
         val generation = listenerGeneration.incrementAndGet()
-        val profile = AsrTestProfileController.current(context)
-        val spec = AsrRecognizerIntentProfiles.specFor(profile, context.packageName)
         val sr = try {
             SpeechRecognizer.createSpeechRecognizer(
                 context,
@@ -218,7 +215,7 @@ class AndroidSpeechInputDevice(
         CarfuLatencyLog.logPipelineStage("SR_CREATE")
         CarfuVoiceTrace.srCreate(component.packageName, component.className)
         sr.setRecognitionListener(Listener(generation))
-        val intent = AsrRecognizerIntentProfiles.toIntent(spec)
+        val intent = recognizerIntent()
         VoiceToActionLatency.mark(
             VoiceToActionStage.SR_INTENT_CONFIG,
             VoiceToActionLatencyPolicy.recognizerSilenceExtrasLog(),
@@ -229,12 +226,11 @@ class AndroidSpeechInputDevice(
         CarfuVoiceTrace.srStartRequest()
         CarfuVoiceTrace.srStartListening()
         armStartedAtMs.set(SystemClock.elapsedRealtime())
-        val languageLog = spec.explicitLanguage()?.let { "language=$it" } ?: "language=unset"
         CarfuLog.i(
             CommandSession.TAG,
             "ANDROID_SR_START package=${component.packageName} " +
-                "class=${component.className} profile=${profile.name} $languageLog " +
-                "popup=false browser=false gen=$generation",
+                "class=${component.className} language=vi-VN popup=false browser=false " +
+                "gen=$generation",
         )
         try {
             sr.startListening(intent)
@@ -248,7 +244,6 @@ class AndroidSpeechInputDevice(
             AsrRecognizerLease.markIdle()
             return false
         }
-        AsrAbEvidence.begin(profile, AsrRecognizerIntentProfiles.describe(spec))
         CarfuVoiceTrace.srStartAccepted()
         _uiState.value = SttState.Listening
         mainHandler.postDelayed(
@@ -256,6 +251,21 @@ class AndroidSpeechInputDevice(
             CommandRecognitionPolicy.ANDROID_LISTEN_TIMEOUT_MS,
         )
         return true
+    }
+
+    private fun recognizerIntent(): Intent {
+        val cfg = CommandRecognitionPolicy.recognizerIntentConfig()
+        // OEM-sensitive: do NOT put EXTRA_SPEECH_INPUT_* silence/minimum extras.
+        // Policy constants exist for Smart helpers only; unset → OEM endpointer defaults.
+        return Intent(cfg.action).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, cfg.languageModel)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, cfg.language)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, cfg.language)
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, cfg.partialResults)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, cfg.maxResults)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, cfg.preferOffline)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+        }
     }
 
     private fun pickExternalService(): CommandRecognitionPolicy.RecognitionServiceCandidate? {
