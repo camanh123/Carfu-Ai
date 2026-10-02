@@ -34,7 +34,7 @@ android {
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 39
-        versionName = "4.9.4-asr-ab"
+        versionName = "4.9.4-unplug-ab-oww"
         testInstrumentationRunner = "org.stypox.dicio.CustomTestRunner"
 
         vectorDrawables.useSupportLibrary = true
@@ -46,10 +46,11 @@ android {
 
     buildTypes {
         debug {
-            // Pin to the Maps Navigate debug id so MODE-entry APKs upgrade in place.
-            val normalizedGitBranch = "cursorgooglemapsnavigateintent5693"
+            // Distinct from the pinned Maps/asr-ab debug id so this unplug APK
+            // does not overwrite a known-good install.
+            val normalizedGitBranch = "unplugaboww"
             applicationIdSuffix = ".$normalizedGitBranch"
-            versionNameSuffix = "-$normalizedGitBranch"
+            versionNameSuffix = ""
 
             val isScreenshotTest = (project.findProperty("android.testInstrumentationRunnerArguments.class") as? String)
                 ?.contains("creenshot") == true

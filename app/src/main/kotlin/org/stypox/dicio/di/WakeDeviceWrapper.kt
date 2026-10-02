@@ -19,7 +19,6 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import org.stypox.dicio.io.wake.WakeDevice
 import org.stypox.dicio.io.wake.WakeState
-import org.stypox.dicio.io.wake.oww.OpenWakeWordDevice
 import org.stypox.dicio.settings.datastore.UserSettings
 import org.stypox.dicio.settings.datastore.WakeDevice.UNRECOGNIZED
 import org.stypox.dicio.settings.datastore.WakeDevice.WAKE_DEVICE_NOTHING
@@ -76,9 +75,9 @@ interface WakeDeviceWrapper {
 typealias DataStoreWakeDevice = org.stypox.dicio.settings.datastore.WakeDevice
 
 class WakeDeviceWrapperImpl(
-    @param:ApplicationContext private val appContext: Context,
+    @param:ApplicationContext @Suppress("UNUSED_PARAMETER") private val appContext: Context,
     dataStore: DataStore<UserSettings>,
-    private val okHttpClient: OkHttpClient,
+    @Suppress("UNUSED_PARAMETER") okHttpClient: OkHttpClient,
 ) : WakeDeviceWrapper {
     private val scope = CoroutineScope(Dispatchers.Default)
 
@@ -136,7 +135,7 @@ class WakeDeviceWrapperImpl(
         return when (setting) {
             UNRECOGNIZED,
             WAKE_DEVICE_UNSET,
-            WAKE_DEVICE_OWW -> OpenWakeWordDevice(appContext, okHttpClient)
+            WAKE_DEVICE_OWW,
             WAKE_DEVICE_NOTHING -> null
         }
     }
